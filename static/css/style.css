@@ -1,0 +1,124 @@
+/* ============================= */
+/* RESET E FONTE */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', sans-serif;
+}
+
+body {
+    height: 100vh;
+    background: radial-gradient(circle at top, #12002b, #0d1117);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: #ffffff;
+}
+
+/* ============================= */
+/* CARD PRINCIPAL */
+.container .card {
+    background: rgba(18, 20, 28, 0.95); /* mais opaco e elegante */
+    backdrop-filter: blur(25px);
+    border-radius: 25px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 8px 30px rgba(168, 85, 247, 0.4), 0 4px 15px rgba(0,0,0,0.5);
+    padding: 50px 40px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.container .card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 40px rgba(168, 85, 247, 0.6), 0 6px 25px rgba(0,0,0,0.6);
+}
+
+/* ============================= */
+/* TÍTULO */
+h3 {
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 1.8rem;
+    margin-bottom: 30px;
+    text-align: center;
+    letter-spacing: 1px;
+    text-shadow: 0 0 5px rgba(168,85,247,0.4);
+}
+
+/* ============================= */
+/* FORMULÁRIO */
+.form-control {
+    background: rgba(25, 25, 35, 0.8);
+    border: 1px solid #3a3f49;
+    color: #e1e1e1;
+    margin-bottom: 20px;
+    padding: 12px 15px;
+    border-radius: 12px;
+    transition: all 0.3s ease;
+    font-size: 0.95rem;
+}
+
+.form-control::placeholder {
+    color: #9aa0a6;
+    opacity: 1;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #a855f7;
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.6);
+    background: rgba(30,30,45,0.85);
+}
+
+/* ============================= */
+/* BOTÃO */
+.btn-success {
+    background: linear-gradient(135deg, #a855f7, #6d28d9);
+    border: none;
+    font-weight: 600;
+    color: #fff;
+    padding: 12px 0;
+    font-size: 1rem;
+    border-radius: 15px;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(168,85,247,0.4);
+    transition: all 0.35s ease;
+}
+
+.btn-success:hover {
+    transform: translateY(-3px) scale(1.03);
+    box-shadow: 0 0 25px rgba(168,85,247,0.7), 0 0 50px rgba(110,40,217,0.3);
+}
+
+/* ============================= */
+/* STATUS */
+#status {
+    font-weight: 600;
+    text-align: center;
+    color: #ff6b6b;
+    margin-top: 15px;
+    letter-spacing: 0.5px;
+}
+
+/* ============================= */
+/* RESPONSIVO */
+@media(max-width: 768px){
+    .container .card {
+        width: 90%;
+        padding: 35px 25px;
+    }
+
+    h3 {
+        font-size: 1.6rem;
+    }
+
+    .form-control {
+        font-size: 0.9rem;
+        padding: 10px 12px;
+    }
+
+    .btn-success {
+        font-size: 0.95rem;
+        padding: 10px 0;
+    }
+}
