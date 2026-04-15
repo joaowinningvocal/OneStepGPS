@@ -1,6 +1,8 @@
 import math
 import os
 import requests
+import urllib.parse
+from datetime import datetime, date
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -29,7 +31,7 @@ class User(db.Model):
     id            = db.Column(db.Integer, primary_key=True)
     username      = db.Column(db.String(80), nullable=False, unique=True)
     password_hash = db.Column(db.String(200), nullable=False)
-    role          = db.Column(db.String(20), default="promoter")  # 'master' or 'promoter'
+    role          = db.Column(db.String(20), default="promoter")
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -65,20 +67,25 @@ class Driver(db.Model):
 class Customer(db.Model):
     id              = db.Column(db.Integer, primary_key=True)
     nome            = db.Column(db.String(100))
+    phone           = db.Column(db.String(20), default="")
     endereco        = db.Column(db.String(500))
+    details         = db.Column(db.String(500), default="")
     motorista       = db.Column(db.String(100))
     motorista_phone = db.Column(db.String(20), default="")
     distancia       = db.Column(db.Float)
     package         = db.Column(db.String(100))
     guests          = db.Column(db.Integer)
     pickup_datetime = db.Column(db.String(50), default="")
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
         return {
-            "id": self.id, "nome": self.nome, "endereco": self.endereco,
+            "id": self.id, "nome": self.nome, "phone": self.phone,
+            "endereco": self.endereco, "details": self.details,
             "motorista": self.motorista, "motorista_phone": self.motorista_phone,
             "distancia": self.distancia, "package": self.package,
-            "guests": self.guests, "pickup_datetime": self.pickup_datetime
+            "guests": self.guests, "pickup_datetime": self.pickup_datetime,
+            "created_at": self.created_at.isoformat() if self.created_at else ""
         }
 
 # ─── UTILITY ──────────────────────────────────────────────────────────────────
@@ -145,15 +152,16 @@ def cadastrar_cep():
     if not session.get("logged"):
         return jsonify({"success": False, "error": "Unauthorized"})
 
-    nome              = request.form.get('nome')
+    nome              = request.form.get('nome', '').strip()
+    client_phone      = request.form.get('client_phone', '').strip()
     endereco_completo = request.form.get('endereco_completo', '').strip()
+    details           = request.form.get('details', '').strip()
     package           = request.form.get('package', '').strip()
     guests            = int(request.form.get('guests', 0))
     pickup_datetime   = request.form.get('pickup_datetime', '').strip()
 
     try:
-        # 1. GEOCODING - full address for maximum accuracy
-        import urllib.parse
+        # 1. GEOCODING
         encoded = urllib.parse.quote(endereco_completo)
         geo_res = requests.get(
             f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1&addressdetails=1",
@@ -163,11 +171,10 @@ def cadastrar_cep():
         if not geo_res:
             return jsonify({"success": False, "error": "Address not found on global map."})
 
-        lat_cli         = float(geo_res[0]['lat'])
-        lng_cli         = float(geo_res[0]['lon'])
-        display_address = geo_res[0]['display_name']
+        lat_cli = float(geo_res[0]['lat'])
+        lng_cli = float(geo_res[0]['lon'])
 
-        # 3. FIND NEAREST DRIVER (OneStepGPS)
+        # 2. FIND NEAREST DRIVER (OneStepGPS)
         headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
         res_v = requests.get(
             "https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
@@ -187,34 +194,40 @@ def cadastrar_cep():
                     melhor_v = v.get('display_name', 'Tracker')
                     motorista_coords = {"lat": float(v_lat), "lng": float(v_lng)}
 
-        # 4. LOOK UP DRIVER PHONE
+        # 3. LOOK UP DRIVER PHONE
         driver_profile  = Driver.query.filter_by(name=melhor_v).first()
         motorista_phone = driver_profile.phone if driver_profile else ""
 
-        # 5. REGISTER ON ONESTEPGPS
+        # 4. REGISTER ON ONESTEPGPS
         payload_gps = {
             "display_name": nome, "active": True, "status": "active", "marker_type": "point",
-            "detail": {"description": display_address, "lat_lng": {"lat": lat_cli, "lng": lng_cli}}
+            "detail": {
+                "description": f"{endereco_completo} | {details}" if details else endereco_completo,
+                "lat_lng": {"lat": lat_cli, "lng": lng_cli}
+            }
         }
         requests.post(URL_API, json=payload_gps, headers=headers_api)
 
-        # 6. SAVE TO DATABASE
+        # 5. SAVE TO DATABASE
         distancia_arredondada = round(menor_d, 2) if menor_d != float('inf') else 0
         customer = Customer(
-            nome=nome, endereco=endereco_completo,
+            nome=nome, phone=client_phone, endereco=endereco_completo, details=details,
             motorista=melhor_v, motorista_phone=motorista_phone,
             distancia=distancia_arredondada, package=package,
-            guests=guests, pickup_datetime=pickup_datetime
+            guests=guests, pickup_datetime=pickup_datetime,
+            created_at=datetime.utcnow()
         )
         db.session.add(customer)
         db.session.commit()
 
-        # 7. FIRE MAKE.COM WEBHOOK
+        # 6. FIRE MAKE.COM WEBHOOK
         fire_webhook({
             "driver_name":     melhor_v,
             "driver_phone":    motorista_phone,
             "customer_name":   nome,
+            "customer_phone":  client_phone,
             "pickup_address":  endereco_completo,
+            "details":         details,
             "pickup_datetime": pickup_datetime,
             "package":         package,
             "guests":          guests,
@@ -222,19 +235,57 @@ def cadastrar_cep():
         })
 
         return jsonify({
-            "success":          True,
-            "motorista":        melhor_v,
-            "motorista_phone":  motorista_phone,
-            "distancia":        distancia_arredondada,
-            "cliente_coords":   {"lat": lat_cli, "lng": lng_cli},
+            "success": True, "motorista": melhor_v, "motorista_phone": motorista_phone,
+            "distancia": distancia_arredondada,
+            "cliente_coords": {"lat": lat_cli, "lng": lng_cli},
             "motorista_coords": motorista_coords,
-            "package":          package,
-            "guests":           guests,
-            "pickup_datetime":  pickup_datetime
+            "package": package, "guests": guests, "pickup_datetime": pickup_datetime
         })
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
+
+# ─── ADMIN: TODAY'S SCHEDULE ──────────────────────────────────────────────────
+@app.route('/admin/today')
+def admin_today():
+    if not session.get("logged") or not is_master():
+        return redirect(url_for("login"))
+
+    today = date.today()
+    today_str = today.strftime("%-m/%-d/%Y") if os.name != 'nt' else today.strftime("%#m/%#d/%Y")
+
+    # Filter customers scheduled for today by pickup_datetime containing today's date
+    all_customers = Customer.query.order_by(Customer.pickup_datetime).all()
+    today_customers = [c for c in all_customers if today_str in (c.pickup_datetime or "")]
+
+    # Monthly stats
+    month_start = datetime(today.year, today.month, 1)
+    month_customers = Customer.query.filter(Customer.created_at >= month_start).all()
+    month_count = len(month_customers)
+    month_revenue = sum(
+        next((p.price for p in Package.query.filter_by(name=c.package).all()), 0)
+        for c in month_customers
+    )
+    month_guests = sum(c.guests or 0 for c in month_customers)
+
+    return render_template('admin_today.html',
+        today_customers=today_customers,
+        today_str=today_str,
+        month_count=month_count,
+        month_revenue=month_revenue,
+        month_guests=month_guests,
+        today=today
+    )
+
+# ─── API: LAST CLIENT (for AI voice calls) ────────────────────────────────────
+@app.route('/api/last-client')
+def last_client():
+    if not session.get("logged") or not is_master():
+        return redirect(url_for("login"))
+    c = Customer.query.order_by(Customer.id.desc()).first()
+    if not c:
+        return jsonify({"error": "No clients found"})
+    return jsonify(c.to_dict())
 
 # ─── ADMIN: USER MANAGEMENT ───────────────────────────────────────────────────
 @app.route('/admin/users')
@@ -246,8 +297,7 @@ def admin_users():
 
 @app.route('/admin/users/new', methods=['POST'])
 def new_user():
-    if not is_master():
-        return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
     username = request.form.get('username', '').strip()
     password = request.form.get('password', '').strip()
     if not username or not password:
@@ -256,38 +306,30 @@ def new_user():
         return jsonify({"success": False, "error": "Username already exists"})
     user = User(username=username, role='promoter')
     user.set_password(password)
-    db.session.add(user)
-    db.session.commit()
+    db.session.add(user); db.session.commit()
     return jsonify({"success": True, "user": user.to_dict()})
 
 @app.route('/admin/users/reset/<int:user_id>', methods=['POST'])
 def reset_password(user_id):
-    if not is_master():
-        return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
     user = User.query.get_or_404(user_id)
     new_password = request.form.get('password', '').strip()
-    if not new_password:
-        return jsonify({"success": False, "error": "Password cannot be empty"})
-    user.set_password(new_password)
-    db.session.commit()
+    if not new_password: return jsonify({"success": False, "error": "Password cannot be empty"})
+    user.set_password(new_password); db.session.commit()
     return jsonify({"success": True})
 
 @app.route('/admin/users/delete/<int:user_id>', methods=['POST'])
 def delete_user(user_id):
-    if not is_master():
-        return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
     user = User.query.get_or_404(user_id)
-    if user.role == 'master':
-        return jsonify({"success": False, "error": "Cannot delete master account"})
-    db.session.delete(user)
-    db.session.commit()
+    if user.role == 'master': return jsonify({"success": False, "error": "Cannot delete master account"})
+    db.session.delete(user); db.session.commit()
     return jsonify({"success": True})
 
 # ─── ADMIN: PACKAGES ──────────────────────────────────────────────────────────
 @app.route('/admin/packages')
 def admin_packages():
-    if not session.get("logged") or not is_master():
-        return redirect(url_for("login"))
+    if not session.get("logged") or not is_master(): return redirect(url_for("login"))
     return render_template('admin_packages.html', packages=Package.query.all())
 
 @app.route('/admin/packages/new', methods=['POST'])
@@ -295,24 +337,20 @@ def new_package():
     if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
     name = request.form.get('name', '').strip()
     if not name: return jsonify({"success": False, "error": "Name is required"})
-    pkg = Package(
-        name=name,
-        description=request.form.get('description', '').strip(),
-        price=float(request.form.get('price', 0)),
-        max_guests=int(request.form.get('max_guests', 0))
-    )
+    pkg = Package(name=name, description=request.form.get('description','').strip(),
+                  price=float(request.form.get('price',0)), max_guests=int(request.form.get('max_guests',0)))
     db.session.add(pkg); db.session.commit()
     return jsonify({"success": True, "package": pkg.to_dict()})
 
 @app.route('/admin/packages/edit/<int:pkg_id>', methods=['POST'])
 def edit_package(pkg_id):
     if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
-    pkg             = Package.query.get_or_404(pkg_id)
-    pkg.name        = request.form.get('name', pkg.name).strip()
+    pkg = Package.query.get_or_404(pkg_id)
+    pkg.name = request.form.get('name', pkg.name).strip()
     pkg.description = request.form.get('description', pkg.description).strip()
-    pkg.price       = float(request.form.get('price', pkg.price))
-    pkg.max_guests  = int(request.form.get('max_guests', pkg.max_guests))
-    pkg.active      = request.form.get('active', 'true').lower() == 'true'
+    pkg.price = float(request.form.get('price', pkg.price))
+    pkg.max_guests = int(request.form.get('max_guests', pkg.max_guests))
+    pkg.active = request.form.get('active', 'true').lower() == 'true'
     db.session.commit()
     return jsonify({"success": True, "package": pkg.to_dict()})
 
@@ -326,8 +364,7 @@ def delete_package(pkg_id):
 # ─── ADMIN: DRIVERS ───────────────────────────────────────────────────────────
 @app.route('/admin/drivers')
 def admin_drivers():
-    if not session.get("logged") or not is_master():
-        return redirect(url_for("login"))
+    if not session.get("logged") or not is_master(): return redirect(url_for("login"))
     return render_template('admin_drivers.html', drivers=Driver.query.all())
 
 @app.route('/admin/drivers/new', methods=['POST'])
@@ -337,15 +374,15 @@ def new_driver():
     if not name: return jsonify({"success": False, "error": "Name is required"})
     if Driver.query.filter_by(name=name).first():
         return jsonify({"success": False, "error": "A driver with this name already exists"})
-    driver = Driver(name=name, phone=request.form.get('phone', '').strip())
+    driver = Driver(name=name, phone=request.form.get('phone','').strip())
     db.session.add(driver); db.session.commit()
     return jsonify({"success": True, "driver": driver.to_dict()})
 
 @app.route('/admin/drivers/edit/<int:driver_id>', methods=['POST'])
 def edit_driver(driver_id):
     if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
-    driver       = Driver.query.get_or_404(driver_id)
-    driver.name  = request.form.get('name', driver.name).strip()
+    driver = Driver.query.get_or_404(driver_id)
+    driver.name = request.form.get('name', driver.name).strip()
     driver.phone = request.form.get('phone', driver.phone).strip()
     db.session.commit()
     return jsonify({"success": True, "driver": driver.to_dict()})
@@ -372,13 +409,10 @@ def api_drivers():
 
 # ─── INIT ─────────────────────────────────────────────────────────────────────
 def seed_data():
-    # Seed master admin
     if not User.query.filter_by(username='admin').first():
         admin = User(username='admin', role='master')
         admin.set_password('1234')
         db.session.add(admin)
-
-    # Seed default packages
     if Package.query.count() == 0:
         db.session.add_all([
             Package(name="Bronze", description="Basic package",                price=99.0,  max_guests=5),

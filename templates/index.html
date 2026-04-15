@@ -18,7 +18,7 @@
         .btn-logout { background: transparent; border: 1px solid #30363d; color: #8b949e; font-size: 0.8rem; transition: 0.2s; }
         .btn-logout:hover { border-color: #ef4444; color: #ef4444; }
         .leaflet-routing-container { display: none !important; }
-        .sidebar-scroll { max-height: 250px; overflow-y: auto; scrollbar-width: thin; }
+        .sidebar-scroll { max-height: 220px; overflow-y: auto; scrollbar-width: thin; }
         .text-primary { color: #a855f7 !important; }
         .sidebar-scroll::-webkit-scrollbar { width: 6px; }
         .sidebar-scroll::-webkit-scrollbar-thumb { background: #30363d; border-radius: 10px; }
@@ -27,10 +27,44 @@
         .driver-result { background: rgba(168,85,247,0.08); border: 1px solid rgba(168,85,247,0.3); border-radius: 10px; padding: 10px 14px; margin-top: 10px; display: none; }
         .driver-result .driver-name  { font-weight: bold; color: #a855f7; }
         .driver-result .driver-phone { color: #22c55e; font-size: 0.9rem; }
-        /* US datetime styling */
-        .datetime-row { display: flex; gap: 8px; }
-        .datetime-row .form-control { flex: 1; }
-        select.form-control option { background: #161b22; }
+
+        /* Address picker */
+        .address-picker { position: relative; }
+        .address-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%; left: 0; right: 0;
+            background: #1c2128;
+            border: 1px solid #a855f7;
+            border-radius: 10px;
+            z-index: 1000;
+            max-height: 260px;
+            overflow-y: auto;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+        .address-dropdown.open { display: block; }
+        .address-search {
+            padding: 8px 12px;
+            border-bottom: 1px solid #30363d;
+            position: sticky; top: 0;
+            background: #1c2128;
+        }
+        .address-search input {
+            width: 100%; background: #0d1117; border: 1px solid #30363d;
+            color: white; border-radius: 6px; padding: 5px 10px; font-size: 0.85rem;
+        }
+        .address-search input:focus { outline: none; border-color: #a855f7; }
+        .address-option {
+            padding: 8px 14px; cursor: pointer; font-size: 0.85rem;
+            border-bottom: 1px solid #21262d; transition: background 0.15s;
+        }
+        .address-option:hover { background: rgba(168,85,247,0.15); }
+        .address-option .hotel-name { color: white; font-weight: 500; }
+        .address-option .hotel-addr { color: #6b7280; font-size: 0.75rem; }
+        .address-option.custom-option { color: #a855f7; font-weight: bold; border-top: 1px solid #30363d; }
+        .custom-fields { display: none; margin-top: 8px; }
+        .custom-fields.show { display: block; }
+        .datetime-row { display: flex; gap: 6px; }
     </style>
 </head>
 <body class="py-4">
@@ -43,8 +77,9 @@
                 <!-- Header -->
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h4 class="text-primary fw-bold mb-0">ClubLifter</h4>
-                    <div class="d-flex gap-2 align-items-center">
+                    <div class="d-flex gap-2 align-items-center flex-wrap">
                         {% if session.get('role') == 'master' %}
+                        <a href="/admin/today"    class="admin-link">Today</a>
                         <a href="/admin/packages" class="admin-link">Packages</a>
                         <a href="/admin/drivers"  class="admin-link">Drivers</a>
                         <a href="/admin/users"    class="admin-link">Users</a>
@@ -59,8 +94,54 @@
                         <input type="text" name="nome" class="form-control" placeholder="e.g., John Smith" required>
                     </div>
                     <div class="mb-2">
-                        <label class="small text-secondary">Pickup Address</label>
-                        <input type="text" name="endereco_completo" class="form-control" placeholder="e.g., 111 Resorts World Ave, Las Vegas, NV 89109" required>
+                        <label class="small text-secondary">Customer Phone</label>
+                        <input type="text" name="client_phone" class="form-control" placeholder="e.g., +17025551234">
+                    </div>
+
+                    <!-- Address Picker -->
+                    <div class="mb-2">
+                        <label class="small text-secondary">Pickup Location</label>
+                        <div class="address-picker">
+                            <input type="text" id="addressDisplay" class="form-control" placeholder="Search or select a hotel..." readonly
+                                style="cursor:pointer;" onclick="toggleDropdown()">
+                            <input type="hidden" name="endereco_completo" id="addressValue" required>
+
+                            <div class="address-dropdown" id="addressDropdown">
+                                <div class="address-search">
+                                    <input type="text" id="hotelSearch" placeholder="🔍 Search hotels..." oninput="filterHotels(this.value)">
+                                </div>
+                                <div id="hotelList"></div>
+                                <div class="address-option custom-option" onclick="selectCustom()">
+                                    ✏️ Enter custom address...
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Custom address fields -->
+                        <div class="custom-fields" id="customFields">
+                            <div class="row g-1 mt-1">
+                                <div class="col-4">
+                                    <input type="text" id="customNumber" class="form-control form-control-sm" placeholder="Number">
+                                </div>
+                                <div class="col-8">
+                                    <input type="text" id="customStreet" class="form-control form-control-sm" placeholder="Street name">
+                                </div>
+                                <div class="col-6 mt-1">
+                                    <input type="text" id="customCity" class="form-control form-control-sm" placeholder="City, State">
+                                </div>
+                                <div class="col-3 mt-1">
+                                    <input type="text" id="customZip" class="form-control form-control-sm" placeholder="ZIP">
+                                </div>
+                                <div class="col-3 mt-1">
+                                    <button type="button" class="btn btn-sm btn-primary w-100" onclick="applyCustomAddress()">Set</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="small text-secondary">Details / Notes</label>
+                        <input type="text" name="details" class="form-control" placeholder="e.g., VIP entrance, room number...">
                     </div>
                     <div class="mb-2">
                         <label class="small text-secondary">Party Package</label>
@@ -75,44 +156,36 @@
                         <label class="small text-secondary">Number of Guests</label>
                         <input type="number" name="guests" class="form-control" placeholder="e.g., 10" min="1" required>
                     </div>
-
-                    <!-- US Format Date & Time -->
                     <div class="mb-3">
                         <label class="small text-secondary">Pickup Date & Time</label>
                         <div class="datetime-row">
-                            <!-- Date: MM/DD/YYYY -->
                             <input type="text" name="pickup_date" id="pickupDate" class="form-control"
-                                placeholder="MM/DD/YYYY" maxlength="10"
-                                pattern="\d{2}/\d{2}/\d{4}" required>
-                            <!-- Hour -->
-                            <select name="pickup_hour" class="form-control form-select" style="max-width:75px;" required>
+                                placeholder="MM/DD/YYYY" maxlength="10" required>
+                            <select name="pickup_hour" class="form-control form-select" style="max-width:72px;" required>
                                 <option value="" disabled selected>Hr</option>
                                 {% for h in range(1,13) %}
                                 <option value="{{ '%02d'|format(h) }}">{{ '%02d'|format(h) }}</option>
                                 {% endfor %}
                             </select>
-                            <!-- Minute -->
-                            <select name="pickup_min" class="form-control form-select" style="max-width:75px;" required>
+                            <select name="pickup_min" class="form-control form-select" style="max-width:72px;" required>
                                 <option value="" disabled selected>Min</option>
                                 <option value="00">00</option>
                                 <option value="15">15</option>
                                 <option value="30">30</option>
                                 <option value="45">45</option>
                             </select>
-                            <!-- AM/PM -->
-                            <select name="pickup_ampm" class="form-control form-select" style="max-width:75px;" required>
+                            <select name="pickup_ampm" class="form-control form-select" style="max-width:72px;" required>
                                 <option value="" disabled selected>—</option>
                                 <option value="AM">AM</option>
                                 <option value="PM">PM</option>
                             </select>
                         </div>
-                        <div class="small text-secondary mt-1" id="dateError" style="color:#ef4444!important;display:none;">Invalid date format</div>
+                        <div id="dateError" class="small mt-1" style="color:#ef4444;display:none;">Invalid date format</div>
                     </div>
 
                     <button type="submit" class="btn btn-primary w-100 py-2">SCHEDULE CLIENT PICKUP</button>
                 </form>
 
-                <!-- Driver result box -->
                 <div class="driver-result" id="driverResult">
                     <div class="small text-secondary mb-1">Nearest Driver</div>
                     <div class="driver-name" id="driverName">—</div>
@@ -123,7 +196,6 @@
                 <div id="status" class="mt-3 small fw-bold text-center"></div>
             </div>
 
-            <!-- History -->
             <div class="card p-3 shadow">
                 <h6 class="text-secondary border-bottom border-secondary pb-2 mb-2">Pickup History</h6>
                 <div class="sidebar-scroll">
@@ -153,111 +225,230 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
 <script>
-    // Auto-format date input as MM/DD/YYYY
-    document.getElementById('pickupDate').addEventListener('input', function(e) {
-        let v = e.target.value.replace(/\D/g, '');
-        if (v.length >= 3 && v.length <= 4) v = v.slice(0,2) + '/' + v.slice(2);
-        else if (v.length > 4) v = v.slice(0,2) + '/' + v.slice(2,4) + '/' + v.slice(4,8);
-        e.target.value = v;
-    });
+// ─── HOTELS DATA ──────────────────────────────────────────────────────────────
+const HOTELS = [
+    { name: "Bellagio", addr: "3600 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Caesars Palace", addr: "3570 Las Vegas Blvd S, Las Vegas, NV 89109" },
+    { name: "The Venetian Las Vegas", addr: "3355 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Paris Las Vegas", addr: "3655 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Flamingo Las Vegas", addr: "3555 Las Vegas Blvd S, Las Vegas, NV 89109" },
+    { name: "MGM Grand", addr: "3799 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Mandalay Bay", addr: "3950 S Las Vegas Blvd, Las Vegas, NV 89119" },
+    { name: "Luxor Hotel & Casino", addr: "3900 S Las Vegas Blvd, Las Vegas, NV 89119" },
+    { name: "Excalibur Hotel & Casino", addr: "3850 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "New York-New York Hotel & Casino", addr: "3790 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "ARIA Resort & Casino", addr: "3730 S Las Vegas Blvd, Las Vegas, NV 89158" },
+    { name: "The Cosmopolitan of Las Vegas", addr: "3708 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Park MGM", addr: "3770 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Planet Hollywood Resort & Casino", addr: "3667 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "The LINQ Hotel + Experience", addr: "3535 Las Vegas Blvd S, Las Vegas, NV 89109" },
+    { name: "Harrah's Las Vegas", addr: "3475 Las Vegas Blvd S, Las Vegas, NV 89109" },
+    { name: "Bally's / Horseshoe Las Vegas", addr: "3645 Las Vegas Blvd S, Las Vegas, NV 89109" },
+    { name: "Treasure Island (TI)", addr: "3300 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Mirage (Hard Rock)", addr: "3400 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Resorts World Las Vegas", addr: "3000 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Wynn Las Vegas", addr: "3131 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Encore at Wynn", addr: "3121 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Four Seasons Hotel Las Vegas", addr: "3960 S Las Vegas Blvd, Las Vegas, NV 89119" },
+    { name: "Vdara Hotel & Spa", addr: "2600 W Harmon Ave, Las Vegas, NV 89158" },
+    { name: "Waldorf Astoria Las Vegas", addr: "3752 S Las Vegas Blvd, Las Vegas, NV 89158" },
+    { name: "NoMad Las Vegas", addr: "3772 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Delano Las Vegas (W Las Vegas)", addr: "3940 S Las Vegas Blvd, Las Vegas, NV 89119" },
+    { name: "Trump International Hotel", addr: "2000 Fashion Show Dr, Las Vegas, NV 89109" },
+    { name: "Crockfords Las Vegas", addr: "333 Resorts World Ave, Las Vegas, NV 89109" },
+    { name: "Conrad Las Vegas at Resorts World", addr: "111 Resorts World Ave, Las Vegas, NV 89109" },
+    { name: "Sahara Las Vegas", addr: "2535 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Circus Circus", addr: "2880 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Strat Hotel (The STRAT)", addr: "2000 S Las Vegas Blvd, Las Vegas, NV 89104" },
+    { name: "Fontainebleau Las Vegas", addr: "2777 S Las Vegas Blvd, Las Vegas, NV 89109" },
+    { name: "Westgate Las Vegas Resort", addr: "3000 Paradise Rd, Las Vegas, NV 89109" },
+    { name: "Virgin Hotels Las Vegas", addr: "4455 Paradise Rd, Las Vegas, NV 89169" },
+    { name: "Tuscany Suites & Casino", addr: "255 E Flamingo Rd, Las Vegas, NV 89169" },
+    { name: "Ellis Island Hotel & Casino", addr: "4250 Koval Ln, Las Vegas, NV 89109" },
+    { name: "Silver Sevens Hotel & Casino", addr: "4100 Paradise Rd, Las Vegas, NV 89169" },
+    { name: "Mardi Gras Hotel & Casino", addr: "3500 Paradise Rd, Las Vegas, NV 89169" },
+    { name: "Golden Nugget", addr: "129 E Fremont St, Las Vegas, NV 89101" },
+    { name: "Fremont Hotel & Casino", addr: "200 Fremont St, Las Vegas, NV 89101" },
+    { name: "The D Las Vegas", addr: "301 Fremont St, Las Vegas, NV 89101" },
+    { name: "Circa Resort & Casino", addr: "8 Fremont St, Las Vegas, NV 89101" },
+    { name: "Plaza Hotel & Casino", addr: "1 Main St, Las Vegas, NV 89101" },
+    { name: "Binion's Gambling Hall", addr: "128 Fremont St, Las Vegas, NV 89101" },
+    { name: "El Cortez Hotel & Casino", addr: "600 E Fremont St, Las Vegas, NV 89101" },
+    { name: "Downtown Grand Hotel", addr: "206 N 3rd St, Las Vegas, NV 89101" },
+    { name: "Red Rock Casino Resort & Spa", addr: "11011 W Charleston Blvd, Las Vegas, NV 89135" },
+    { name: "Green Valley Ranch Resort", addr: "2300 Paseo Verde Pkwy, Henderson, NV 89052" },
+    { name: "Harry Reid International Airport", addr: "5757 Wayne Newton Blvd, Las Vegas, NV 89119" },
+];
 
-    var map = L.map('map').setView([36.1699, -115.1398], 12); // Las Vegas
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '© ClubLifter Logistics'
-    }).addTo(map);
+// ─── DROPDOWN LOGIC ───────────────────────────────────────────────────────────
+function renderHotels(list) {
+    const container = document.getElementById('hotelList');
+    container.innerHTML = list.map(h => `
+        <div class="address-option" onclick="selectHotel('${h.name}', '${h.addr}')">
+            <div class="hotel-name">${h.name}</div>
+            <div class="hotel-addr">${h.addr}</div>
+        </div>
+    `).join('');
+}
 
-    var rotaAtual   = null;
-    var camadaLinha = L.layerGroup().addTo(map);
+function toggleDropdown() {
+    const dd = document.getElementById('addressDropdown');
+    dd.classList.toggle('open');
+    if (dd.classList.contains('open')) {
+        renderHotels(HOTELS);
+        setTimeout(() => document.getElementById('hotelSearch').focus(), 50);
+    }
+}
 
-    document.getElementById('markerForm').onsubmit = async (e) => {
-        e.preventDefault();
-        const status   = document.getElementById('status');
-        const formData = new FormData(e.target);
+function filterHotels(q) {
+    const filtered = HOTELS.filter(h =>
+        h.name.toLowerCase().includes(q.toLowerCase()) ||
+        h.addr.toLowerCase().includes(q.toLowerCase())
+    );
+    renderHotels(filtered);
+}
 
-        // Validate date
-        const dateVal = formData.get('pickup_date');
-        const dateRegex = /^\d{2}\/\d{2}\/\d{4}$/;
-        if (!dateRegex.test(dateVal)) {
-            document.getElementById('dateError').style.display = 'block';
-            return;
-        }
-        document.getElementById('dateError').style.display = 'none';
+function selectHotel(name, addr) {
+    document.getElementById('addressDisplay').value = `${name} — ${addr}`;
+    document.getElementById('addressValue').value   = addr;
+    document.getElementById('addressDropdown').classList.remove('open');
+    document.getElementById('customFields').classList.remove('show');
+}
 
-        // Combine into single pickup_datetime string
-        const pickup_datetime = `${formData.get('pickup_date')} ${formData.get('pickup_hour')}:${formData.get('pickup_min')} ${formData.get('pickup_ampm')}`;
-        formData.append('pickup_datetime', pickup_datetime);
+function selectCustom() {
+    document.getElementById('addressDropdown').classList.remove('open');
+    document.getElementById('customFields').classList.toggle('show');
+    document.getElementById('addressDisplay').value = '✏️ Custom address...';
+}
 
-        status.className = "mt-3 small fw-bold text-center text-info";
-        status.innerHTML = "⏳ Scheduling client pickup...";
-        document.getElementById('driverResult').style.display = 'none';
+function applyCustomAddress() {
+    const num    = document.getElementById('customNumber').value.trim();
+    const street = document.getElementById('customStreet').value.trim();
+    const city   = document.getElementById('customCity').value.trim();
+    const zip    = document.getElementById('customZip').value.trim();
+    if (!street || !city) return alert('Please fill in at least street and city.');
+    const full = `${num} ${street}, ${city}${zip ? ', ' + zip : ''}`.trim();
+    document.getElementById('addressDisplay').value = full;
+    document.getElementById('addressValue').value   = full;
+    document.getElementById('customFields').classList.remove('show');
+}
 
-        try {
-            const res  = await fetch('/cadastrar_cep', { method: 'POST', body: formData });
-            const data = await res.json();
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    const picker = document.querySelector('.address-picker');
+    if (picker && !picker.contains(e.target)) {
+        document.getElementById('addressDropdown').classList.remove('open');
+    }
+});
 
-            if (data.success) {
-                if (rotaAtual) map.removeControl(rotaAtual);
-                camadaLinha.clearLayers();
+// Date auto-format MM/DD/YYYY
+document.getElementById('pickupDate').addEventListener('input', function(e) {
+    let v = e.target.value.replace(/\D/g, '');
+    if (v.length > 2) v = v.slice(0,2) + '/' + v.slice(2);
+    if (v.length > 5) v = v.slice(0,5) + '/' + v.slice(5,9);
+    e.target.value = v;
+});
 
-                const p_mot = L.latLng(data.motorista_coords.lat, data.motorista_coords.lng);
-                const p_cli = L.latLng(data.cliente_coords.lat, data.cliente_coords.lng);
+// ─── MAP ──────────────────────────────────────────────────────────────────────
+var map = L.map('map').setView([36.1699, -115.1398], 12);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© ClubLifter Logistics'
+}).addTo(map);
 
-                rotaAtual = L.Routing.control({
-                    waypoints: [p_mot, p_cli],
-                    router: L.Routing.osrmv1({
-                        serviceUrl: 'https://router.project-osrm.org/route/v1',
-                        profile: 'car'
-                    }),
-                    lineOptions: { styles: [{ color: '#a855f7', opacity: 0.8, weight: 6 }] },
-                    show: false,
-                    addWaypoints: false,
-                    createMarker: function(i, wp) {
-                        const icon  = i === 0 ? "🚗" : "📍";
-                        const label = i === 0 ? "Driver" : (data.nome || formData.get('nome'));
-                        return L.marker(wp.latLng).bindPopup(`<b>${icon} ${label}</b>`);
-                    }
-                }).addTo(map);
+var rotaAtual   = null;
+var camadaLinha = L.layerGroup().addTo(map);
 
-                rotaAtual.on('routingerror', function() {
-                    status.innerHTML = "<span class='text-warning'>✈️ International Route (Air Connection)</span>";
-                    L.polyline([p_mot, p_cli], { color: '#a855f7', weight: 3, dashArray: '10, 15', opacity: 0.7 }).addTo(camadaLinha);
-                });
+// ─── FORM SUBMIT ──────────────────────────────────────────────────────────────
+document.getElementById('markerForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const status   = document.getElementById('status');
+    const formData = new FormData(e.target);
 
-                rotaAtual.on('routesfound', function() {
-                    status.innerHTML = "<span class='text-success'>✅ Pickup scheduled successfully!</span>";
-                });
+    // Validate address
+    if (!formData.get('endereco_completo')) {
+        status.className = "mt-3 small fw-bold text-center text-danger";
+        status.innerHTML = "❌ Please select a pickup location.";
+        return;
+    }
 
-                map.flyToBounds([p_mot, p_cli], { padding: [100, 100], duration: 1.5 });
+    // Validate date
+    const dateVal = formData.get('pickup_date');
+    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(dateVal)) {
+        document.getElementById('dateError').style.display = 'block';
+        return;
+    }
+    document.getElementById('dateError').style.display = 'none';
 
-                // Show driver result box
-                document.getElementById('driverResult').style.display = 'block';
-                document.getElementById('driverName').innerText = data.motorista;
-                document.getElementById('driverDist').innerText = `📍 ${data.distancia} km away`;
-                const phoneEl = document.getElementById('driverPhone');
-                if (data.motorista_phone) {
-                    phoneEl.innerHTML = `📞 <a href="tel:${data.motorista_phone}" style="color:#22c55e;">${data.motorista_phone}</a>`;
-                } else {
-                    phoneEl.innerHTML = `<span class="text-secondary">No phone registered</span>`;
+    const pickup_datetime = `${formData.get('pickup_date')} ${formData.get('pickup_hour')}:${formData.get('pickup_min')} ${formData.get('pickup_ampm')}`;
+    formData.append('pickup_datetime', pickup_datetime);
+
+    status.className = "mt-3 small fw-bold text-center text-info";
+    status.innerHTML = "⏳ Scheduling client pickup...";
+    document.getElementById('driverResult').style.display = 'none';
+
+    try {
+        const res  = await fetch('/cadastrar_cep', { method: 'POST', body: formData });
+        const data = await res.json();
+
+        if (data.success) {
+            if (rotaAtual) map.removeControl(rotaAtual);
+            camadaLinha.clearLayers();
+
+            const p_mot = L.latLng(data.motorista_coords.lat, data.motorista_coords.lng);
+            const p_cli = L.latLng(data.cliente_coords.lat, data.cliente_coords.lng);
+
+            rotaAtual = L.Routing.control({
+                waypoints: [p_mot, p_cli],
+                router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1', profile: 'car' }),
+                lineOptions: { styles: [{ color: '#a855f7', opacity: 0.8, weight: 6 }] },
+                show: false, addWaypoints: false,
+                createMarker: function(i, wp) {
+                    const icon  = i === 0 ? "🚗" : "📍";
+                    const label = i === 0 ? "Driver" : (formData.get('nome'));
+                    return L.marker(wp.latLng).bindPopup(`<b>${icon} ${label}</b>`);
                 }
+            }).addTo(map);
 
-                // Update history table
-                const novaLinha = `<tr>
-                    <td>${data.nome || formData.get('nome')}</td>
-                    <td>${formData.get('package')}</td>
-                    <td>${formData.get('guests')}</td>
-                    <td class="text-end text-primary">${data.distancia} km</td>
-                </tr>`;
-                document.querySelector("#tabelaDados tbody").insertAdjacentHTML('afterbegin', novaLinha);
-                e.target.reset();
+            rotaAtual.on('routingerror', function() {
+                status.innerHTML = "<span class='text-warning'>✈️ International Route</span>";
+                L.polyline([p_mot, p_cli], { color: '#a855f7', weight: 3, dashArray: '10,15', opacity: 0.7 }).addTo(camadaLinha);
+            });
+            rotaAtual.on('routesfound', function() {
+                status.innerHTML = "<span class='text-success'>✅ Pickup scheduled successfully!</span>";
+            });
 
-            } else {
-                status.innerHTML = `<span class='text-danger'>❌ ${data.error}</span>`;
-            }
-        } catch (err) {
-            status.innerHTML = "<span class='text-danger'>❌ Server communication failure.</span>";
-            console.error(err);
+            map.flyToBounds([p_mot, p_cli], { padding: [100, 100], duration: 1.5 });
+
+            document.getElementById('driverResult').style.display = 'block';
+            document.getElementById('driverName').innerText = data.motorista;
+            document.getElementById('driverDist').innerText = `📍 ${data.distancia} km away`;
+            const phoneEl = document.getElementById('driverPhone');
+            phoneEl.innerHTML = data.motorista_phone
+                ? `📞 <a href="tel:${data.motorista_phone}" style="color:#22c55e;">${data.motorista_phone}</a>`
+                : `<span class="text-secondary">No phone registered</span>`;
+
+            const novaLinha = `<tr>
+                <td>${formData.get('nome')}</td>
+                <td>${formData.get('package')}</td>
+                <td>${formData.get('guests')}</td>
+                <td class="text-end text-primary">${data.distancia} km</td>
+            </tr>`;
+            document.querySelector("#tabelaDados tbody").insertAdjacentHTML('afterbegin', novaLinha);
+
+            // Reset form and address picker
+            e.target.reset();
+            document.getElementById('addressDisplay').value = '';
+            document.getElementById('addressValue').value   = '';
+            document.getElementById('customFields').classList.remove('show');
+
+        } else {
+            status.innerHTML = `<span class='text-danger'>❌ ${data.error}</span>`;
         }
-    };
+    } catch (err) {
+        status.innerHTML = "<span class='text-danger'>❌ Server communication failure.</span>";
+        console.error(err);
+    }
+};
 </script>
 </body>
 </html>
