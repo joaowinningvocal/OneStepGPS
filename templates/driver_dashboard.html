@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClubLifter — Driver</title>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--bd:rgba(255,255,255,.07);--acc:#8a5cf6;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;}
+        body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;background-image:linear-gradient(rgba(138,92,246,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(138,92,246,.03) 1px,transparent 1px);background-size:40px 40px;}
+        .wrap{position:relative;z-index:1;max-width:680px;margin:0 auto;padding:14px;}
+        .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;margin-bottom:16px;background:var(--s);border:1px solid var(--bd);border-radius:14px;gap:10px;}
+        .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.15rem;color:var(--acc);}
+        .brand span{color:var(--t);}
+        .topbar-r{display:flex;align-items:center;gap:8px;}
+        .who{font-size:.75rem;color:var(--m2);}
+        .btn-out{font-size:.72rem;font-weight:600;color:var(--m);padding:5px 11px;border-radius:20px;border:1px solid var(--bd);background:none;cursor:pointer;transition:.2s;text-decoration:none;}
+        .btn-out:hover{color:var(--r);border-color:rgba(239,68,68,.5);}
+        .banner{border-radius:14px;padding:14px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+        .banner.on{background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.35);}
+        .banner.off{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.35);}
+        .dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;}
+        .dot.on{background:var(--g);box-shadow:0 0 8px var(--g);animation:pulse 2s infinite;}
+        .dot.off{background:var(--r);box-shadow:0 0 8px var(--r);}
+        @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+        .b-info{flex:1;min-width:0;}
+        .b-title{font-family:'Syne',sans-serif;font-weight:700;font-size:.93rem;}
+        .b-sub{font-size:.77rem;color:var(--m2);margin-top:2px;}
+        .btn-problem{background:none;border:1px solid var(--r);color:var(--r);font-weight:700;font-size:.77rem;border-radius:10px;padding:8px 14px;cursor:pointer;transition:.2s;white-space:nowrap;}
+        .btn-problem:hover{background:var(--r);color:#fff;}
+        .btn-back{background:linear-gradient(135deg,var(--g),#16a34a);border:none;color:#fff;font-weight:700;font-size:.77rem;border-radius:10px;padding:8px 14px;cursor:pointer;transition:.2s;white-space:nowrap;}
+        .btn-back:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(34,197,94,.4);}
+        .card{background:var(--s);border:1px solid var(--bd);border-radius:18px;overflow:hidden;}
+        .c-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid var(--bd);flex-wrap:wrap;gap:8px;}
+        .c-hdr h5{font-family:'Syne',sans-serif;font-weight:700;font-size:.98rem;}
+        .c-hdr .day{font-size:.76rem;color:var(--m2);}
+        .btn-ref{font-size:.72rem;font-weight:600;color:var(--m2);padding:5px 11px;border-radius:10px;border:1px solid var(--bd);background:none;cursor:pointer;transition:.2s;}
+        .btn-ref:hover{color:var(--acc);border-color:var(--acc);}
+        .c-body{padding:16px;}
+        .pk{background:var(--s2);border:1px solid var(--bd);border-radius:13px;padding:16px;margin-bottom:10px;transition:border-color .2s;}
+        .pk:last-child{margin-bottom:0;}
+        .pk:hover{border-color:rgba(138,92,246,.3);}
+        .pk.done{opacity:.42;}
+        .pk-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+        .badges{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px;}
+        .bg{border-radius:7px;padding:3px 9px;font-size:.69rem;font-weight:700;}
+        .bt{background:rgba(34,197,94,.1);color:var(--g);border:1px solid rgba(34,197,94,.4);}
+        .bp{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.4);}
+        .bd2{background:rgba(251,191,36,.1);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
+        .bdn{background:rgba(34,197,94,.1);color:var(--g);border:1px solid rgba(34,197,94,.4);}
+        .pk-name{font-family:'Syne',sans-serif;font-weight:700;font-size:.98rem;margin-bottom:5px;}
+        .pk-meta{font-size:.78rem;color:var(--m2);margin-bottom:3px;}
+        .pk-meta a{color:var(--g);text-decoration:none;}
+        .btn-done{background:linear-gradient(135deg,var(--g),#16a34a);border:none;color:#fff;font-weight:700;font-size:.77rem;border-radius:9px;padding:9px 15px;cursor:pointer;transition:.2s;white-space:nowrap;flex-shrink:0;}
+        .btn-done:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(34,197,94,.4);}
+        .btn-done:disabled{opacity:.45;cursor:not-allowed;transform:none;}
+        .empty{text-align:center;padding:48px 16px;color:var(--m);}
+        .empty .ic{font-size:2.4rem;margin-bottom:8px;}
+        .off-box{background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.2);border-radius:13px;padding:34px 18px;text-align:center;}
+        #toast{position:fixed;bottom:16px;right:14px;left:14px;max-width:420px;margin:0 auto;z-index:9999;display:none;border-radius:12px;padding:13px 18px;font-weight:600;font-size:.86rem;box-shadow:0 8px 24px rgba(0,0,0,.5);}
+        @media(max-width:480px){
+            .topbar{padding:10px 12px;border-radius:11px;}
+            .c-hdr{padding:13px 14px 10px;}
+            .c-body{padding:11px;}
+            .pk{padding:13px;}
+            .pk-top{flex-direction:column;}
+            .btn-done{width:100%;margin-top:8px;}
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="topbar">
+        <div class="brand">Club<span>Lifter</span></div>
+        <div class="topbar-r">
+            <span class="who">👤 {{ driver_name }}</span>
+            <a href="/logout" class="btn-out">Logout</a>
+        </div>
+    </div>
+
+    {% if driver_available %}
+    <div class="banner on">
+        <div class="dot on"></div>
+        <div class="b-info">
+            <div class="b-title" style="color:var(--g)">Online & Available</div>
+            <div class="b-sub">You are active and receiving pickups.</div>
+        </div>
+        <button class="btn-problem" onclick="reportProblem()">⚠️ Report Problem</button>
+    </div>
+    {% else %}
+    <div class="banner off">
+        <div class="dot off"></div>
+        <div class="b-info">
+            <div class="b-title" style="color:var(--r)">Offline — Problem Reported</div>
+            <div class="b-sub">Your pickups were reassigned.</div>
+        </div>
+        <button class="btn-back" onclick="goOnline()">✅ I'm Back</button>
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="c-hdr">
+            <div><h5>Today's Pickups</h5><div class="day">{{ today_str }}</div></div>
+            <button class="btn-ref" onclick="location.reload()">🔄 Refresh</button>
+        </div>
+        <div class="c-body">
+            {% if driver_available %}
+                {% if customers %}
+                    {% for c in customers %}
+                    <div class="pk {% if c.status=='picked_up' %}done{% endif %}" id="card-{{ c.id }}">
+                        <div class="badges">
+                            <span class="bg bt">🕐 {{ c.pickup_datetime.split(' ')[1] ~ ' ' ~ c.pickup_datetime.split(' ')[2] if c.pickup_datetime else '—' }}</span>
+                            <span class="bg bp">{{ c.package }}</span>
+                            {% if c.destination %}<span class="bg bd2">🏢 {{ c.destination }}</span>{% endif %}
+                            {% if c.status=='picked_up' %}<span class="bg bdn">✅ Done</span>{% endif %}
+                        </div>
+                        <div class="pk-top">
+                            <div style="flex:1;min-width:0;">
+                                <div class="pk-name">{{ c.nome }}</div>
+                                {% if c.phone %}<div class="pk-meta">📞 <a href="tel:{{ c.phone }}">{{ c.phone }}</a></div>{% endif %}
+                                <div class="pk-meta">📍 {{ c.endereco }}</div>
+                                {% if c.details %}<div class="pk-meta">💬 {{ c.details }}</div>{% endif %}
+                                <div class="pk-meta">👥 {{ c.guests }} guest{{ 's' if c.guests!=1 else '' }}</div>
+                            </div>
+                            {% if c.status!='picked_up' %}
+                            <button class="btn-done" onclick="markDone({{ c.id }},this)">✅ Picked Up</button>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <div class="empty"><div class="ic">🚗</div><div style="font-weight:600;margin-bottom:4px;">No pickups today</div><div style="font-size:.78rem;">Check back later.</div></div>
+                {% endif %}
+            {% else %}
+            <div class="off-box">
+                <div style="font-size:2.4rem;margin-bottom:10px;">⚠️</div>
+                <div style="font-family:'Syne',sans-serif;font-weight:700;color:var(--r);margin-bottom:6px;">You Are Offline</div>
+                <div style="font-size:.81rem;color:var(--m2);">Tap "I'm Back" above when you're ready to receive pickups again.</div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+<div id="toast"></div>
+<script>
+function toast(m,ok=true){const t=document.getElementById('toast');t.style.display='block';t.style.background=ok?'#16a34a':'#dc2626';t.style.color='#fff';t.innerText=m;setTimeout(()=>t.style.display='none',4000);}
+async function markDone(id,btn){btn.disabled=true;btn.innerText='⏳';const d=await(await fetch(`/driver/pickup/${id}`,{method:'POST'})).json();if(d.success){toast('✅ Marked as picked up!');const c=document.getElementById(`card-${id}`);c.classList.add('done');btn.remove();const b=c.querySelector('.badges');const s=document.createElement('span');s.className='bg bdn';s.innerText='✅ Done';b.appendChild(s);}else{toast(d.error||'Error',false);btn.disabled=false;btn.innerText='✅ Picked Up';}}
+async function reportProblem(){if(!confirm('⚠️ Report a problem?\n\nYour pickups will be reassigned and you will go offline.'))return;const d=await(await fetch('/driver/report-problem',{method:'POST'})).json();if(d.success){toast('Problem reported. You are now offline.',false);setTimeout(()=>location.reload(),1800);}else toast(d.error||'Error',false);}
+async function goOnline(){if(!confirm('Confirm you are ready to receive pickups?'))return;const d=await(await fetch('/driver/back-online',{method:'POST'})).json();if(d.success){toast('✅ Back online!');setTimeout(()=>location.reload(),1200);}else toast(d.error||'Error',false);}
+</script>
+</body>
+</html>

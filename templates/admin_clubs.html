@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClubLifter — Clubs</title>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--s3:#0d1117;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--acc2:#6d28d9;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;padding:14px;}
+        .wrap{max-width:900px;margin:0 auto;}
+        .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;margin-bottom:18px;background:var(--s);border:1px solid var(--bd);border-radius:14px;gap:10px;flex-wrap:wrap;}
+        .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:var(--acc);}
+        .brand span{color:var(--t);}
+        .nav-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+        .pill{font-size:.72rem;font-weight:600;color:var(--m2);text-decoration:none;padding:5px 11px;border-radius:20px;border:1px solid var(--bd);transition:.2s;white-space:nowrap;}
+        .pill:hover,.pill.act{color:var(--acc);border-color:var(--bhi);background:rgba(138,92,246,.08);}
+        .btn-db{font-size:.72rem;font-weight:600;color:var(--m2);padding:5px 11px;border-radius:10px;border:1px solid var(--bd);background:none;cursor:pointer;text-decoration:none;transition:.2s;}
+        .btn-db:hover{color:var(--t);}
+        .m-nav{display:none;gap:6px;overflow-x:auto;padding:0 2px 12px;scrollbar-width:none;}
+        .m-nav::-webkit-scrollbar{display:none;}
+        .m-nav a{font-size:.72rem;font-weight:600;color:var(--m2);text-decoration:none;padding:6px 13px;border-radius:20px;border:1px solid var(--bd);white-space:nowrap;flex-shrink:0;transition:.2s;}
+        .m-nav a.act{color:var(--acc);border-color:var(--bhi);}
+        .card{background:var(--s);border:1px solid var(--bd);border-radius:16px;padding:20px;margin-bottom:16px;}
+        .ctitle{font-family:'Syne',sans-serif;font-size:.75rem;font-weight:700;color:var(--m);text-transform:uppercase;letter-spacing:1.3px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--bd);}
+        .form-row{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;}
+        .f label{display:block;font-size:.69rem;font-weight:600;color:var(--m);text-transform:uppercase;letter-spacing:.7px;margin-bottom:5px;}
+        .fc,.fs{width:100%;background:var(--s3);border:1px solid var(--bd);color:var(--t);border-radius:10px;padding:9px 13px;font-size:.86rem;font-family:'DM Sans',sans-serif;transition:.2s;appearance:none;}
+        .fc::placeholder{color:var(--m);}
+        .fc:focus,.fs:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px rgba(138,92,246,.14);}
+        .btn-add{background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;color:#fff;font-family:'Syne',sans-serif;font-weight:700;font-size:.82rem;border-radius:10px;padding:9px 18px;cursor:pointer;white-space:nowrap;transition:.2s;}
+        .btn-add:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(138,92,246,.4);}
+        .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+        table{width:100%;border-collapse:collapse;font-size:.83rem;min-width:450px;}
+        thead th{color:var(--m2);font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.7px;padding:9px 12px;border-bottom:1px solid var(--bd);}
+        tbody td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--m2);vertical-align:middle;}
+        tbody tr:last-child td{border-bottom:none;}
+        tbody tr:hover td{background:rgba(138,92,246,.04);}
+        td.name{color:var(--t);font-weight:600;}
+        .b-on{background:rgba(34,197,94,.1);color:var(--g);border:1px solid rgba(34,197,94,.35);border-radius:14px;padding:2px 10px;font-size:.7rem;font-weight:700;}
+        .b-off{background:rgba(239,68,68,.1);color:var(--r);border:1px solid rgba(239,68,68,.35);border-radius:14px;padding:2px 10px;font-size:.7rem;font-weight:700;}
+        .btns{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;}
+        .btn-e{background:none;border:1px solid #ffc107;color:#ffc107;font-size:.73rem;font-weight:600;border-radius:8px;padding:5px 11px;cursor:pointer;transition:.2s;}
+        .btn-e:hover{background:#ffc107;color:#000;}
+        .btn-d{background:none;border:1px solid var(--r);color:var(--r);font-size:.73rem;font-weight:600;border-radius:8px;padding:5px 11px;cursor:pointer;transition:.2s;}
+        .btn-d:hover{background:var(--r);color:#fff;}
+        .empty{text-align:center;padding:30px;color:var(--m);font-size:.83rem;}
+        /* MODAL */
+        .modal-content{background:var(--s);border:1px solid var(--bd);color:var(--t);border-radius:16px;}
+        .modal-header,.modal-footer{border-color:var(--bd);}
+        .modal-title{font-family:'Syne',sans-serif;font-weight:700;color:var(--acc);}
+        .btn-close-white{filter:invert(1);}
+        .btn-save{background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;color:#fff;font-weight:700;border-radius:10px;padding:8px 20px;cursor:pointer;}
+        #toast{position:fixed;bottom:16px;right:14px;left:14px;max-width:380px;margin:0 auto;z-index:9999;display:none;border-radius:11px;padding:12px 16px;font-weight:600;font-size:.85rem;box-shadow:0 8px 24px rgba(0,0,0,.5);}
+        @media(max-width:700px){
+            .form-row{grid-template-columns:1fr;}
+            .pills-desk{display:none;}
+            .m-nav{display:flex;}
+        }
+        @media(max-width:480px){
+            .topbar{padding:10px 12px;border-radius:11px;}
+            .card{padding:15px;}
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="topbar">
+        <div class="brand">Club<span>Lifter</span></div>
+        <div class="nav-r">
+            <div class="pills-desk" style="display:flex;gap:7px;">
+                <a href="/admin/today"    class="pill">Today</a>
+                <a href="/admin/packages" class="pill">Packages</a>
+                <a href="/admin/drivers"  class="pill">Drivers</a>
+                <a href="/admin/users"    class="pill">Users</a>
+                <a href="/admin/clubs"    class="pill act">Clubs</a>
+            </div>
+            <a href="/" class="btn-db">← Dashboard</a>
+        </div>
+    </div>
+    <div class="m-nav">
+        <a href="/admin/today">Today</a><a href="/admin/packages">Packages</a>
+        <a href="/admin/drivers">Drivers</a><a href="/admin/users">Users</a>
+        <a href="/admin/clubs" class="act">Clubs</a><a href="/">← Dashboard</a>
+    </div>
+
+    <div class="card">
+        <div class="ctitle">Add New Club / Destination</div>
+        <div class="form-row">
+            <div class="f"><label>Club Name</label><input type="text" id="newName" class="fc" placeholder="e.g., XS Nightclub"></div>
+            <div class="f"><label>Address (optional)</label><input type="text" id="newAddr" class="fc" placeholder="e.g., 3131 S Las Vegas Blvd"></div>
+            <button class="btn-add" onclick="addClub()">+ Add Club</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="ctitle">Registered Clubs</div>
+        <div class="tbl-wrap">
+            <table>
+                <thead><tr><th>Club Name</th><th>Address</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+                <tbody id="clubsTable">
+                    {% for c in clubs %}
+                    <tr id="row-{{ c.id }}">
+                        <td class="name">{{ c.name }}</td>
+                        <td style="font-size:.78rem;">{{ c.address or '—' }}</td>
+                        <td><span class="{{ 'b-on' if c.active else 'b-off' }}">{{ 'Active' if c.active else 'Inactive' }}</span></td>
+                        <td><div class="btns">
+                            <button class="btn-e" onclick="openEdit({{ c.id }},'{{ c.name }}','{{ c.address }}',{{ c.active|lower }})">Edit</button>
+                            <button class="btn-d" onclick="delClub({{ c.id }})">Delete</button>
+                        </div></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if not clubs %}<div class="empty">No clubs registered yet.</div>{% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Edit Club</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+            <input type="hidden" id="eId">
+            <div class="f"><label>Club Name</label><input type="text" id="eName" class="fc"></div>
+            <div class="f"><label>Address</label><input type="text" id="eAddr" class="fc" placeholder="Optional"></div>
+            <div class="f"><label>Status</label><select id="eActive" class="fs" style="background:var(--s3);"><option value="true">Active</option><option value="false">Inactive</option></select></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn-save" onclick="saveEdit()">Save</button></div>
+    </div></div>
+</div>
+
+<div id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const modal=new bootstrap.Modal(document.getElementById('editModal'));
+function toast(m,ok=true){const t=document.getElementById('toast');t.style.display='block';t.style.background=ok?'#16a34a':'#dc2626';t.style.color='#fff';t.innerText=m;setTimeout(()=>t.style.display='none',3000);}
+async function addClub(){const n=document.getElementById('newName').value.trim(),a=document.getElementById('newAddr').value.trim();if(!n)return toast('Name required',false);const fd=new FormData();fd.append('name',n);fd.append('address',a);const d=await(await fetch('/admin/clubs/new',{method:'POST',body:fd})).json();if(d.success){toast('Club added!');location.reload();}else toast(d.error,false);}
+function openEdit(id,n,a,act){document.getElementById('eId').value=id;document.getElementById('eName').value=n;document.getElementById('eAddr').value=a;document.getElementById('eActive').value=act.toString();modal.show();}
+async function saveEdit(){const id=document.getElementById('eId').value,fd=new FormData();fd.append('name',document.getElementById('eName').value);fd.append('address',document.getElementById('eAddr').value);fd.append('active',document.getElementById('eActive').value);const d=await(await fetch(`/admin/clubs/edit/${id}`,{method:'POST',body:fd})).json();if(d.success){toast('Updated!');modal.hide();location.reload();}else toast(d.error,false);}
+async function delClub(id){if(!confirm('Delete this club?'))return;const d=await(await fetch(`/admin/clubs/delete/${id}`,{method:'POST'})).json();if(d.success){toast('Deleted!');document.getElementById(`row-${id}`).remove();}else toast(d.error,false);}
+</script>
+</body>
+</html>

@@ -2,173 +2,182 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>ClubLifter - User Management</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClubLifter — Users</title>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background: #0d1117; color: white; font-family: 'Segoe UI', sans-serif; }
-        .card { background: #161b22; border: 1px solid #30363d; color: white; border-radius: 15px; }
-        .form-control { background: #0d1117; border: 1px solid #30363d; color: white; }
-        .form-control:focus { background: #0d1117; color: white; border-color: #a855f7; box-shadow: 0 0 10px rgba(168,85,247,0.4); }
-        .form-control::placeholder { color: #555; }
-        .btn-primary { background: linear-gradient(45deg, #a855f7, #6d28d9); border: none; font-weight: bold; }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(168,85,247,0.4); }
-        .btn-outline-danger  { border-color: #dc3545; color: #dc3545; }
-        .btn-outline-danger:hover  { background: #dc3545; color: white; }
-        .btn-outline-warning { border-color: #ffc107; color: #ffc107; }
-        .btn-outline-warning:hover { background: #ffc107; color: #000; }
-        .text-primary { color: #a855f7 !important; }
-        .table { color: white; }
-        .table thead th { color: #8b949e; font-weight: 500; border-color: #30363d; }
-        .table td { border-color: #21262d; vertical-align: middle; }
-        .modal-content { background: #161b22; border: 1px solid #30363d; color: white; }
-        .modal-header, .modal-footer { border-color: #30363d; }
-        .nav-link { color: #8b949e; }
-        .nav-link:hover { color: #a855f7; }
-        .nav-link.active-page { color: #a855f7; font-weight: bold; }
-        #toast { position: fixed; bottom: 30px; right: 30px; z-index: 9999; min-width: 250px; display: none; }
+        :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--s3:#0d1117;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--acc2:#6d28d9;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;padding:14px;}
+        .wrap{max-width:980px;margin:0 auto;}
+        .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;margin-bottom:18px;background:var(--s);border:1px solid var(--bd);border-radius:14px;gap:10px;flex-wrap:wrap;}
+        .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:var(--acc);}
+        .brand span{color:var(--t);}
+        .nav-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+        .pill{font-size:.72rem;font-weight:600;color:var(--m2);text-decoration:none;padding:5px 11px;border-radius:20px;border:1px solid var(--bd);transition:.2s;white-space:nowrap;}
+        .pill:hover,.pill.act{color:var(--acc);border-color:var(--bhi);background:rgba(138,92,246,.08);}
+        .btn-db{font-size:.72rem;font-weight:600;color:var(--m2);padding:5px 11px;border-radius:10px;border:1px solid var(--bd);background:none;cursor:pointer;text-decoration:none;transition:.2s;}
+        .btn-db:hover{color:var(--t);}
+        .m-nav{display:none;gap:6px;overflow-x:auto;padding:0 2px 12px;scrollbar-width:none;}
+        .m-nav::-webkit-scrollbar{display:none;}
+        .m-nav a{font-size:.72rem;font-weight:600;color:var(--m2);text-decoration:none;padding:6px 13px;border-radius:20px;border:1px solid var(--bd);white-space:nowrap;flex-shrink:0;transition:.2s;}
+        .m-nav a.act{color:var(--acc);border-color:var(--bhi);}
+        .card{background:var(--s);border:1px solid var(--bd);border-radius:16px;padding:20px;margin-bottom:16px;}
+        .ctitle{font-family:'Syne',sans-serif;font-size:.75rem;font-weight:700;color:var(--m);text-transform:uppercase;letter-spacing:1.3px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--bd);}
+        .form-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:10px;align-items:end;}
+        .f label{display:block;font-size:.69rem;font-weight:600;color:var(--m);text-transform:uppercase;letter-spacing:.7px;margin-bottom:5px;}
+        .fc,.fs{width:100%;background:var(--s3);border:1px solid var(--bd);color:var(--t);border-radius:10px;padding:9px 13px;font-size:.85rem;font-family:'DM Sans',sans-serif;transition:.2s;appearance:none;}
+        .fc::placeholder{color:var(--m);}
+        .fc:focus,.fs:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px rgba(138,92,246,.13);}
+        .fs{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7'%3E%3Cpath fill='%238892a0' d='M5 7L0 0h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:30px;}
+        .fs option{background:var(--s2);}
+        .hint{font-size:.71rem;color:var(--m);margin-top:6px;line-height:1.4;}
+        .hint strong{color:var(--gold);}
+        .btn-add{background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;color:#fff;font-family:'Syne',sans-serif;font-weight:700;font-size:.82rem;border-radius:10px;padding:9px 18px;cursor:pointer;white-space:nowrap;transition:.2s;}
+        .btn-add:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(138,92,246,.4);}
+        .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+        table{width:100%;border-collapse:collapse;font-size:.83rem;min-width:500px;}
+        thead th{color:var(--m2);font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.7px;padding:9px 12px;border-bottom:1px solid var(--bd);}
+        tbody td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--m2);vertical-align:middle;}
+        tbody tr:last-child td{border-bottom:none;}
+        tbody tr:hover td{background:rgba(138,92,246,.04);}
+        td.name{color:var(--t);font-weight:600;}
+        .b-promoter{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.35);border-radius:14px;padding:2px 10px;font-size:.7rem;font-weight:700;}
+        .b-driver{background:rgba(34,197,94,.1);color:var(--g);border:1px solid rgba(34,197,94,.35);border-radius:14px;padding:2px 10px;font-size:.7rem;font-weight:700;}
+        .b-club{background:rgba(251,191,36,.1);color:var(--gold);border:1px solid rgba(251,191,36,.35);border-radius:14px;padding:2px 10px;font-size:.7rem;font-weight:700;}
+        .btns{display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap;}
+        .btn-e{background:none;border:1px solid #ffc107;color:#ffc107;font-size:.71rem;font-weight:600;border-radius:8px;padding:5px 10px;cursor:pointer;transition:.2s;}
+        .btn-e:hover{background:#ffc107;color:#000;}
+        .btn-d{background:none;border:1px solid var(--r);color:var(--r);font-size:.71rem;font-weight:600;border-radius:8px;padding:5px 10px;cursor:pointer;transition:.2s;}
+        .btn-d:hover{background:var(--r);color:#fff;}
+        .empty{text-align:center;padding:28px;color:var(--m);font-size:.83rem;}
+        .modal-content{background:var(--s);border:1px solid var(--bd);color:var(--t);border-radius:16px;}
+        .modal-header,.modal-footer{border-color:var(--bd);}
+        .modal-title{font-family:'Syne',sans-serif;font-weight:700;color:var(--acc);}
+        .btn-close-white{filter:invert(1);}
+        .btn-save{background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;color:#fff;font-weight:700;border-radius:10px;padding:8px 20px;cursor:pointer;}
+        .modal-f{display:flex;flex-direction:column;gap:14px;}
+        #toast{position:fixed;bottom:16px;right:14px;left:14px;max-width:380px;margin:0 auto;z-index:9999;display:none;border-radius:11px;padding:12px 16px;font-weight:600;font-size:.85rem;box-shadow:0 8px 24px rgba(0,0,0,.5);}
+        @media(max-width:800px){
+            .form-grid{grid-template-columns:1fr 1fr;}
+            .pills-desk{display:none;}
+            .m-nav{display:flex;}
+        }
+        @media(max-width:480px){
+            .form-grid{grid-template-columns:1fr;}
+            .topbar{padding:10px 12px;border-radius:11px;}
+            .card{padding:14px;}
+        }
     </style>
 </head>
-<body class="py-5">
-<div class="container" style="max-width: 800px;">
-
-    <!-- Header -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h4 class="text-primary fw-bold mb-0">ClubLifter</h4>
-            <small class="text-secondary">Admin Panel</small>
-        </div>
-        <div class="d-flex gap-3 align-items-center">
-            <a href="/admin/packages" class="nav-link">Packages</a>
-            <a href="/admin/drivers"  class="nav-link">Drivers</a>
-            <a href="/admin/users"    class="nav-link active-page">Users</a>
-            <a href="/" class="btn btn-sm btn-outline-secondary">← Dashboard</a>
-        </div>
-    </div>
-
-    <!-- Add New User -->
-    <div class="card p-4 mb-4">
-        <h6 class="text-secondary mb-3">Create Promoter Account</h6>
-        <div class="row g-2">
-            <div class="col-md-4">
-                <input type="text" id="newUsername" class="form-control" placeholder="Username">
+<body>
+<div class="wrap">
+    <div class="topbar">
+        <div class="brand">Club<span>Lifter</span></div>
+        <div class="nav-r">
+            <div class="pills-desk" style="display:flex;gap:7px;">
+                <a href="/admin/today"    class="pill">Today</a>
+                <a href="/admin/packages" class="pill">Packages</a>
+                <a href="/admin/drivers"  class="pill">Drivers</a>
+                <a href="/admin/users"    class="pill act">Users</a>
+                <a href="/admin/clubs"    class="pill">Clubs</a>
             </div>
-            <div class="col-md-4">
-                <input type="password" id="newPassword" class="form-control" placeholder="Password">
-            </div>
-            <div class="col-md-4">
-                <button class="btn btn-primary w-100" onclick="addUser()">+ Create Account</button>
-            </div>
+            <a href="/" class="btn-db">← Dashboard</a>
         </div>
     </div>
+    <div class="m-nav">
+        <a href="/admin/today">Today</a><a href="/admin/packages">Packages</a>
+        <a href="/admin/drivers">Drivers</a><a href="/admin/users" class="act">Users</a>
+        <a href="/admin/clubs">Clubs</a><a href="/">← Dashboard</a>
+    </div>
 
-    <!-- Users Table -->
-    <div class="card p-4">
-        <h6 class="text-secondary mb-3">Promoter Accounts</h6>
-        <table class="table table-dark table-sm">
-            <thead>
-                <tr>
-                    <th>Username</th>
-                    <th>Role</th>
-                    <th class="text-end">Actions</th>
-                </tr>
-            </thead>
-            <tbody id="usersTable">
-                {% for u in users %}
-                <tr id="row-{{ u.id }}">
-                    <td class="fw-bold">{{ u.username }}</td>
-                    <td class="text-secondary">{{ u.role }}</td>
-                    <td class="text-end">
-                        <button class="btn btn-sm btn-outline-warning me-1"
-                            onclick="openReset({{ u.id }}, '{{ u.username }}')">Reset Password</button>
-                        <button class="btn btn-sm btn-outline-danger"
-                            onclick="deleteUser({{ u.id }})">Delete</button>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% if not users %}
-        <p class="text-secondary text-center small mt-2">No promoter accounts yet.</p>
-        {% endif %}
+    <div class="card">
+        <div class="ctitle">Create Account</div>
+        <div class="form-grid">
+            <div class="f"><label>Username</label><input type="text" id="nUser" class="fc" placeholder="username"></div>
+            <div class="f"><label>Password</label><input type="password" id="nPass" class="fc" placeholder="password"></div>
+            <div class="f"><label>Role</label>
+                <select id="nRole" class="fs">
+                    <option value="promoter">Promoter</option>
+                    <option value="driver">Driver</option>
+                </select>
+            </div>
+            <div class="f"><label>Assign Club</label>
+                <select id="nClub" class="fs">
+                    <option value="">— None —</option>
+                    {% for c in clubs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <button class="btn-add" onclick="addUser()">+ Create</button>
+        </div>
+        <p class="hint">⚠️ For <strong>Driver</strong> accounts: username must exactly match the driver name in the Drivers panel (same as OneStepGPS display_name).</p>
+    </div>
+
+    <div class="card">
+        <div class="ctitle">Accounts</div>
+        <div class="tbl-wrap">
+            <table>
+                <thead><tr><th>Username</th><th>Role</th><th>Club</th><th style="text-align:right">Actions</th></tr></thead>
+                <tbody id="usersTable">
+                    {% for u in users %}
+                    <tr id="row-{{ u.id }}">
+                        <td class="name">{{ u.username }}</td>
+                        <td><span class="{{ 'b-driver' if u.role=='driver' else 'b-promoter' }}">{{ u.role|capitalize }}</span></td>
+                        <td>{% if u.club %}<span class="b-club">🏢 {{ u.club.name }}</span>{% else %}<span style="color:var(--m)">—</span>{% endif %}</td>
+                        <td><div class="btns">
+                            <button class="btn-e" onclick="openEdit({{ u.id }},'{{ u.username }}','{{ u.role }}',{{ u.club_id or 'null' }})">Edit</button>
+                            <button class="btn-e" onclick="openReset({{ u.id }},'{{ u.username }}')">Reset PWD</button>
+                            <button class="btn-d" onclick="delUser({{ u.id }})">Delete</button>
+                        </div></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if not users %}<div class="empty">No accounts yet.</div>{% endif %}
+        </div>
     </div>
 </div>
 
-<!-- Reset Password Modal -->
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Edit Account</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body modal-f">
+            <input type="hidden" id="eId">
+            <p style="font-size:.82rem;color:var(--m2);">Editing: <span id="eUser" style="color:var(--t);font-weight:600;"></span></p>
+            <div class="f"><label>Role</label><select id="eRole" class="fs" style="background:var(--s3);"><option value="promoter">Promoter</option><option value="driver">Driver</option></select></div>
+            <div class="f"><label>Assign Club</label><select id="eClub" class="fs" style="background:var(--s3);"><option value="">— None —</option>{% for c in clubs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn-save" onclick="saveEdit()">Save</button></div>
+    </div></div>
+</div>
+
+<!-- Reset Modal -->
 <div class="modal fade" id="resetModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title text-primary">Reset Password</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="resetId">
-                <p class="text-secondary small mb-3">Setting new password for: <span id="resetUsername" class="text-white fw-bold"></span></p>
-                <div class="mb-3">
-                    <label class="small text-secondary">New Password</label>
-                    <input type="password" id="resetPassword" class="form-control" placeholder="Enter new password">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-primary" onclick="saveReset()">Save Password</button>
-            </div>
+    <div class="modal-dialog"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Reset Password</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body modal-f">
+            <input type="hidden" id="rId">
+            <p style="font-size:.82rem;color:var(--m2);">New password for: <span id="rUser" style="color:var(--t);font-weight:600;"></span></p>
+            <div class="f"><label>New Password</label><input type="password" id="rPass" class="fc" placeholder="Enter new password"></div>
         </div>
-    </div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn-save" onclick="saveReset()">Save</button></div>
+    </div></div>
 </div>
 
-<div id="toast" class="toast align-items-center text-white border-0">
-    <div class="d-flex"><div class="toast-body" id="toastMsg"></div></div>
-</div>
-
+<div id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    const resetModal = new bootstrap.Modal(document.getElementById('resetModal'));
-
-    function showToast(msg, success = true) {
-        const t = document.getElementById('toast');
-        t.style.display = 'block';
-        t.style.background = success ? '#22c55e' : '#ef4444';
-        document.getElementById('toastMsg').innerText = msg;
-        setTimeout(() => t.style.display = 'none', 3000);
-    }
-
-    async function addUser() {
-        const username = document.getElementById('newUsername').value.trim();
-        const password = document.getElementById('newPassword').value.trim();
-        if (!username || !password) return showToast('Username and password are required', false);
-        const fd = new FormData();
-        fd.append('username', username);
-        fd.append('password', password);
-        const data = await (await fetch('/admin/users/new', { method: 'POST', body: fd })).json();
-        if (data.success) { showToast('Account created!'); location.reload(); }
-        else showToast(data.error, false);
-    }
-
-    function openReset(id, username) {
-        document.getElementById('resetId').value       = id;
-        document.getElementById('resetUsername').innerText = username;
-        document.getElementById('resetPassword').value = '';
-        resetModal.show();
-    }
-
-    async function saveReset() {
-        const id  = document.getElementById('resetId').value;
-        const pwd = document.getElementById('resetPassword').value.trim();
-        if (!pwd) return showToast('Password cannot be empty', false);
-        const fd = new FormData();
-        fd.append('password', pwd);
-        const data = await (await fetch(`/admin/users/reset/${id}`, { method: 'POST', body: fd })).json();
-        if (data.success) { showToast('Password updated!'); resetModal.hide(); }
-        else showToast(data.error, false);
-    }
-
-    async function deleteUser(id) {
-        if (!confirm('Delete this promoter account?')) return;
-        const data = await (await fetch(`/admin/users/delete/${id}`, { method: 'POST' })).json();
-        if (data.success) { showToast('Account deleted!'); document.getElementById(`row-${id}`).remove(); }
-        else showToast(data.error, false);
-    }
+const eM=new bootstrap.Modal(document.getElementById('editModal'));
+const rM=new bootstrap.Modal(document.getElementById('resetModal'));
+function toast(m,ok=true){const t=document.getElementById('toast');t.style.display='block';t.style.background=ok?'#16a34a':'#dc2626';t.style.color='#fff';t.innerText=m;setTimeout(()=>t.style.display='none',3000);}
+async function addUser(){const u=document.getElementById('nUser').value.trim(),p=document.getElementById('nPass').value.trim(),r=document.getElementById('nRole').value,c=document.getElementById('nClub').value;if(!u||!p)return toast('Username and password required',false);const fd=new FormData();fd.append('username',u);fd.append('password',p);fd.append('role',r);if(c)fd.append('club_id',c);const d=await(await fetch('/admin/users/new',{method:'POST',body:fd})).json();if(d.success){toast('Account created!');location.reload();}else toast(d.error,false);}
+function openEdit(id,u,r,cid){document.getElementById('eId').value=id;document.getElementById('eUser').innerText=u;document.getElementById('eRole').value=r;document.getElementById('eClub').value=cid||'';eM.show();}
+async function saveEdit(){const id=document.getElementById('eId').value,fd=new FormData();fd.append('role',document.getElementById('eRole').value);fd.append('club_id',document.getElementById('eClub').value);const d=await(await fetch(`/admin/users/edit/${id}`,{method:'POST',body:fd})).json();if(d.success){toast('Updated!');eM.hide();location.reload();}else toast(d.error,false);}
+function openReset(id,u){document.getElementById('rId').value=id;document.getElementById('rUser').innerText=u;document.getElementById('rPass').value='';rM.show();}
+async function saveReset(){const id=document.getElementById('rId').value,p=document.getElementById('rPass').value.trim();if(!p)return toast('Password cannot be empty',false);const fd=new FormData();fd.append('password',p);const d=await(await fetch(`/admin/users/reset/${id}`,{method:'POST',body:fd})).json();if(d.success){toast('Password updated!');rM.hide();}else toast(d.error,false);}
+async function delUser(id){if(!confirm('Delete this account?'))return;const d=await(await fetch(`/admin/users/delete/${id}`,{method:'POST'})).json();if(d.success){toast('Deleted!');document.getElementById(`row-${id}`).remove();}else toast(d.error,false);}
 </script>
 </body>
 </html>
