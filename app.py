@@ -1,5 +1,8 @@
 import math
 import os
+import json
+import threading
+import time
 import requests
 import urllib.parse
 from datetime import datetime, date
@@ -25,7 +28,7 @@ db = SQLAlchemy(app)
 # ─── SETTINGS ─────────────────────────────────────────────────────────────────
 API_KEY      = os.environ.get("ONESTEPGPS_API_KEY", "")
 URL_API      = "https://track.onestepgps.com/v3/api/public/marker"
-MAKE_WEBHOOK = os.environ.get("MAKE_WEBHOOK_URL", "")
+MAKE_WEBHOOK = os.environ.get("MAKE_WEBHOOK_URL", "https://nightdeskt-production.up.railway.app/webhook/hustler-lv")
 
 # ─── SHOPIFY ──────────────────────────────────────────────────────────────────
 SHOPIFY_STORE   = os.environ.get("SHOPIFY_STORE", "vip-packages.myshopify.com")
@@ -187,7 +190,8 @@ class Driver(db.Model):
 class Customer(db.Model):
     id              = db.Column(db.Integer, primary_key=True)
     nome            = db.Column(db.String(100))
-    phone           = db.Column(db.String(20), default="")
+    phone           = db.Column(db.String(20), default="")            # primary phone (kept for backward compat)
+    phones_json     = db.Column(db.Text, default="[]")                # JSON array of additional phones
     endereco        = db.Column(db.String(500))
     details         = db.Column(db.String(500), default="")
     motorista       = db.Column(db.String(100))
@@ -196,19 +200,40 @@ class Customer(db.Model):
     package         = db.Column(db.String(100))
     guests          = db.Column(db.Integer)
     pickup_datetime = db.Column(db.String(50), default="")
-    destination     = db.Column(db.String(100), default="")   # NEW: destination club
+    destination     = db.Column(db.String(100), default="")
+    needs_transport = db.Column(db.Boolean, default=True)              # NEW: walk-in vs transport
+    club_status     = db.Column(db.String(20), default="coming")       # NEW: coming | arrived | left
     # Pickup status: 'scheduled', 'picked_up'
     status          = db.Column(db.String(20), default="scheduled")
+    # Distance notification flags (so we don't fire 2x)
+    notified_15km   = db.Column(db.Boolean, default=False)
+    notified_5km    = db.Column(db.Boolean, default=False)
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def get_phones(self):
+        try:
+            extra = json.loads(self.phones_json or "[]")
+        except Exception:
+            extra = []
+        result = []
+        if self.phone:
+            result.append(self.phone)
+        for p in extra:
+            if p and p not in result:
+                result.append(p)
+        return result
 
     def to_dict(self):
         return {
             "id": self.id, "nome": self.nome, "phone": self.phone,
+            "phones": self.get_phones(),
             "endereco": self.endereco, "details": self.details,
             "motorista": self.motorista, "motorista_phone": self.motorista_phone,
             "distancia": self.distancia, "package": self.package,
             "guests": self.guests, "pickup_datetime": self.pickup_datetime,
             "destination": self.destination,
+            "needs_transport": self.needs_transport,
+            "club_status": self.club_status,
             "status": self.status,
             "created_at": self.created_at.isoformat() if self.created_at else ""
         }
@@ -327,14 +352,73 @@ def cadastrar_cep():
 
     nome              = request.form.get('nome', '').strip()
     client_phone      = request.form.get('client_phone', '').strip()
+    extra_phones_raw  = request.form.get('extra_phones', '').strip()  # JSON array
     endereco_completo = request.form.get('endereco_completo', '').strip()
     details           = request.form.get('details', '').strip()
     package           = request.form.get('package', '').strip()
     guests            = int(request.form.get('guests', 0))
     pickup_datetime   = request.form.get('pickup_datetime', '').strip()
     destination       = request.form.get('destination', '').strip()
+    needs_transport   = request.form.get('needs_transport', 'true').lower() == 'true'
+
+    # Parse extra phones JSON array
+    try:
+        extra_phones = json.loads(extra_phones_raw) if extra_phones_raw else []
+        extra_phones = [p.strip() for p in extra_phones if p and p.strip()]
+    except Exception:
+        extra_phones = []
+    all_phones = ([client_phone] if client_phone else []) + extra_phones
 
     try:
+        # ── WALK-IN PATH (no transport): skip geocoding, GPS, driver assignment ──
+        if not needs_transport:
+            customer = Customer(
+                nome=nome, phone=client_phone, phones_json=json.dumps(extra_phones),
+                endereco="(walk-in)", details=details,
+                motorista="(walk-in)", motorista_phone="",
+                distancia=0, package=package,
+                guests=guests, pickup_datetime=pickup_datetime,
+                destination=destination,
+                needs_transport=False, club_status="coming",
+                status='scheduled',
+                created_at=datetime.utcnow()
+            )
+            db.session.add(customer)
+            db.session.commit()
+
+            # Still create Shopify order
+            shopify_result = create_shopify_order(
+                customer_name=nome, customer_phone=client_phone,
+                package_name=package, guests=guests,
+                pickup_datetime=pickup_datetime, destination=destination,
+                driver_name="(walk-in)"
+            )
+
+            fire_webhook({
+                "event":                "walk_in_registered",
+                "customer_id":          customer.id,
+                "customer_name":        nome,
+                "customer_phone":       client_phone,
+                "customer_phones":      all_phones,
+                "details":              details,
+                "pickup_datetime":      pickup_datetime,
+                "package":              package,
+                "guests":               guests,
+                "destination":          destination,
+                "needs_transport":      False,
+                "shopify_order_id":     shopify_result.get("shopify_order_id"),
+                "shopify_order_number": shopify_result.get("shopify_order_number"),
+                "shopify_order_url":    shopify_result.get("shopify_order_url"),
+            })
+
+            return jsonify({
+                "success": True, "walk_in": True,
+                "customer_id": customer.id,
+                "package": package, "guests": guests,
+                "destination": destination
+            })
+
+        # ── TRANSPORT PATH (original flow) ──
         # Parse the requested pickup time for availability checking
         requested_dt = parse_pickup_datetime(pickup_datetime)
 
@@ -406,11 +490,13 @@ def cadastrar_cep():
         # 6. SAVE TO DATABASE
         distancia_arredondada = round(menor_d, 2) if menor_d != float('inf') else 0
         customer = Customer(
-            nome=nome, phone=client_phone, endereco=endereco_completo, details=details,
+            nome=nome, phone=client_phone, phones_json=json.dumps(extra_phones),
+            endereco=endereco_completo, details=details,
             motorista=melhor_v, motorista_phone=motorista_phone,
             distancia=distancia_arredondada, package=package,
             guests=guests, pickup_datetime=pickup_datetime,
             destination=destination,
+            needs_transport=True, club_status="coming",
             status='scheduled',
             created_at=datetime.utcnow()
         )
@@ -435,6 +521,7 @@ def cadastrar_cep():
             "driver_phone":         motorista_phone,
             "customer_name":        nome,
             "customer_phone":       client_phone,
+            "customer_phones":      all_phones,
             "pickup_address":       endereco_completo,
             "details":              details,
             "pickup_datetime":      pickup_datetime,
@@ -442,6 +529,7 @@ def cadastrar_cep():
             "guests":               guests,
             "distance_km":          distancia_arredondada,
             "destination":          destination,
+            "needs_transport":      True,
             "status":               "scheduled",
             "shopify_order_id":     shopify_result.get("shopify_order_id"),
             "shopify_order_number": shopify_result.get("shopify_order_number"),
@@ -823,6 +911,189 @@ def api_drivers():
 def api_clubs():
     return jsonify([c.to_dict() for c in Club.query.filter_by(active=True).all()])
 
+# ─── GUEST LIST (admin only) ──────────────────────────────────────────────────
+@app.route('/admin/guestlist')
+def admin_guestlist():
+    if not session.get("logged") or not is_master():
+        return redirect(url_for("login"))
+
+    # Filters
+    filter_type = request.args.get('type', 'all')  # all | transport | walkin
+    filter_club = request.args.get('club', 'all')
+    filter_date = request.args.get('date', date.today().strftime("%-m/%-d/%Y") if os.name != 'nt' else date.today().strftime("%#m/%#d/%Y"))
+
+    q = Customer.query
+    if filter_type == 'transport':
+        q = q.filter_by(needs_transport=True)
+    elif filter_type == 'walkin':
+        q = q.filter_by(needs_transport=False)
+    if filter_club != 'all':
+        q = q.filter_by(destination=filter_club)
+
+    all_customers = q.order_by(Customer.pickup_datetime).all()
+
+    # Filter by date in pickup_datetime
+    if filter_date:
+        all_customers = [c for c in all_customers if filter_date in (c.pickup_datetime or "")]
+
+    clubs = Club.query.filter_by(active=True).all()
+
+    # Stats
+    total    = len(all_customers)
+    coming   = sum(1 for c in all_customers if c.club_status == 'coming')
+    arrived  = sum(1 for c in all_customers if c.club_status == 'arrived')
+    left_    = sum(1 for c in all_customers if c.club_status == 'left')
+
+    return render_template('admin_guestlist.html',
+        customers=all_customers, clubs=clubs,
+        filter_type=filter_type, filter_club=filter_club, filter_date=filter_date,
+        total=total, coming=coming, arrived=arrived, left=left_
+    )
+
+@app.route('/admin/guestlist/status/<int:customer_id>', methods=['POST'])
+def update_club_status(customer_id):
+    if not is_master():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    customer = Customer.query.get_or_404(customer_id)
+    new_status = request.form.get('club_status', '').strip()
+    if new_status not in ('coming', 'arrived', 'left'):
+        return jsonify({"success": False, "error": "Invalid status"})
+    customer.club_status = new_status
+    db.session.commit()
+
+    # Fire webhook for guest status change
+    fire_webhook({
+        "event":           "club_status_change",
+        "customer_id":     customer.id,
+        "customer_name":   customer.nome,
+        "customer_phone":  customer.phone,
+        "destination":     customer.destination,
+        "new_status":      new_status,
+        "timestamp":       datetime.utcnow().isoformat()
+    })
+
+    return jsonify({"success": True, "club_status": new_status})
+
+@app.route('/admin/guestlist/delete/<int:customer_id>', methods=['POST'])
+def delete_guest(customer_id):
+    if not is_master():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    customer = Customer.query.get_or_404(customer_id)
+    db.session.delete(customer)
+    db.session.commit()
+    return jsonify({"success": True})
+
+# ─── BACKGROUND DISTANCE TRACKER (15km/5km notifications) ─────────────────────
+def distance_tracker_loop():
+    """
+    Runs in background. Every 2 minutes checks all 'scheduled' customers
+    that need transport. Computes driver→customer distance via OneStepGPS.
+    Fires webhook when distance crosses 15km or 5km threshold.
+    """
+    while True:
+        try:
+            time.sleep(120)  # check every 2 minutes
+            with app.app_context():
+                today = date.today()
+                today_str = today.strftime("%-m/%-d/%Y") if os.name != 'nt' else today.strftime("%#m/%#d/%Y")
+
+                # Only check today's scheduled customers that still need transport tracking
+                scheduled = Customer.query.filter_by(
+                    status='scheduled',
+                    needs_transport=True
+                ).all()
+                scheduled = [c for c in scheduled if today_str in (c.pickup_datetime or "")
+                             and (not c.notified_5km or not c.notified_15km)]
+
+                if not scheduled:
+                    continue
+
+                # Fetch all vehicles once
+                headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+                try:
+                    res_v = requests.get(
+                        "https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
+                        headers=headers_api, timeout=10
+                    ).json()
+                except Exception as e:
+                    print(f"[TRACKER] OneStepGPS error: {e}", flush=True)
+                    continue
+
+                lista = res_v if isinstance(res_v, list) else [res_v]
+                # Build lookup: driver display_name → (lat, lng)
+                driver_pos = {}
+                for v in lista:
+                    v_lat = v.get('lat') or v.get('last_tap', {}).get('lat')
+                    v_lng = v.get('lng') or v.get('last_tap', {}).get('lng')
+                    if v_lat and v_lng:
+                        driver_pos[v.get('display_name', '')] = (float(v_lat), float(v_lng))
+
+                # Re-geocode each customer's address to get current target
+                # (we cache by ID in memory? for now, re-query)
+                for c in scheduled:
+                    if c.motorista not in driver_pos:
+                        continue
+                    d_lat, d_lng = driver_pos[c.motorista]
+
+                    # Geocode customer address
+                    try:
+                        encoded = urllib.parse.quote(c.endereco)
+                        geo_res = requests.get(
+                            f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1",
+                            headers={'User-Agent': 'ClubLifter_Tracker'}, timeout=10
+                        ).json()
+                        if not geo_res:
+                            continue
+                        c_lat = float(geo_res[0]['lat'])
+                        c_lng = float(geo_res[0]['lon'])
+                    except Exception:
+                        continue
+
+                    dist_km = calcular_distancia(c_lat, c_lng, d_lat, d_lng)
+                    print(f"[TRACKER] {c.nome}: driver {c.motorista} is {dist_km:.2f} km away", flush=True)
+
+                    # 15 km notification
+                    if dist_km <= 15 and not c.notified_15km:
+                        c.notified_15km = True
+                        db.session.commit()
+                        fire_webhook({
+                            "event":           "distance_15km",
+                            "customer_id":     c.id,
+                            "customer_name":   c.nome,
+                            "customer_phone":  c.phone,
+                            "customer_phones": c.get_phones(),
+                            "driver_name":     c.motorista,
+                            "driver_phone":    c.motorista_phone,
+                            "distance_km":     round(dist_km, 2),
+                            "destination":     c.destination,
+                            "pickup_datetime": c.pickup_datetime,
+                        })
+
+                    # 5 km notification
+                    if dist_km <= 5 and not c.notified_5km:
+                        c.notified_5km = True
+                        db.session.commit()
+                        fire_webhook({
+                            "event":           "distance_5km",
+                            "customer_id":     c.id,
+                            "customer_name":   c.nome,
+                            "customer_phone":  c.phone,
+                            "customer_phones": c.get_phones(),
+                            "driver_name":     c.motorista,
+                            "driver_phone":    c.motorista_phone,
+                            "distance_km":     round(dist_km, 2),
+                            "destination":     c.destination,
+                            "pickup_datetime": c.pickup_datetime,
+                        })
+        except Exception as e:
+            print(f"[TRACKER] Loop error: {e}", flush=True)
+
+def start_distance_tracker():
+    """Start the tracker in a background thread (only once)."""
+    thread = threading.Thread(target=distance_tracker_loop, daemon=True)
+    thread.start()
+    print("[TRACKER] Distance tracker started (checks every 2 min)", flush=True)
+
 # ─── INIT ─────────────────────────────────────────────────────────────────────
 def seed_data():
     if not User.query.filter_by(username='admin').first():
@@ -858,6 +1129,21 @@ with app.app_context():
         if "status" not in existing_customer_cols:
             conn.execute(text("ALTER TABLE customer ADD COLUMN status VARCHAR(20) DEFAULT 'scheduled'"))
             conn.commit()
+        if "phones_json" not in existing_customer_cols:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN phones_json TEXT DEFAULT '[]'"))
+            conn.commit()
+        if "needs_transport" not in existing_customer_cols:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN needs_transport BOOLEAN DEFAULT 1"))
+            conn.commit()
+        if "club_status" not in existing_customer_cols:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN club_status VARCHAR(20) DEFAULT 'coming'"))
+            conn.commit()
+        if "notified_15km" not in existing_customer_cols:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN notified_15km BOOLEAN DEFAULT 0"))
+            conn.commit()
+        if "notified_5km" not in existing_customer_cols:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN notified_5km BOOLEAN DEFAULT 0"))
+            conn.commit()
 
         existing_driver_cols = [c["name"] for c in inspector.get_columns("driver")]
         if "available" not in existing_driver_cols:
@@ -870,6 +1156,11 @@ with app.app_context():
             conn.commit()
 
     seed_data()
+
+# Start background distance tracker (runs in daemon thread)
+# Use WERKZEUG_RUN_MAIN guard to avoid double-starting in Flask debug mode reloader
+if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+    start_distance_tracker()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)

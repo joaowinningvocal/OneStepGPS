@@ -175,6 +175,7 @@
             <div class="pills-desk" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                 {% if session.get('role') == 'master' %}
                 <a href="/admin/today"    class="pill">Today</a>
+                <a href="/admin/guestlist" class="pill">Guest List</a>
                 <a href="/admin/packages" class="pill">Packages</a>
                 <a href="/admin/drivers"  class="pill">Drivers</a>
                 <a href="/admin/users"    class="pill">Users</a>
@@ -192,6 +193,7 @@
     {% if session.get('role') == 'master' %}
     <div class="m-nav">
         <a href="/admin/today">Today</a>
+        <a href="/admin/guestlist">Guest List</a>
         <a href="/admin/packages">Packages</a>
         <a href="/admin/drivers">Drivers</a>
         <a href="/admin/users">Users</a>
@@ -212,12 +214,37 @@
                             <label>Customer Name</label>
                             <input type="text" name="nome" class="fc" placeholder="John Smith" required>
                         </div>
-                        <div class="f">
-                            <label>Customer Phone</label>
-                            <input type="text" name="client_phone" class="fc" placeholder="+17025551234">
-                        </div>
 
                         <div class="f">
+                            <label>Customer Phone(s)</label>
+                            <input type="text" name="client_phone" class="fc" placeholder="+17025551234">
+                            <div id="extraPhones"></div>
+                            <button type="button" onclick="addPhoneField()"
+                                style="margin-top:6px;background:none;border:1px dashed rgba(138,92,246,.4);color:#8a5cf6;border-radius:8px;padding:5px 11px;font-size:.75rem;cursor:pointer;font-weight:600;transition:.2s;"
+                                onmouseover="this.style.borderColor='#8a5cf6';this.style.background='rgba(138,92,246,.1)'"
+                                onmouseout="this.style.borderColor='rgba(138,92,246,.4)';this.style.background='none'">
+                                + Add Phone
+                            </button>
+                        </div>
+
+                        <!-- TRANSPORTATION TOGGLE -->
+                        <div class="f">
+                            <label>Transportation</label>
+                            <div style="display:flex;gap:8px;background:var(--surface2);padding:4px;border-radius:11px;border:1px solid var(--border);">
+                                <label style="flex:1;cursor:pointer;text-align:center;padding:8px;border-radius:8px;transition:.2s;background:rgba(138,92,246,.15);" id="transportYesLabel">
+                                    <input type="radio" name="needs_transport" value="true" checked
+                                        onchange="toggleTransport(true)" style="display:none;">
+                                    <span style="font-size:.83rem;font-weight:600;color:var(--accent);">🚗 Needs Transport</span>
+                                </label>
+                                <label style="flex:1;cursor:pointer;text-align:center;padding:8px;border-radius:8px;transition:.2s;" id="transportNoLabel">
+                                    <input type="radio" name="needs_transport" value="false"
+                                        onchange="toggleTransport(false)" style="display:none;">
+                                    <span style="font-size:.83rem;font-weight:600;color:var(--muted2);">🚶 Walk-in</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="f" id="pickupLocationField">
                             <label>Pickup Location</label>
                             <div class="addr-wrap">
                                 <div class="addr-disp" id="addrDisp" onclick="toggleDrop()">
@@ -428,6 +455,46 @@ var rCtrl=null, rLayer=L.layerGroup().addTo(map);
 let currentCheckoutUrl = '';
 let pendingFormData    = null;
 
+// ── MULTI-PHONE + TRANSPORT TOGGLE ───────────────────────────────────────────
+let phoneCounter = 0;
+function addPhoneField() {
+    phoneCounter++;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;gap:6px;margin-top:6px;';
+    wrap.innerHTML = `
+        <input type="text" class="fc extra-phone" placeholder="+17025551234" style="flex:1;">
+        <button type="button" onclick="this.parentElement.remove()"
+            style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);color:#ef4444;border-radius:8px;padding:6px 12px;cursor:pointer;font-weight:600;font-size:.75rem;">✕</button>
+    `;
+    document.getElementById('extraPhones').appendChild(wrap);
+}
+
+let needsTransport = true;
+function toggleTransport(needs) {
+    needsTransport = needs;
+    const yes = document.getElementById('transportYesLabel');
+    const no  = document.getElementById('transportNoLabel');
+    const pickupField = document.getElementById('pickupLocationField');
+    if (needs) {
+        yes.style.background = 'rgba(138,92,246,.15)';
+        no.style.background  = 'transparent';
+        yes.querySelector('span').style.color = 'var(--accent)';
+        no.querySelector('span').style.color  = 'var(--muted2)';
+        pickupField.style.display = 'block';
+        document.getElementById('addrVal').required = true;
+    } else {
+        no.style.background  = 'rgba(138,92,246,.15)';
+        yes.style.background = 'transparent';
+        no.querySelector('span').style.color  = 'var(--accent)';
+        yes.querySelector('span').style.color = 'var(--muted2)';
+        pickupField.style.display = 'none';
+        document.getElementById('addrVal').required = false;
+        // Auto-fill so backend has something
+        document.getElementById('addrVal').value = '(walk-in)';
+    }
+}
+
+// ── PACKAGE CHECKOUT ─────────────────────────────────────────────────────────
 function onPackageChange(sel) {
     const opt = sel.options[sel.selectedIndex];
     currentCheckoutUrl = opt.getAttribute('data-checkout') || '';
@@ -460,10 +527,19 @@ async function proceedSchedule() {
 document.getElementById('markerForm').onsubmit=async(e)=>{
     e.preventDefault();
     const fd = new FormData(e.target);
-    if (!fd.get('endereco_completo')){document.getElementById('status').innerHTML="<span style='color:var(--red)'>❌ Select a pickup location.</span>";return;}
+
+    // Validate pickup location only if transport is needed
+    if (needsTransport && !fd.get('endereco_completo')){
+        document.getElementById('status').innerHTML="<span style='color:var(--red)'>❌ Select a pickup location.</span>";return;
+    }
     if (!/^\d{2}\/\d{2}\/\d{4}$/.test(fd.get('pickup_date'))){document.getElementById('dateErr').style.display='block';return;}
     document.getElementById('dateErr').style.display='none';
     fd.append('pickup_datetime',`${fd.get('pickup_date')} ${fd.get('pickup_time')}`);
+
+    // Collect extra phones into JSON array
+    const extras = Array.from(document.querySelectorAll('.extra-phone'))
+        .map(i => i.value.trim()).filter(v => v);
+    fd.append('extra_phones', JSON.stringify(extras));
 
     // Show confirmation modal if package has checkout URL
     if (currentCheckoutUrl) {
@@ -482,6 +558,14 @@ async function submitSchedule(fd) {
     try{
         const d=await(await fetch('/cadastrar_cep',{method:'POST',body:fd})).json();
         if(d.success){
+            // WALK-IN: no map / driver, just confirm
+            if (d.walk_in) {
+                st.innerHTML="<span style='color:var(--green)'>✅ Walk-in registered!</span>";
+                document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('package')}</td><td>${fd.get('guests')}</td><td class="ac">walk-in</td></tr>`);
+                resetFormState(form);
+                return;
+            }
+            // TRANSPORT: original flow
             if(rCtrl)map.removeControl(rCtrl); rLayer.clearLayers();
             const pM=L.latLng(d.motorista_coords.lat,d.motorista_coords.lng), pC=L.latLng(d.cliente_coords.lat,d.cliente_coords.lng);
             rCtrl=L.Routing.control({waypoints:[pM,pC],router:L.Routing.osrmv1({serviceUrl:'https://router.project-osrm.org/route/v1',profile:'car'}),lineOptions:{styles:[{color:'#8a5cf6',opacity:.85,weight:5}]},show:false,addWaypoints:false,createMarker:(i,wp)=>L.marker(wp.latLng).bindPopup(`<b>${i===0?'🚗 Driver':'📍 '+fd.get('nome')}</b>`)}).addTo(map);
@@ -494,16 +578,22 @@ async function submitSchedule(fd) {
             document.getElementById('drPhone').innerHTML=d.motorista_phone?`📞 <a href="tel:${d.motorista_phone}" style="color:var(--green)">${d.motorista_phone}</a>`:`<span style="color:var(--muted)">No phone registered</span>`;
             if(window.innerWidth<=960)document.getElementById('map').scrollIntoView({behavior:'smooth',block:'start'});
             document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('package')}</td><td>${fd.get('guests')}</td><td class="ac">${d.distancia}km</td></tr>`);
-            form.reset();
-            document.getElementById('addrTxt').innerText='Search or select a hotel…';
-            document.getElementById('addrDisp').classList.remove('filled');
-            document.getElementById('addrVal').value='';
-            document.getElementById('customF').classList.remove('show');
-            document.getElementById('checkoutBtn').style.display='none';
-            document.getElementById('checkoutNote').style.display='none';
-            currentCheckoutUrl='';
+            resetFormState(form);
         }else{st.innerHTML=`<span style='color:var(--red)'>❌ ${d.error}</span>`;}
     }catch(err){st.innerHTML="<span style='color:var(--red)'>❌ Server error.</span>";}
+}
+
+function resetFormState(form) {
+    form.reset();
+    document.getElementById('addrTxt').innerText='Search or select a hotel…';
+    document.getElementById('addrDisp').classList.remove('filled');
+    document.getElementById('addrVal').value='';
+    document.getElementById('customF').classList.remove('show');
+    document.getElementById('checkoutBtn').style.display='none';
+    document.getElementById('checkoutNote').style.display='none';
+    document.getElementById('extraPhones').innerHTML='';
+    currentCheckoutUrl='';
+    toggleTransport(true);  // reset to default
 }
 </script>
 <!-- PAYMENT CONFIRMATION MODAL -->

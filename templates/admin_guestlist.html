@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClubLifter — Guest List</title>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--s3:#0d1117;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--b:#3b82f6;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;padding:14px;}
+        .wrap{max-width:1300px;margin:0 auto;}
+        .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;margin-bottom:18px;background:var(--s);border:1px solid var(--bd);border-radius:14px;gap:10px;flex-wrap:wrap;}
+        .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:var(--acc);}
+        .brand span{color:var(--t);}
+        .nav-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+        .pill{font-size:.72rem;font-weight:600;color:var(--m2);text-decoration:none;padding:5px 11px;border-radius:20px;border:1px solid var(--bd);transition:.2s;white-space:nowrap;}
+        .pill:hover,.pill.act{color:var(--acc);border-color:var(--bhi);background:rgba(138,92,246,.08);}
+        .btn-back{font-size:.72rem;font-weight:600;color:var(--m2);padding:5px 11px;border-radius:10px;border:1px solid var(--bd);background:none;cursor:pointer;text-decoration:none;transition:.2s;}
+        .btn-back:hover{color:var(--t);}
+        .m-nav{display:none;gap:6px;overflow-x:auto;padding:0 2px 12px;scrollbar-width:none;}
+        .m-nav::-webkit-scrollbar{display:none;}
+        .m-nav a{font-size:.72rem;font-weight:600;color:var(--m2);text-decoration:none;padding:6px 13px;border-radius:20px;border:1px solid var(--bd);white-space:nowrap;flex-shrink:0;transition:.2s;}
+        .m-nav a.act{color:var(--acc);border-color:var(--bhi);}
+
+        /* STATS */
+        .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
+        .stat{background:var(--s);border:1px solid var(--bd);border-radius:14px;padding:16px;text-align:center;}
+        .stat-v{font-family:'Syne',sans-serif;font-size:1.7rem;font-weight:800;}
+        .stat-l{font-size:.74rem;color:var(--m2);margin-top:3px;}
+        .stat.total .stat-v{color:var(--acc);}
+        .stat.coming .stat-v{color:var(--b);}
+        .stat.arrived .stat-v{color:var(--g);}
+        .stat.left .stat-v{color:var(--m);}
+
+        /* FILTERS */
+        .filter-card{background:var(--s);border:1px solid var(--bd);border-radius:14px;padding:16px 18px;margin-bottom:14px;}
+        .filter-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;}
+        .filter-row label{font-size:.7rem;color:var(--m);text-transform:uppercase;letter-spacing:.7px;font-weight:600;margin-right:6px;}
+        .seg{display:inline-flex;background:var(--s2);padding:3px;border-radius:9px;border:1px solid var(--bd);}
+        .seg a{padding:6px 14px;border-radius:7px;font-size:.78rem;font-weight:600;color:var(--m2);text-decoration:none;transition:.2s;}
+        .seg a.act{background:rgba(138,92,246,.2);color:var(--acc);}
+        .fs,.fc{background:var(--s2);border:1px solid var(--bd);color:var(--t);border-radius:9px;padding:7px 12px;font-size:.82rem;font-family:'DM Sans',sans-serif;appearance:none;}
+        .fs{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7'%3E%3Cpath fill='%238892a0' d='M5 7L0 0h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:30px;}
+        .fs option{background:var(--s2);}
+
+        /* TABLE */
+        .card{background:var(--s);border:1px solid var(--bd);border-radius:14px;overflow:hidden;}
+        .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+        table{width:100%;border-collapse:collapse;font-size:.83rem;min-width:900px;}
+        thead th{color:var(--m2);font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.7px;padding:11px 13px;border-bottom:1px solid var(--bd);white-space:nowrap;background:rgba(255,255,255,.02);}
+        tbody td{padding:10px 13px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--m2);vertical-align:middle;}
+        tbody tr:last-child td{border-bottom:none;}
+        tbody tr:hover td{background:rgba(138,92,246,.04);}
+        td.name{color:var(--t);font-weight:600;}
+
+        /* BADGES */
+        .bg{border-radius:14px;padding:2px 9px;font-size:.69rem;font-weight:700;white-space:nowrap;}
+        .b-transport{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.4);}
+        .b-walkin{background:rgba(251,191,36,.1);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
+        .b-dest{background:rgba(149,191,71,.1);color:#95bf47;border:1px solid rgba(149,191,71,.4);}
+        .b-time{background:rgba(59,130,246,.1);color:var(--b);border:1px solid rgba(59,130,246,.4);padding:3px 9px;border-radius:7px;}
+
+        /* STATUS BUTTONS */
+        .status-group{display:inline-flex;background:var(--s2);padding:2px;border-radius:8px;border:1px solid var(--bd);}
+        .stb{padding:5px 10px;border-radius:6px;font-size:.7rem;font-weight:600;border:none;background:none;color:var(--m2);cursor:pointer;transition:.15s;}
+        .stb:hover{color:var(--t);}
+        .stb.act-coming{background:rgba(59,130,246,.25);color:var(--b);}
+        .stb.act-arrived{background:rgba(34,197,94,.25);color:var(--g);}
+        .stb.act-left{background:rgba(90,98,112,.25);color:var(--m);}
+
+        .btn-del{background:none;border:1px solid rgba(239,68,68,.4);color:var(--r);font-size:.7rem;font-weight:600;border-radius:7px;padding:5px 9px;cursor:pointer;transition:.2s;}
+        .btn-del:hover{background:var(--r);color:#fff;}
+
+        .empty{text-align:center;padding:60px 20px;color:var(--m);}
+        .empty .ic{font-size:2.7rem;margin-bottom:10px;}
+
+        a.phone{color:var(--g);text-decoration:none;}
+        a.phone:hover{text-decoration:underline;}
+
+        #toast{position:fixed;bottom:20px;right:16px;left:16px;max-width:380px;margin:0 auto;z-index:9999;display:none;border-radius:11px;padding:12px 16px;font-weight:600;font-size:.85rem;box-shadow:0 8px 24px rgba(0,0,0,.5);}
+
+        @media(max-width:900px){
+            .stats{grid-template-columns:repeat(2,1fr);}
+            .pills-desk{display:none;}
+            .m-nav{display:flex;}
+        }
+        @media(max-width:600px){
+            .filter-row{flex-direction:column;align-items:stretch;}
+            .filter-row > div{width:100%;}
+            .seg{width:100%;justify-content:space-around;}
+            .seg a{flex:1;text-align:center;}
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+
+    <div class="topbar">
+        <div class="brand">Club<span>Lifter</span></div>
+        <div class="nav-r">
+            <div class="pills-desk" style="display:flex;gap:7px;">
+                <a href="/admin/today"    class="pill">Today</a>
+                <a href="/admin/guestlist" class="pill act">Guest List</a>
+                <a href="/admin/packages" class="pill">Packages</a>
+                <a href="/admin/drivers"  class="pill">Drivers</a>
+                <a href="/admin/users"    class="pill">Users</a>
+                <a href="/admin/clubs"    class="pill">Clubs</a>
+            </div>
+            <a href="/" class="btn-back">← Dashboard</a>
+        </div>
+    </div>
+
+    <div class="m-nav">
+        <a href="/admin/today">Today</a>
+        <a href="/admin/guestlist" class="act">Guest List</a>
+        <a href="/admin/packages">Packages</a>
+        <a href="/admin/drivers">Drivers</a>
+        <a href="/admin/users">Users</a>
+        <a href="/admin/clubs">Clubs</a>
+        <a href="/">← Dashboard</a>
+    </div>
+
+    <!-- STATS -->
+    <div class="stats">
+        <div class="stat total"><div class="stat-v">{{ total }}</div><div class="stat-l">📋 Total Guests</div></div>
+        <div class="stat coming"><div class="stat-v">{{ coming }}</div><div class="stat-l">🚗 Coming</div></div>
+        <div class="stat arrived"><div class="stat-v">{{ arrived }}</div><div class="stat-l">🎉 Arrived</div></div>
+        <div class="stat left"><div class="stat-v">{{ left }}</div><div class="stat-l">👋 Left</div></div>
+    </div>
+
+    <!-- FILTERS -->
+    <div class="filter-card">
+        <div class="filter-row">
+            <div>
+                <label>Type</label>
+                <div class="seg">
+                    <a href="?type=all&club={{ filter_club }}&date={{ filter_date }}"       class="{{ 'act' if filter_type=='all' else '' }}">All</a>
+                    <a href="?type=transport&club={{ filter_club }}&date={{ filter_date }}" class="{{ 'act' if filter_type=='transport' else '' }}">🚗 Transport</a>
+                    <a href="?type=walkin&club={{ filter_club }}&date={{ filter_date }}"    class="{{ 'act' if filter_type=='walkin' else '' }}">🚶 Walk-in</a>
+                </div>
+            </div>
+            <div>
+                <label>Club</label>
+                <select class="fs" onchange="window.location='?type={{ filter_type }}&club='+this.value+'&date={{ filter_date }}'">
+                    <option value="all" {% if filter_club=='all' %}selected{% endif %}>All clubs</option>
+                    {% for c in clubs %}
+                    <option value="{{ c.name }}" {% if filter_club==c.name %}selected{% endif %}>{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Date</label>
+                <input type="text" class="fc" value="{{ filter_date }}" placeholder="MM/DD/YYYY" id="dateFilter"
+                    onchange="window.location='?type={{ filter_type }}&club={{ filter_club }}&date='+this.value">
+            </div>
+        </div>
+    </div>
+
+    <!-- TABLE -->
+    <div class="card">
+        {% if customers %}
+        <div class="tbl-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th><th>Name</th><th>Phones</th><th>Type</th>
+                        <th>Destination</th><th>Package</th><th>Guests</th>
+                        <th>Status</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in customers %}
+                    <tr id="row-{{ c.id }}">
+                        <td><span class="b-time">{{ c.pickup_datetime.split(' ')[1] ~ ' ' ~ c.pickup_datetime.split(' ')[2] if c.pickup_datetime else '—' }}</span></td>
+                        <td class="name">{{ c.nome }}</td>
+                        <td style="font-size:.78rem;">
+                            {% for p in c.get_phones() %}
+                            <a href="tel:{{ p }}" class="phone">{{ p }}</a>{% if not loop.last %}<br>{% endif %}
+                            {% else %}—{% endfor %}
+                        </td>
+                        <td>
+                            {% if c.needs_transport %}
+                            <span class="bg b-transport">🚗 Transport</span>
+                            {% else %}
+                            <span class="bg b-walkin">🚶 Walk-in</span>
+                            {% endif %}
+                        </td>
+                        <td>{% if c.destination %}<span class="bg b-dest">🏢 {{ c.destination }}</span>{% else %}—{% endif %}</td>
+                        <td>{{ c.package or '—' }}</td>
+                        <td>{{ c.guests or '—' }}</td>
+                        <td>
+                            <div class="status-group">
+                                <button class="stb {{ 'act-coming' if c.club_status=='coming' else '' }}"     onclick="setStatus({{ c.id }}, 'coming', this)">Coming</button>
+                                <button class="stb {{ 'act-arrived' if c.club_status=='arrived' else '' }}"   onclick="setStatus({{ c.id }}, 'arrived', this)">Arrived</button>
+                                <button class="stb {{ 'act-left' if c.club_status=='left' else '' }}"         onclick="setStatus({{ c.id }}, 'left', this)">Left</button>
+                            </div>
+                        </td>
+                        <td><button class="btn-del" onclick="delGuest({{ c.id }})">✕</button></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty"><div class="ic">📭</div><div style="font-weight:600;margin-bottom:4px;">No guests for this filter</div><div style="font-size:.8rem;">Try adjusting the type, club, or date filters above.</div></div>
+        {% endif %}
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+function toast(m, ok=true){const t=document.getElementById('toast');t.style.display='block';t.style.background=ok?'#16a34a':'#dc2626';t.style.color='#fff';t.innerText=m;setTimeout(()=>t.style.display='none',2500);}
+
+async function setStatus(id, status, btn){
+    const fd=new FormData(); fd.append('club_status', status);
+    const d=await(await fetch(`/admin/guestlist/status/${id}`, {method:'POST',body:fd})).json();
+    if(d.success){
+        toast('Status updated to '+status);
+        // Update button styles in row
+        const row=document.getElementById('row-'+id);
+        row.querySelectorAll('.stb').forEach(b=>{b.className='stb';});
+        if(status==='coming')  btn.className='stb act-coming';
+        if(status==='arrived') btn.className='stb act-arrived';
+        if(status==='left')    btn.className='stb act-left';
+    } else toast(d.error||'Error', false);
+}
+
+async function delGuest(id){
+    if(!confirm('Remove this guest from the list?')) return;
+    const d=await(await fetch(`/admin/guestlist/delete/${id}`, {method:'POST'})).json();
+    if(d.success){
+        toast('Guest removed');
+        document.getElementById('row-'+id).remove();
+    } else toast(d.error||'Error', false);
+}
+
+// Date format helper
+const dateF = document.getElementById('dateFilter');
+if (dateF) {
+    dateF.addEventListener('input', e=>{
+        let v=e.target.value.replace(/\D/g,'');
+        if(v.length>2)v=v.slice(0,2)+'/'+v.slice(2);
+        if(v.length>5)v=v.slice(0,5)+'/'+v.slice(5,9);
+        e.target.value=v;
+    });
+}
+</script>
+</body>
+</html>
