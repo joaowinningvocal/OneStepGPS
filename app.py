@@ -30,7 +30,9 @@ db = SQLAlchemy(app)
 # ─── SETTINGS ─────────────────────────────────────────────────────────────────
 API_KEY      = os.environ.get("ONESTEPGPS_API_KEY", "")
 URL_API      = "https://track.onestepgps.com/v3/api/public/marker"
-MAKE_WEBHOOK = os.environ.get("MAKE_WEBHOOK_URL", "https://nightdeskt-production.up.railway.app/webhook/hustler-lv")
+MAKE_WEBHOOK = os.environ.get("MAKE_WEBHOOK_URL", "https://hook.us1.make.com/ur1qljbumjhfa1meu7rh0hjb25a9hxj2")
+# Public base URL of this app (for building absolute image URLs for Twilio MMS)
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://www.clublifter.com").rstrip("/")
 
 # ─── SHOPIFY ──────────────────────────────────────────────────────────────────
 SHOPIFY_STORE   = os.environ.get("SHOPIFY_STORE", "vip-packages.myshopify.com")
@@ -231,12 +233,21 @@ class Driver(db.Model):
     car_plate  = db.Column(db.String(30), default="")
     car_photo  = db.Column(db.String(255), default="")  # filename in /data/uploads
 
+    def car_string(self):
+        # Structured like: RED HONDA CIVIC — NV-12345
+        parts = [self.car_color, self.car_model]
+        s = " ".join(p for p in parts if p).strip().upper()
+        if self.car_plate:
+            s = f"{s} ({self.car_plate})" if s else self.car_plate
+        return s or "N/A"
+
     def to_dict(self):
         return {
             "id": self.id, "name": self.name, "phone": self.phone,
             "available": self.available,
             "car_model": self.car_model, "car_color": self.car_color,
-            "car_plate": self.car_plate, "car_photo": self.car_photo
+            "car_plate": self.car_plate, "car_photo": self.car_photo,
+            "car_string": self.car_string()
         }
 
 class Customer(db.Model):
@@ -260,6 +271,7 @@ class Customer(db.Model):
     status          = db.Column(db.String(20), default="scheduled")
     # Distance notification flags (so we don't fire 2x)
     notified_15km   = db.Column(db.Boolean, default=False)
+    notified_10km   = db.Column(db.Boolean, default=False)
     notified_5km    = db.Column(db.Boolean, default=False)
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -703,6 +715,40 @@ def cadastrar_cep():
             "shopify_order_id":     shopify_result.get("shopify_order_id"),
             "shopify_order_number": shopify_result.get("shopify_order_number"),
             "shopify_order_url":    shopify_result.get("shopify_order_url"),
+        })
+
+        # 9. FIRE "SCHEDULED" SMS WEBHOOK (text to customer's phone #1)
+        car_full = " ".join(p for p in [car_color, car_model] if p).strip().upper()
+        if car_plate:
+            car_full = f"{car_full} ({car_plate})" if car_full else car_plate
+        # Build absolute car photo URL (for Twilio MMS Media URL)
+        car_photo_url = ""
+        if driver_profile and driver_profile.car_photo:
+            car_photo_url = f"{PUBLIC_BASE_URL}/uploads/{driver_profile.car_photo}"
+        # Extract just the time portion for a cleaner message
+        time_part = ""
+        if pickup_datetime and len(pickup_datetime.split(' ')) >= 3:
+            parts = pickup_datetime.split(' ')
+            time_part = f"{parts[1]} {parts[2]}"
+        sms_text = (
+            f"Hi {nome}! Your ClubLifter ride is booked. "
+            f"{melhor_v} will pick you up"
+            f"{' at ' + time_part if time_part else ''}"
+            f"{' in a ' + car_full if car_full and car_full != 'N/A' else ''}. "
+            f"See you soon!"
+        )
+        fire_webhook({
+            "type":            "scheduled",
+            "customer_name":   nome,
+            "customer_phone":  client_phone,   # phone #1
+            "driver_name":     melhor_v,
+            "driver_car":      car_full or "N/A",
+            "driver_car_photo_url": car_photo_url,
+            "pickup_datetime": pickup_datetime,
+            "pickup_time":     time_part,
+            "destination":     destination,
+            "message":         sms_text,
+            "customer_id":     customer.id,
         })
 
         return jsonify({
@@ -1254,7 +1300,7 @@ def distance_tracker_loop():
                     needs_transport=True
                 ).all()
                 scheduled = [c for c in scheduled if today_str in (c.pickup_datetime or "")
-                             and (not c.notified_5km or not c.notified_15km)]
+                             and (not c.notified_5km or not c.notified_10km or not c.notified_15km)]
 
                 if not scheduled:
                     continue
@@ -1303,39 +1349,44 @@ def distance_tracker_loop():
                     dist_km = calcular_distancia(c_lat, c_lng, d_lat, d_lng)
                     print(f"[TRACKER] {c.nome}: driver {c.motorista} is {dist_km:.2f} km away", flush=True)
 
-                    # 15 km notification
-                    if dist_km <= 15 and not c.notified_15km:
-                        c.notified_15km = True
-                        db.session.commit()
+                    # Look up the driver's car string
+                    drv = Driver.query.filter_by(name=c.motorista).first()
+                    car_str = drv.car_string() if drv else "N/A"
+                    car_photo_url = f"{PUBLIC_BASE_URL}/uploads/{drv.car_photo}" if (drv and drv.car_photo) else ""
+
+                    def fire_distance(threshold_label):
                         fire_webhook({
-                            "event":           "distance_15km",
-                            "customer_id":     c.id,
-                            "customer_name":   c.nome,
-                            "customer_phone":  c.phone,
-                            "customer_phones": c.get_phones(),
-                            "driver_name":     c.motorista,
-                            "driver_phone":    c.motorista_phone,
-                            "distance_km":     round(dist_km, 2),
-                            "destination":     c.destination,
-                            "pickup_datetime": c.pickup_datetime,
+                            "type":             "distance",
+                            "current_distance": round(dist_km, 2),
+                            "driver_name":      c.motorista,
+                            "driver_car":       car_str,
+                            "driver_car_photo_url": car_photo_url,
+                            "threshold":        threshold_label,
+                            "customer_name":    c.nome,
+                            "customer_phone":   c.phone,
+                            "customer_phones":  c.get_phones(),
+                            "destination":      c.destination,
+                            "pickup_datetime":  c.pickup_datetime,
+                            "customer_id":      c.id,
                         })
 
-                    # 5 km notification
+                    # Fire once per threshold, nearest first to avoid multiple in one pass
                     if dist_km <= 5 and not c.notified_5km:
                         c.notified_5km = True
+                        # mark earlier ones too in case they were skipped
+                        c.notified_10km = True
+                        c.notified_15km = True
                         db.session.commit()
-                        fire_webhook({
-                            "event":           "distance_5km",
-                            "customer_id":     c.id,
-                            "customer_name":   c.nome,
-                            "customer_phone":  c.phone,
-                            "customer_phones": c.get_phones(),
-                            "driver_name":     c.motorista,
-                            "driver_phone":    c.motorista_phone,
-                            "distance_km":     round(dist_km, 2),
-                            "destination":     c.destination,
-                            "pickup_datetime": c.pickup_datetime,
-                        })
+                        fire_distance("5km")
+                    elif dist_km <= 10 and not c.notified_10km:
+                        c.notified_10km = True
+                        c.notified_15km = True
+                        db.session.commit()
+                        fire_distance("10km")
+                    elif dist_km <= 15 and not c.notified_15km:
+                        c.notified_15km = True
+                        db.session.commit()
+                        fire_distance("15km")
         except Exception as e:
             print(f"[TRACKER] Loop error: {e}", flush=True)
 
@@ -1399,6 +1450,9 @@ with app.app_context():
             conn.commit()
         if "notified_15km" not in existing_customer_cols:
             conn.execute(text("ALTER TABLE customer ADD COLUMN notified_15km BOOLEAN DEFAULT 0"))
+            conn.commit()
+        if "notified_10km" not in existing_customer_cols:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN notified_10km BOOLEAN DEFAULT 0"))
             conn.commit()
         if "notified_5km" not in existing_customer_cols:
             conn.execute(text("ALTER TABLE customer ADD COLUMN notified_5km BOOLEAN DEFAULT 0"))
