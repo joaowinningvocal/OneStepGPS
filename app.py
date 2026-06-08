@@ -349,9 +349,11 @@ def require_api_key(f):
 
 def fire_webhook(payload: dict):
     try:
-        requests.post(MAKE_WEBHOOK, json=payload, timeout=5)
-    except Exception:
-        pass
+        r = requests.post(MAKE_WEBHOOK, json=payload, timeout=10)
+        print(f"[WEBHOOK] type={payload.get('type') or payload.get('event')} status={r.status_code} url={MAKE_WEBHOOK}", flush=True)
+        print(f"[WEBHOOK] response={r.text[:200]}", flush=True)
+    except Exception as e:
+        print(f"[WEBHOOK] FAILED: {e} url={MAKE_WEBHOOK}", flush=True)
 
 def parse_pickup_datetime(dt_str):
     """
