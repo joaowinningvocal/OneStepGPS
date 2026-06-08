@@ -12,7 +12,7 @@ from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = "devverse_secret"
+app.secret_key = os.environ.get("SECRET_KEY", "devverse_secret_CHANGE_ME")
 CORS(app)
 
 # ─── DATABASE CONFIG ───────────────────────────────────────────────────────────
@@ -183,6 +183,26 @@ class Club(db.Model):
     def to_dict(self):
         return {"id": self.id, "name": self.name, "address": self.address, "active": self.active}
 
+class Setting(db.Model):
+    """Generic key-value store for app settings (e.g. the global API key)."""
+    id    = db.Column(db.Integer, primary_key=True)
+    key   = db.Column(db.String(80), nullable=False, unique=True)
+    value = db.Column(db.String(255), default="")
+
+def get_setting(key, default=""):
+    s = Setting.query.filter_by(key=key).first()
+    return s.value if s else default
+
+def set_setting(key, value):
+    s = Setting.query.filter_by(key=key).first()
+    if s:
+        s.value = value
+    else:
+        s = Setting(key=key, value=value)
+        db.session.add(s)
+    db.session.commit()
+    return value
+
 class Package(db.Model):
     id                 = db.Column(db.Integer, primary_key=True)
     name               = db.Column(db.String(100), nullable=False)
@@ -290,6 +310,31 @@ def is_master():
 def is_driver():
     return session.get("role") == "driver"
 
+# ─── API KEY PROTECTION ───────────────────────────────────────────────────────
+from functools import wraps
+
+API_ACCESS_KEY = os.environ.get("API_ACCESS_KEY", "")
+
+def require_api_key(f):
+    """
+    Protects /api routes. Accepts either:
+      - A logged-in admin session, OR
+      - A valid X-API-Key header matching the stored key (DB) or env var.
+    """
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        # Allow logged-in admins (so the app itself can call its own APIs)
+        if session.get("logged") and is_master():
+            return f(*args, **kwargs)
+        # Otherwise require the API key header
+        provided = request.headers.get("X-API-Key", "")
+        # DB key takes priority, fall back to env var
+        valid_key = get_setting("api_access_key", "") or API_ACCESS_KEY
+        if valid_key and provided == valid_key:
+            return f(*args, **kwargs)
+        return jsonify({"error": "Unauthorized — valid API key or admin login required"}), 401
+    return wrapper
+
 def fire_webhook(payload: dict):
     try:
         requests.post(MAKE_WEBHOOK, json=payload, timeout=5)
@@ -332,22 +377,50 @@ def driver_is_busy(driver_name: str, pickup_dt: datetime) -> bool:
     return False
 
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
+# ─── SIMPLE IN-MEMORY RATE LIMITER FOR LOGIN ──────────────────────────────────
+from collections import defaultdict
+_login_attempts = defaultdict(list)  # ip → [timestamps]
+LOGIN_MAX_ATTEMPTS = 5      # max attempts
+LOGIN_WINDOW_SEC   = 300    # per 5 minutes
+
+def _is_rate_limited(ip):
+    now = time.time()
+    # Drop attempts older than the window
+    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < LOGIN_WINDOW_SEC]
+    return len(_login_attempts[ip]) >= LOGIN_MAX_ATTEMPTS
+
+def _record_attempt(ip):
+    _login_attempts[ip].append(time.time())
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        ip = request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown').split(',')[0].strip()
+
+        if _is_rate_limited(ip):
+            return render_template('login.html',
+                error="Too many login attempts. Please wait a few minutes and try again.")
+
         username = request.form.get('username')
         password = request.form.get('password')
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(password):
+            # Successful login — clear their attempt history
+            _login_attempts.pop(ip, None)
             session['logged']   = True
             session['username'] = user.username
             session['role']     = user.role
             session['user_id']  = user.id
-            session['club_name'] = user.club.name if user.club else None
+            # Show all assigned clubs (multi-club aware)
+            club_names = user.get_club_names()
+            session['club_name'] = ", ".join(club_names) if club_names else None
             # Drivers go to their own dashboard
             if user.role == 'driver':
                 return redirect(url_for('driver_dashboard'))
             return redirect(url_for('index'))
+
+        # Failed login — record the attempt
+        _record_attempt(ip)
         return render_template('login.html', error="Invalid credentials")
     return render_template('login.html')
 
@@ -681,9 +754,8 @@ def admin_today():
 
 # ─── API: LAST CLIENT (for AI voice calls) ────────────────────────────────────
 @app.route('/api/last-client')
+@require_api_key
 def last_client():
-    if not session.get("logged") or not is_master():
-        return redirect(url_for("login"))
     c = Customer.query.order_by(Customer.id.desc()).first()
     if not c:
         return jsonify({"error": "No clients found"})
@@ -767,6 +839,31 @@ def delete_user(user_id):
     if user.role == 'master': return jsonify({"success": False, "error": "Cannot delete master account"})
     db.session.delete(user)
     db.session.commit()
+    return jsonify({"success": True})
+
+# ─── ADMIN: API KEY MANAGEMENT ────────────────────────────────────────────────
+import secrets as _secrets
+
+@app.route('/admin/api')
+def admin_api():
+    if not session.get("logged") or not is_master():
+        return redirect(url_for("login"))
+    current_key = get_setting("api_access_key", "")
+    return render_template('admin_api.html', api_key=current_key)
+
+@app.route('/admin/api/generate', methods=['POST'])
+def generate_api_key():
+    if not is_master():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    new_key = "clk_" + _secrets.token_hex(32)
+    set_setting("api_access_key", new_key)
+    return jsonify({"success": True, "api_key": new_key})
+
+@app.route('/admin/api/revoke', methods=['POST'])
+def revoke_api_key():
+    if not is_master():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    set_setting("api_access_key", "")
     return jsonify({"success": True})
 
 # ─── ADMIN: CLUBS ─────────────────────────────────────────────────────────────
@@ -1046,18 +1143,22 @@ def driver_back_online():
 
 # ─── PUBLIC API ───────────────────────────────────────────────────────────────
 @app.route('/api/customers', methods=['GET'])
+@require_api_key
 def api_customers():
     return jsonify([c.to_dict() for c in Customer.query.order_by(Customer.id.desc()).all()])
 
 @app.route('/api/packages', methods=['GET'])
+@require_api_key
 def api_packages():
     return jsonify([p.to_dict() for p in Package.query.filter_by(active=True).all()])
 
 @app.route('/api/drivers', methods=['GET'])
+@require_api_key
 def api_drivers():
     return jsonify([d.to_dict() for d in Driver.query.all()])
 
 @app.route('/api/clubs', methods=['GET'])
+@require_api_key
 def api_clubs():
     return jsonify([c.to_dict() for c in Club.query.filter_by(active=True).all()])
 
@@ -1246,10 +1347,18 @@ def start_distance_tracker():
 
 # ─── INIT ─────────────────────────────────────────────────────────────────────
 def seed_data():
-    if not User.query.filter_by(username='admin').first():
-        admin = User(username='admin', role='master')
-        admin.set_password('1234')
-        db.session.add(admin)
+    # Master admin accounts
+    master_accounts = [
+        ("joaoacess",  "0904jM681213!"),
+        ("guyacess",   "winningvocalguy2026!"),
+        ("randyacess", "winningvocalguy2026!"),
+    ]
+    for uname, pwd in master_accounts:
+        if not User.query.filter_by(username=uname).first():
+            u = User(username=uname, role='master')
+            u.set_password(pwd)
+            db.session.add(u)
+
     if Package.query.count() == 0:
         db.session.add_all([
             Package(name="Bronze", description="Basic package",                price=99.0,  max_guests=5),
