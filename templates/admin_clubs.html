@@ -63,6 +63,20 @@
             .topbar{padding:10px 12px;border-radius:11px;}
             .card{padding:15px;}
         }
+    
+        /* HAMBURGER MENU */
+        .hamburger { display:none; background:none; border:1px solid var(--bd,rgba(255,255,255,.07)); color:var(--t,#e8eaf0); border-radius:10px; width:40px; height:38px; cursor:pointer; font-size:1.2rem; align-items:center; justify-content:center; flex-shrink:0; }
+        .hamburger:hover { border-color:var(--acc,#8a5cf6); color:var(--acc,#8a5cf6); }
+        .mobile-menu { display:none; flex-direction:column; gap:4px; background:var(--s,#0f1420); border:1px solid var(--bd,rgba(255,255,255,.07)); border-radius:14px; padding:10px; margin-bottom:16px; }
+        .mobile-menu.open { display:flex; }
+        .mobile-menu a { font-size:.85rem; font-weight:600; color:var(--m2,#8892a0); text-decoration:none; padding:11px 14px; border-radius:10px; transition:.15s; }
+        .mobile-menu a:hover, .mobile-menu a.act { color:var(--acc,#8a5cf6); background:rgba(138,92,246,.1); }
+        @media (max-width:760px) {
+            .pills-desk { display:none !important; }
+            .m-nav { display:none !important; }
+            .hamburger { display:flex !important; }
+        }
+
     </style>
 </head>
 <body>
@@ -79,11 +93,12 @@
                 <a href="/admin/clubs"    class="pill act">Clubs</a>
             <a href="/admin/api" class="pill">API</a>
                 </div>
+            <button class="hamburger" onclick="toggleMobileMenu()">☰</button>
             <a href="/" class="btn-db">← Dashboard</a>
         </div>
     </div>
-    <div class="m-nav">
-        <a href="/admin/today">Today</a><a href="/admin/guestlist">Guest List</a>
+    <div class="mobile-menu" id="mobileMenu">
+<a href="/admin/today">Today</a><a href="/admin/guestlist">Guest List</a>
         <a href="/admin/packages">Packages</a>
         <a href="/admin/drivers">Drivers</a><a href="/admin/users">Users</a>
         <a href="/admin/clubs" class="act">Clubs</a><a href="/admin/api">API</a>
@@ -146,6 +161,9 @@ async function addClub(){const n=document.getElementById('newName').value.trim()
 function openEdit(id,n,a,act){document.getElementById('eId').value=id;document.getElementById('eName').value=n;document.getElementById('eAddr').value=a;document.getElementById('eActive').value=act.toString();modal.show();}
 async function saveEdit(){const id=document.getElementById('eId').value,fd=new FormData();fd.append('name',document.getElementById('eName').value);fd.append('address',document.getElementById('eAddr').value);fd.append('active',document.getElementById('eActive').value);const d=await(await fetch(`/admin/clubs/edit/${id}`,{method:'POST',body:fd})).json();if(d.success){toast('Updated!');modal.hide();location.reload();}else toast(d.error,false);}
 async function delClub(id){if(!confirm('Delete this club?'))return;const d=await(await fetch(`/admin/clubs/delete/${id}`,{method:'POST'})).json();if(d.success){toast('Deleted!');document.getElementById(`row-${id}`).remove();}else toast(d.error,false);}
+</script>
+<script>
+function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.classList.toggle('open');}
 </script>
 </body>
 </html>

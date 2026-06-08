@@ -68,6 +68,20 @@
             .pk-top{flex-direction:column;}
             .btn-done{width:100%;margin-top:8px;}
         }
+    
+        /* HAMBURGER MENU */
+        .hamburger { display:none; background:none; border:1px solid var(--bd,rgba(255,255,255,.07)); color:var(--t,#e8eaf0); border-radius:10px; width:40px; height:38px; cursor:pointer; font-size:1.2rem; align-items:center; justify-content:center; flex-shrink:0; }
+        .hamburger:hover { border-color:var(--acc,#8a5cf6); color:var(--acc,#8a5cf6); }
+        .mobile-menu { display:none; flex-direction:column; gap:4px; background:var(--s,#0f1420); border:1px solid var(--bd,rgba(255,255,255,.07)); border-radius:14px; padding:10px; margin-bottom:16px; }
+        .mobile-menu.open { display:flex; }
+        .mobile-menu a { font-size:.85rem; font-weight:600; color:var(--m2,#8892a0); text-decoration:none; padding:11px 14px; border-radius:10px; transition:.15s; }
+        .mobile-menu a:hover, .mobile-menu a.act { color:var(--acc,#8a5cf6); background:rgba(138,92,246,.1); }
+        @media (max-width:760px) {
+            .pills-desk { display:none !important; }
+            .m-nav { display:none !important; }
+            .hamburger { display:flex !important; }
+        }
+
     </style>
 </head>
 <body>
@@ -149,6 +163,9 @@ function toast(m,ok=true){const t=document.getElementById('toast');t.style.displ
 async function markDone(id,btn){btn.disabled=true;btn.innerText='⏳';const d=await(await fetch(`/driver/pickup/${id}`,{method:'POST'})).json();if(d.success){toast('✅ Marked as picked up!');const c=document.getElementById(`card-${id}`);c.classList.add('done');btn.remove();const b=c.querySelector('.badges');const s=document.createElement('span');s.className='bg bdn';s.innerText='✅ Done';b.appendChild(s);}else{toast(d.error||'Error',false);btn.disabled=false;btn.innerText='✅ Picked Up';}}
 async function reportProblem(){if(!confirm('⚠️ Report a problem?\n\nYour pickups will be reassigned and you will go offline.'))return;const d=await(await fetch('/driver/report-problem',{method:'POST'})).json();if(d.success){toast('Problem reported. You are now offline.',false);setTimeout(()=>location.reload(),1800);}else toast(d.error||'Error',false);}
 async function goOnline(){if(!confirm('Confirm you are ready to receive pickups?'))return;const d=await(await fetch('/driver/back-online',{method:'POST'})).json();if(d.success){toast('✅ Back online!');setTimeout(()=>location.reload(),1200);}else toast(d.error||'Error',false);}
+</script>
+<script>
+function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.classList.toggle('open');}
 </script>
 </body>
 </html>

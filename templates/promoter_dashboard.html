@@ -61,6 +61,20 @@
             .stats{grid-template-columns:1fr;}
             .grid{grid-template-columns:1fr;}
         }
+    
+        /* HAMBURGER MENU */
+        .hamburger { display:none; background:none; border:1px solid var(--bd,rgba(255,255,255,.07)); color:var(--t,#e8eaf0); border-radius:10px; width:40px; height:38px; cursor:pointer; font-size:1.2rem; align-items:center; justify-content:center; flex-shrink:0; }
+        .hamburger:hover { border-color:var(--acc,#8a5cf6); color:var(--acc,#8a5cf6); }
+        .mobile-menu { display:none; flex-direction:column; gap:4px; background:var(--s,#0f1420); border:1px solid var(--bd,rgba(255,255,255,.07)); border-radius:14px; padding:10px; margin-bottom:16px; }
+        .mobile-menu.open { display:flex; }
+        .mobile-menu a { font-size:.85rem; font-weight:600; color:var(--m2,#8892a0); text-decoration:none; padding:11px 14px; border-radius:10px; transition:.15s; }
+        .mobile-menu a:hover, .mobile-menu a.act { color:var(--acc,#8a5cf6); background:rgba(138,92,246,.1); }
+        @media (max-width:760px) {
+            .pills-desk { display:none !important; }
+            .m-nav { display:none !important; }
+            .hamburger { display:flex !important; }
+        }
+
     </style>
 </head>
 <body>
@@ -149,5 +163,8 @@
         </div>
     </div>
 </div>
+<script>
+function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.classList.toggle('open');}
+</script>
 </body>
 </html>
