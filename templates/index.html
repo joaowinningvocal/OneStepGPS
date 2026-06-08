@@ -180,6 +180,8 @@
                 <a href="/admin/drivers"  class="pill">Drivers</a>
                 <a href="/admin/users"    class="pill">Users</a>
                 <a href="/admin/clubs"    class="pill">Clubs</a>
+                {% else %}
+                <a href="/promoter/dashboard" class="pill">📊 My Dashboard</a>
                 {% endif %}
                 {% if session.get('club_name') %}
                 <span class="club-pill">🏢 {{ session.get('club_name') }}</span>

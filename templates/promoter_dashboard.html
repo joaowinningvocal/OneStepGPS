@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClubLifter — Promoter Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--b:#3b82f6;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;padding:14px;}
+        .wrap{max-width:1200px;margin:0 auto;}
+        .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;margin-bottom:18px;background:var(--s);border:1px solid var(--bd);border-radius:14px;gap:10px;flex-wrap:wrap;}
+        .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:var(--acc);}
+        .brand span{color:var(--t);}
+        .nav-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+        .pill{font-size:.72rem;font-weight:600;color:var(--m2);text-decoration:none;padding:5px 11px;border-radius:20px;border:1px solid var(--bd);transition:.2s;}
+        .pill:hover,.pill.act{color:var(--acc);border-color:var(--bhi);background:rgba(138,92,246,.08);}
+        .club-pill{font-size:.7rem;font-weight:700;color:var(--gold);padding:5px 11px;border-radius:20px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.07);}
+        .btn-out{font-size:.72rem;font-weight:600;color:var(--m);padding:5px 11px;border-radius:20px;border:1px solid var(--bd);background:none;cursor:pointer;text-decoration:none;transition:.2s;}
+        .btn-out:hover{color:var(--r);border-color:rgba(239,68,68,.5);}
+
+        .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;}
+        .stat{background:var(--s);border:1px solid var(--bd);border-radius:14px;padding:20px;text-align:center;}
+        .stat-v{font-family:'Syne',sans-serif;font-size:1.9rem;font-weight:800;}
+        .stat-l{font-size:.76rem;color:var(--m2);margin-top:4px;}
+        .stat.earn .stat-v{color:var(--g);}
+        .stat.sales .stat-v{color:var(--acc);}
+        .stat.rate .stat-v{color:var(--gold);}
+
+        .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+        .card{background:var(--s);border:1px solid var(--bd);border-radius:16px;overflow:hidden;}
+        .card-hdr{padding:16px 20px 12px;border-bottom:1px solid var(--bd);}
+        .card-hdr h5{font-family:'Syne',sans-serif;font-weight:700;font-size:1rem;}
+        .card-body{padding:14px;}
+
+        /* Car availability */
+        .car{display:flex;align-items:center;gap:12px;background:var(--s2);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:9px;}
+        .car-photo{width:54px;height:54px;border-radius:9px;object-fit:cover;background:#0d1117;flex-shrink:0;border:1px solid var(--bd);}
+        .car-photo.placeholder{display:flex;align-items:center;justify-content:center;font-size:1.4rem;color:var(--m);}
+        .car-info{flex:1;min-width:0;}
+        .car-name{font-family:'Syne',sans-serif;font-weight:700;font-size:.9rem;}
+        .car-detail{font-size:.76rem;color:var(--m2);margin-top:2px;}
+        .badge-free{background:rgba(34,197,94,.1);color:var(--g);border:1px solid rgba(34,197,94,.4);border-radius:14px;padding:3px 11px;font-size:.7rem;font-weight:700;white-space:nowrap;}
+        .badge-busy{background:rgba(239,68,68,.1);color:var(--r);border:1px solid rgba(239,68,68,.4);border-radius:14px;padding:3px 11px;font-size:.7rem;font-weight:700;white-space:nowrap;}
+
+        /* History table */
+        .tbl-wrap{overflow-x:auto;}
+        table{width:100%;border-collapse:collapse;font-size:.82rem;min-width:340px;}
+        thead th{color:var(--m2);font-weight:600;font-size:.67rem;text-transform:uppercase;letter-spacing:.7px;padding:8px 11px;border-bottom:1px solid var(--bd);}
+        tbody td{padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--m2);}
+        tbody tr:last-child td{border-bottom:none;}
+        td.name{color:var(--t);font-weight:600;}
+        .b-pkg{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.4);border-radius:12px;padding:2px 8px;font-size:.69rem;font-weight:700;}
+
+        .empty{text-align:center;padding:36px;color:var(--m);font-size:.83rem;}
+        .btn-book{display:inline-block;margin-top:4px;background:linear-gradient(135deg,var(--acc),#6d28d9);color:#fff;text-decoration:none;font-family:'Syne',sans-serif;font-weight:700;font-size:.82rem;border-radius:11px;padding:10px 20px;transition:.2s;}
+        .btn-book:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(138,92,246,.4);}
+
+        @media(max-width:800px){
+            .stats{grid-template-columns:1fr;}
+            .grid{grid-template-columns:1fr;}
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="topbar">
+        <div class="brand">Club<span>Lifter</span></div>
+        <div class="nav-r">
+            <a href="/" class="pill">+ New Pickup</a>
+            <a href="/promoter/dashboard" class="pill act">My Dashboard</a>
+            {% for cn in club_names %}
+            <span class="club-pill">🏢 {{ cn }}</span>
+            {% endfor %}
+            <a href="/logout" class="btn-out">Logout</a>
+        </div>
+    </div>
+
+    <!-- STATS -->
+    <div class="stats">
+        <div class="stat earn"><div class="stat-v">${{ "%.2f"|format(total_commission) }}</div><div class="stat-l">💰 Total Earnings</div></div>
+        <div class="stat sales"><div class="stat-v">{{ total_sales }}</div><div class="stat-l">🎟️ Total Sales</div></div>
+        <div class="stat rate"><div class="stat-v">${{ "%.2f"|format(commission_rate) }}</div><div class="stat-l">📊 Per Sale</div></div>
+    </div>
+
+    <div style="margin-bottom:16px;">
+        <a href="/" class="btn-book">🚗 Book a Car for a Client</a>
+    </div>
+
+    <div class="grid">
+        <!-- CAR AVAILABILITY -->
+        <div class="card">
+            <div class="card-hdr"><h5>Car Availability <span style="font-weight:400;font-size:.78rem;color:var(--m2);">— this hour</span></h5></div>
+            <div class="card-body">
+                {% if car_status %}
+                    {% for c in car_status %}
+                    <div class="car">
+                        {% if c.car_photo %}
+                        <img src="/uploads/{{ c.car_photo }}" class="car-photo" alt="car">
+                        {% else %}
+                        <div class="car-photo placeholder">🚘</div>
+                        {% endif %}
+                        <div class="car-info">
+                            <div class="car-name">{{ c.name }}</div>
+                            <div class="car-detail">
+                                {% if c.car_model or c.car_color %}
+                                {{ c.car_color }} {{ c.car_model }}{% if c.car_plate %} · {{ c.car_plate }}{% endif %}
+                                {% else %}No car info{% endif %}
+                            </div>
+                        </div>
+                        {% if c.in_use %}
+                        <span class="badge-busy">● In Use</span>
+                        {% else %}
+                        <span class="badge-free">● Available</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <div class="empty">No drivers registered.</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- MY CLIENTS HISTORY -->
+        <div class="card">
+            <div class="card-hdr"><h5>My Booking History</h5></div>
+            <div class="card-body">
+                {% if customers %}
+                <div class="tbl-wrap">
+                    <table>
+                        <thead><tr><th>Client</th><th>Package</th><th>Destination</th><th>When</th></tr></thead>
+                        <tbody>
+                            {% for c in customers %}
+                            <tr>
+                                <td class="name">{{ c.nome }}</td>
+                                <td>{% if c.package %}<span class="b-pkg">{{ c.package }}</span>{% else %}—{% endif %}</td>
+                                <td style="font-size:.78rem;">{{ c.destination or '—' }}</td>
+                                <td style="font-size:.76rem;">{{ c.pickup_datetime or '—' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty">No bookings yet. Start by creating a pickup!</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

@@ -17,6 +17,8 @@ CORS(app)
 
 # ─── DATABASE CONFIG ───────────────────────────────────────────────────────────
 os.makedirs('/data', exist_ok=True)
+UPLOAD_FOLDER = '/data/uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 database_url = os.environ.get('DATABASE_URL', 'sqlite:////data/clublifter.db')
 if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
@@ -130,14 +132,25 @@ def create_shopify_order(customer_name: str, customer_phone: str,
         return {"error": str(e)}
 
 # ─── MODELS ───────────────────────────────────────────────────────────────────
+
+# Many-to-many: users (promoters) ↔ clubs
+user_clubs = db.Table('user_clubs',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
+    db.Column('club_id', db.Integer, db.ForeignKey('club.id'), primary_key=True)
+)
+
 class User(db.Model):
     id            = db.Column(db.Integer, primary_key=True)
     username      = db.Column(db.String(80), nullable=False, unique=True)
     password_hash = db.Column(db.String(200), nullable=False)
     role          = db.Column(db.String(20), default="promoter")
-    # For promoters: which club they belong to (display in top-right)
+    # Legacy single club (kept for backward compat)
     club_id       = db.Column(db.Integer, db.ForeignKey('club.id'), nullable=True)
-    club          = db.relationship('Club', backref='members')
+    club          = db.relationship('Club', foreign_keys=[club_id])
+    # NEW: multiple clubs (many-to-many)
+    clubs         = db.relationship('Club', secondary=user_clubs, backref='promoters')
+    # NEW: commission amount the admin sets per promoter (manual $ per sale)
+    commission    = db.Column(db.Float, default=0.0)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -145,11 +158,20 @@ class User(db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
+    def get_club_names(self):
+        names = [c.name for c in self.clubs]
+        if self.club and self.club.name not in names:
+            names.append(self.club.name)
+        return names
+
     def to_dict(self):
         return {
             "id": self.id, "username": self.username, "role": self.role,
             "club_id": self.club_id,
-            "club_name": self.club.name if self.club else None
+            "club_name": self.club.name if self.club else None,
+            "clubs": [c.to_dict() for c in self.clubs],
+            "club_names": self.get_club_names(),
+            "commission": self.commission
         }
 
 class Club(db.Model):
@@ -183,9 +205,19 @@ class Driver(db.Model):
     phone      = db.Column(db.String(20), default="")
     # available: False means driver reported a problem and is temporarily disabled
     available  = db.Column(db.Boolean, default=True)
+    # NEW: vehicle info
+    car_model  = db.Column(db.String(100), default="")
+    car_color  = db.Column(db.String(50), default="")
+    car_plate  = db.Column(db.String(30), default="")
+    car_photo  = db.Column(db.String(255), default="")  # filename in /data/uploads
 
     def to_dict(self):
-        return {"id": self.id, "name": self.name, "phone": self.phone, "available": self.available}
+        return {
+            "id": self.id, "name": self.name, "phone": self.phone,
+            "available": self.available,
+            "car_model": self.car_model, "car_color": self.car_color,
+            "car_plate": self.car_plate, "car_photo": self.car_photo
+        }
 
 class Customer(db.Model):
     id              = db.Column(db.Integer, primary_key=True)
@@ -203,6 +235,7 @@ class Customer(db.Model):
     destination     = db.Column(db.String(100), default="")
     needs_transport = db.Column(db.Boolean, default=True)              # NEW: walk-in vs transport
     club_status     = db.Column(db.String(20), default="coming")       # NEW: coming | arrived | left
+    promoter        = db.Column(db.String(80), default="")             # NEW: which promoter created this
     # Pickup status: 'scheduled', 'picked_up'
     status          = db.Column(db.String(20), default="scheduled")
     # Distance notification flags (so we don't fire 2x)
@@ -234,6 +267,7 @@ class Customer(db.Model):
             "destination": self.destination,
             "needs_transport": self.needs_transport,
             "club_status": self.club_status,
+            "promoter": self.promoter,
             "status": self.status,
             "created_at": self.created_at.isoformat() if self.created_at else ""
         }
@@ -331,10 +365,64 @@ def index():
     if session.get("role") == "driver":
         return redirect(url_for("driver_dashboard"))
 
-    packages  = Package.query.filter_by(active=True).all()
-    customers = Customer.query.order_by(Customer.id.desc()).all()
-    clubs     = Club.query.filter_by(active=True).all()
+    packages = Package.query.filter_by(active=True).all()
+    user     = User.query.get(session.get("user_id"))
+
+    if session.get("role") == "master":
+        # Admin sees all clubs and all customers
+        clubs     = Club.query.filter_by(active=True).all()
+        customers = Customer.query.order_by(Customer.id.desc()).all()
+    else:
+        # Promoter sees only their assigned clubs + their own customers
+        assigned = user.get_club_names() if user else []
+        if assigned:
+            clubs = Club.query.filter(Club.active == True, Club.name.in_(assigned)).all()
+        else:
+            clubs = Club.query.filter_by(active=True).all()  # fallback: all clubs
+        customers = Customer.query.filter_by(promoter=session.get("username")).order_by(Customer.id.desc()).all()
+
     return render_template('index.html', clientes=customers, packages=packages, clubs=clubs)
+
+@app.route('/promoter/dashboard')
+def promoter_dashboard():
+    if not session.get("logged"):
+        return redirect(url_for("login"))
+    if session.get("role") == "master":
+        return redirect(url_for("index"))
+    if session.get("role") == "driver":
+        return redirect(url_for("driver_dashboard"))
+
+    username = session.get("username")
+    user     = User.query.get(session.get("user_id"))
+
+    # This promoter's customers
+    my_customers = Customer.query.filter_by(promoter=username).order_by(Customer.id.desc()).all()
+
+    # Commission calc: commission per sale × number of sales
+    commission_rate  = user.commission if user else 0
+    total_sales      = len(my_customers)
+    total_commission = commission_rate * total_sales
+
+    # Car availability — which drivers are free right now (this hour)
+    now = datetime.now()
+    drivers = Driver.query.filter_by(available=True).all()
+    car_status = []
+    for d in drivers:
+        busy = driver_is_busy(d.name, now)
+        car_status.append({
+            "name": d.name, "car_model": d.car_model, "car_color": d.car_color,
+            "car_plate": d.car_plate, "car_photo": d.car_photo,
+            "in_use": busy
+        })
+
+    return render_template('promoter_dashboard.html',
+        customers=my_customers,
+        commission_rate=commission_rate,
+        total_sales=total_sales,
+        total_commission=total_commission,
+        car_status=car_status,
+        club_names=user.get_club_names() if user else []
+    )
 
 @app.route('/limpar')
 def limpar():
@@ -380,6 +468,7 @@ def cadastrar_cep():
                 guests=guests, pickup_datetime=pickup_datetime,
                 destination=destination,
                 needs_transport=False, club_status="coming",
+                promoter=session.get('username', ''),
                 status='scheduled',
                 created_at=datetime.utcnow()
             )
@@ -473,9 +562,12 @@ def cadastrar_cep():
             motorista_coords = coords
             break  # found the best available driver
 
-        # 4. LOOK UP DRIVER PHONE
+        # 4. LOOK UP DRIVER PHONE + CAR INFO
         driver_profile  = Driver.query.filter_by(name=melhor_v).first()
         motorista_phone = driver_profile.phone if driver_profile else ""
+        car_model = driver_profile.car_model if driver_profile else ""
+        car_color = driver_profile.car_color if driver_profile else ""
+        car_plate = driver_profile.car_plate if driver_profile else ""
 
         # 5. REGISTER ON ONESTEPGPS
         payload_gps = {
@@ -497,6 +589,7 @@ def cadastrar_cep():
             guests=guests, pickup_datetime=pickup_datetime,
             destination=destination,
             needs_transport=True, club_status="coming",
+            promoter=session.get('username', ''),
             status='scheduled',
             created_at=datetime.utcnow()
         )
@@ -530,6 +623,9 @@ def cadastrar_cep():
             "distance_km":          distancia_arredondada,
             "destination":          destination,
             "needs_transport":      True,
+            "car_model":            car_model,
+            "car_color":            car_color,
+            "car_plate":            car_plate,
             "status":               "scheduled",
             "shopify_order_id":     shopify_result.get("shopify_order_id"),
             "shopify_order_number": shopify_result.get("shopify_order_number"),
@@ -608,7 +704,8 @@ def new_user():
     username = request.form.get('username', '').strip()
     password = request.form.get('password', '').strip()
     role     = request.form.get('role', 'promoter').strip()
-    club_id  = request.form.get('club_id', None)
+    club_ids = request.form.getlist('club_ids')  # multi-select
+    commission = request.form.get('commission', '0')
     if not username or not password:
         return jsonify({"success": False, "error": "Username and password are required"})
     if User.query.filter_by(username=username).first():
@@ -617,8 +714,14 @@ def new_user():
         role = 'promoter'
     user = User(username=username, role=role)
     user.set_password(password)
-    if club_id:
-        user.club_id = int(club_id)
+    try:
+        user.commission = float(commission or 0)
+    except ValueError:
+        user.commission = 0
+    # Assign multiple clubs
+    if club_ids:
+        user.clubs = Club.query.filter(Club.id.in_([int(c) for c in club_ids])).all()
+        user.club_id = int(club_ids[0])  # keep first as legacy primary
     db.session.add(user)
     db.session.commit()
     return jsonify({"success": True, "user": user.to_dict()})
@@ -626,12 +729,24 @@ def new_user():
 @app.route('/admin/users/edit/<int:user_id>', methods=['POST'])
 def edit_user(user_id):
     if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
-    user    = User.query.get_or_404(user_id)
-    club_id = request.form.get('club_id', None)
-    role    = request.form.get('role', user.role).strip()
+    user     = User.query.get_or_404(user_id)
+    club_ids = request.form.getlist('club_ids')
+    role     = request.form.get('role', user.role).strip()
+    commission = request.form.get('commission', None)
     if role in ('promoter', 'driver'):
         user.role = role
-    user.club_id = int(club_id) if club_id else None
+    if commission is not None:
+        try:
+            user.commission = float(commission or 0)
+        except ValueError:
+            pass
+    # Update multiple clubs
+    if club_ids:
+        user.clubs = Club.query.filter(Club.id.in_([int(c) for c in club_ids])).all()
+        user.club_id = int(club_ids[0])
+    else:
+        user.clubs = []
+        user.club_id = None
     db.session.commit()
     return jsonify({"success": True, "user": user.to_dict()})
 
@@ -729,6 +844,27 @@ def delete_package(pkg_id):
     return jsonify({"success": True})
 
 # ─── ADMIN: DRIVERS ───────────────────────────────────────────────────────────
+import uuid as _uuid
+from werkzeug.utils import secure_filename
+from flask import send_from_directory
+
+ALLOWED_PHOTO_EXT = {'png', 'jpg', 'jpeg', 'webp', 'gif'}
+
+def save_car_photo(file_storage):
+    """Save an uploaded car photo and return its filename, or '' if none."""
+    if not file_storage or file_storage.filename == '':
+        return ''
+    ext = file_storage.filename.rsplit('.', 1)[-1].lower() if '.' in file_storage.filename else ''
+    if ext not in ALLOWED_PHOTO_EXT:
+        return ''
+    fname = f"{_uuid.uuid4().hex}.{ext}"
+    file_storage.save(os.path.join(UPLOAD_FOLDER, fname))
+    return fname
+
+@app.route('/uploads/<path:filename>')
+def serve_upload(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
 @app.route('/admin/drivers')
 def admin_drivers():
     if not session.get("logged") or not is_master(): return redirect(url_for("login"))
@@ -741,7 +877,15 @@ def new_driver():
     if not name: return jsonify({"success": False, "error": "Name is required"})
     if Driver.query.filter_by(name=name).first():
         return jsonify({"success": False, "error": "A driver with this name already exists"})
-    driver = Driver(name=name, phone=request.form.get('phone','').strip())
+    photo = save_car_photo(request.files.get('car_photo'))
+    driver = Driver(
+        name=name,
+        phone=request.form.get('phone','').strip(),
+        car_model=request.form.get('car_model','').strip(),
+        car_color=request.form.get('car_color','').strip(),
+        car_plate=request.form.get('car_plate','').strip(),
+        car_photo=photo
+    )
     db.session.add(driver); db.session.commit()
     return jsonify({"success": True, "driver": driver.to_dict()})
 
@@ -749,8 +893,14 @@ def new_driver():
 def edit_driver(driver_id):
     if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
     driver = Driver.query.get_or_404(driver_id)
-    driver.name  = request.form.get('name', driver.name).strip()
-    driver.phone = request.form.get('phone', driver.phone).strip()
+    driver.name      = request.form.get('name', driver.name).strip()
+    driver.phone     = request.form.get('phone', driver.phone).strip()
+    driver.car_model = request.form.get('car_model', driver.car_model).strip()
+    driver.car_color = request.form.get('car_color', driver.car_color).strip()
+    driver.car_plate = request.form.get('car_plate', driver.car_plate).strip()
+    new_photo = save_car_photo(request.files.get('car_photo'))
+    if new_photo:
+        driver.car_photo = new_photo
     db.session.commit()
     return jsonify({"success": True, "driver": driver.to_dict()})
 
@@ -1144,15 +1294,33 @@ with app.app_context():
         if "notified_5km" not in existing_customer_cols:
             conn.execute(text("ALTER TABLE customer ADD COLUMN notified_5km BOOLEAN DEFAULT 0"))
             conn.commit()
+        if "promoter" not in existing_customer_cols:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN promoter VARCHAR(80) DEFAULT ''"))
+            conn.commit()
 
         existing_driver_cols = [c["name"] for c in inspector.get_columns("driver")]
         if "available" not in existing_driver_cols:
             conn.execute(text("ALTER TABLE driver ADD COLUMN available BOOLEAN DEFAULT 1"))
             conn.commit()
+        if "car_model" not in existing_driver_cols:
+            conn.execute(text("ALTER TABLE driver ADD COLUMN car_model VARCHAR(100) DEFAULT ''"))
+            conn.commit()
+        if "car_color" not in existing_driver_cols:
+            conn.execute(text("ALTER TABLE driver ADD COLUMN car_color VARCHAR(50) DEFAULT ''"))
+            conn.commit()
+        if "car_plate" not in existing_driver_cols:
+            conn.execute(text("ALTER TABLE driver ADD COLUMN car_plate VARCHAR(30) DEFAULT ''"))
+            conn.commit()
+        if "car_photo" not in existing_driver_cols:
+            conn.execute(text("ALTER TABLE driver ADD COLUMN car_photo VARCHAR(255) DEFAULT ''"))
+            conn.commit()
 
         existing_user_cols = [c["name"] for c in inspector.get_columns("user")]
         if "club_id" not in existing_user_cols:
             conn.execute(text('ALTER TABLE "user" ADD COLUMN club_id INTEGER DEFAULT NULL'))
+            conn.commit()
+        if "commission" not in existing_user_cols:
+            conn.execute(text('ALTER TABLE "user" ADD COLUMN commission FLOAT DEFAULT 0'))
             conn.commit()
 
     seed_data()

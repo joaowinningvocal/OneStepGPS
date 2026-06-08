@@ -105,13 +105,15 @@
                     <option value="driver">Driver</option>
                 </select>
             </div>
-            <div class="f"><label>Assign Club</label>
-                <select id="nClub" class="fs">
-                    <option value="">— None —</option>
+            <div class="f"><label>Commission per Sale ($)</label>
+                <input type="number" id="nCommission" class="fc" placeholder="0.00" min="0" step="0.01">
+            </div>
+            <div class="f" style="grid-column:1/-1;"><label>Assign Clubs (hold Ctrl/Cmd to select multiple)</label>
+                <select id="nClubs" class="fs" multiple size="4" style="height:auto;">
                     {% for c in clubs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
                 </select>
             </div>
-            <button class="btn-add" onclick="addUser()">+ Create</button>
+            <button class="btn-add" onclick="addUser()" style="grid-column:1/-1;">+ Create</button>
         </div>
         <p class="hint">⚠️ For <strong>Driver</strong> accounts: username must exactly match the driver name in the Drivers panel (same as OneStepGPS display_name).</p>
     </div>
@@ -120,15 +122,20 @@
         <div class="ctitle">Accounts</div>
         <div class="tbl-wrap">
             <table>
-                <thead><tr><th>Username</th><th>Role</th><th>Club</th><th style="text-align:right">Actions</th></tr></thead>
+                <thead><tr><th>Username</th><th>Role</th><th>Clubs</th><th>Commission</th><th style="text-align:right">Actions</th></tr></thead>
                 <tbody id="usersTable">
                     {% for u in users %}
                     <tr id="row-{{ u.id }}">
                         <td class="name">{{ u.username }}</td>
                         <td><span class="{{ 'b-driver' if u.role=='driver' else 'b-promoter' }}">{{ u.role|capitalize }}</span></td>
-                        <td>{% if u.club %}<span class="b-club">🏢 {{ u.club.name }}</span>{% else %}<span style="color:var(--m)">—</span>{% endif %}</td>
+                        <td>
+                            {% if u.get_club_names() %}
+                                {% for cn in u.get_club_names() %}<span class="b-club">🏢 {{ cn }}</span> {% endfor %}
+                            {% else %}<span style="color:var(--m)">—</span>{% endif %}
+                        </td>
+                        <td style="color:var(--g);font-weight:600;">{% if u.commission %}${{ "%.2f"|format(u.commission) }}{% else %}—{% endif %}</td>
                         <td><div class="btns">
-                            <button class="btn-e" onclick="openEdit({{ u.id }},'{{ u.username }}','{{ u.role }}',{{ u.club_id or 'null' }})">Edit</button>
+                            <button class="btn-e" onclick='openEdit({{ u.id }}, {{ u.username|tojson }}, {{ u.role|tojson }}, {{ u.clubs|map(attribute="id")|list|tojson }}, {{ u.commission or 0 }})'>Edit</button>
                             <button class="btn-e" onclick="openReset({{ u.id }},'{{ u.username }}')">Reset PWD</button>
                             <button class="btn-d" onclick="delUser({{ u.id }})">Delete</button>
                         </div></td>
@@ -149,7 +156,8 @@
             <input type="hidden" id="eId">
             <p style="font-size:.82rem;color:var(--m2);">Editing: <span id="eUser" style="color:var(--t);font-weight:600;"></span></p>
             <div class="f"><label>Role</label><select id="eRole" class="fs" style="background:var(--s3);"><option value="promoter">Promoter</option><option value="driver">Driver</option></select></div>
-            <div class="f"><label>Assign Club</label><select id="eClub" class="fs" style="background:var(--s3);"><option value="">— None —</option>{% for c in clubs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div>
+            <div class="f"><label>Commission per Sale ($)</label><input type="number" id="eCommission" class="fc" min="0" step="0.01" placeholder="0.00"></div>
+            <div class="f"><label>Assign Clubs (hold Ctrl/Cmd for multiple)</label><select id="eClubs" class="fs" multiple size="4" style="background:var(--s3);height:auto;">{% for c in clubs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div>
         </div>
         <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn-save" onclick="saveEdit()">Save</button></div>
     </div></div>
@@ -174,9 +182,9 @@
 const eM=new bootstrap.Modal(document.getElementById('editModal'));
 const rM=new bootstrap.Modal(document.getElementById('resetModal'));
 function toast(m,ok=true){const t=document.getElementById('toast');t.style.display='block';t.style.background=ok?'#16a34a':'#dc2626';t.style.color='#fff';t.innerText=m;setTimeout(()=>t.style.display='none',3000);}
-async function addUser(){const u=document.getElementById('nUser').value.trim(),p=document.getElementById('nPass').value.trim(),r=document.getElementById('nRole').value,c=document.getElementById('nClub').value;if(!u||!p)return toast('Username and password required',false);const fd=new FormData();fd.append('username',u);fd.append('password',p);fd.append('role',r);if(c)fd.append('club_id',c);const d=await(await fetch('/admin/users/new',{method:'POST',body:fd})).json();if(d.success){toast('Account created!');location.reload();}else toast(d.error,false);}
-function openEdit(id,u,r,cid){document.getElementById('eId').value=id;document.getElementById('eUser').innerText=u;document.getElementById('eRole').value=r;document.getElementById('eClub').value=cid||'';eM.show();}
-async function saveEdit(){const id=document.getElementById('eId').value,fd=new FormData();fd.append('role',document.getElementById('eRole').value);fd.append('club_id',document.getElementById('eClub').value);const d=await(await fetch(`/admin/users/edit/${id}`,{method:'POST',body:fd})).json();if(d.success){toast('Updated!');eM.hide();location.reload();}else toast(d.error,false);}
+async function addUser(){const u=document.getElementById('nUser').value.trim(),p=document.getElementById('nPass').value.trim(),r=document.getElementById('nRole').value,comm=document.getElementById('nCommission').value||0;if(!u||!p)return toast('Username and password required',false);const fd=new FormData();fd.append('username',u);fd.append('password',p);fd.append('role',r);fd.append('commission',comm);Array.from(document.getElementById('nClubs').selectedOptions).forEach(o=>fd.append('club_ids',o.value));const d=await(await fetch('/admin/users/new',{method:'POST',body:fd})).json();if(d.success){toast('Account created!');location.reload();}else toast(d.error,false);}
+function openEdit(id,u,r,clubIds,comm){document.getElementById('eId').value=id;document.getElementById('eUser').innerText=u;document.getElementById('eRole').value=r;document.getElementById('eCommission').value=comm||0;const sel=document.getElementById('eClubs');Array.from(sel.options).forEach(o=>{o.selected=(clubIds||[]).includes(parseInt(o.value));});eM.show();}
+async function saveEdit(){const id=document.getElementById('eId').value,fd=new FormData();fd.append('role',document.getElementById('eRole').value);fd.append('commission',document.getElementById('eCommission').value||0);Array.from(document.getElementById('eClubs').selectedOptions).forEach(o=>fd.append('club_ids',o.value));const d=await(await fetch(`/admin/users/edit/${id}`,{method:'POST',body:fd})).json();if(d.success){toast('Updated!');eM.hide();location.reload();}else toast(d.error,false);}
 function openReset(id,u){document.getElementById('rId').value=id;document.getElementById('rUser').innerText=u;document.getElementById('rPass').value='';rM.show();}
 async function saveReset(){const id=document.getElementById('rId').value,p=document.getElementById('rPass').value.trim();if(!p)return toast('Password cannot be empty',false);const fd=new FormData();fd.append('password',p);const d=await(await fetch(`/admin/users/reset/${id}`,{method:'POST',body:fd})).json();if(d.success){toast('Password updated!');rM.hide();}else toast(d.error,false);}
 async function delUser(id){if(!confirm('Delete this account?'))return;const d=await(await fetch(`/admin/users/delete/${id}`,{method:'POST'})).json();if(d.success){toast('Deleted!');document.getElementById(`row-${id}`).remove();}else toast(d.error,false);}
