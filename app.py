@@ -638,6 +638,7 @@ def cadastrar_cep():
     pickup_datetime   = request.form.get('pickup_datetime', '').strip()
     destination       = request.form.get('destination', '').strip()
     needs_transport   = request.form.get('needs_transport', 'true').lower() == 'true'
+    force_waitlist    = request.form.get('force_waitlist', 'false').lower() == 'true'
 
     # Parse extra phones JSON array
     try:
@@ -792,6 +793,18 @@ def cadastrar_cep():
         else:
             car_model = car_color = car_plate = car_photo = ""
 
+        # 4b. NO DRIVER AVAILABLE → ask the user, or schedule to waitlist if confirmed
+        no_driver = (melhor_v == "Unavailable")
+        if no_driver and not force_waitlist:
+            # Stop here and let the frontend ask whether to waitlist
+            return jsonify({
+                "success": False,
+                "no_driver": True,
+                "message": "All drivers are currently busy for this time slot. Would you like to add this customer to the waitlist and assign a driver later?"
+            })
+
+        is_waitlist = no_driver and force_waitlist
+
         # 5. REGISTER ON ONESTEPGPS
         payload_gps = {
             "display_name": nome, "active": True, "status": "active", "marker_type": "point",
@@ -807,7 +820,8 @@ def cadastrar_cep():
         customer = Customer(
             nome=nome, phone=client_phone, phones_json=json.dumps(extra_phones),
             endereco=endereco_completo, details=details,
-            motorista=melhor_v, motorista_phone=motorista_phone,
+            motorista=("Waitlist" if is_waitlist else melhor_v),
+            motorista_phone=motorista_phone,
             car_name=(chosen_car.name if chosen_car else ""),
             car_string_val=(chosen_car.car_string() if chosen_car else ""),
             car_photo=car_photo,
@@ -816,7 +830,7 @@ def cadastrar_cep():
             destination=destination,
             needs_transport=True, club_status="coming",
             promoter=session.get('username', ''),
-            status='scheduled',
+            status=('waitlist' if is_waitlist else 'scheduled'),
             created_at=datetime.utcnow()
         )
         db.session.add(customer)
@@ -833,30 +847,45 @@ def cadastrar_cep():
             driver_name     = melhor_v
         )
 
-        # 8. FIRE MAKE.COM WEBHOOK
-        fire_webhook({
-            "customer_id":          customer.id,
-            "driver_name":          melhor_v,
-            "driver_phone":         motorista_phone,
-            "customer_name":        nome,
-            "customer_phone":       client_phone,
-            "customer_phones":      all_phones,
-            "pickup_address":       endereco_completo,
-            "details":              details,
-            "pickup_datetime":      pickup_datetime,
-            "package":              package,
-            "guests":               guests,
-            "distance_km":          distancia_arredondada,
-            "destination":          destination,
-            "needs_transport":      True,
-            "car_model":            car_model,
-            "car_color":            car_color,
-            "car_plate":            car_plate,
-            "status":               "scheduled",
-            "shopify_order_id":     shopify_result.get("shopify_order_id"),
-            "shopify_order_number": shopify_result.get("shopify_order_number"),
-            "shopify_order_url":    shopify_result.get("shopify_order_url"),
-        })
+        # 8. FIRE WEBHOOK — waitlist alert OR normal scheduled
+        if is_waitlist:
+            fire_webhook({
+                "event":            "no_driver_available",
+                "customer_id":      customer.id,
+                "customer_name":    nome,
+                "customer_phone":   client_phone,
+                "customer_phones":  all_phones,
+                "pickup_address":   endereco_completo,
+                "pickup_datetime":  pickup_datetime,
+                "destination":      destination,
+                "package":          package,
+                "guests":           guests,
+                "status":           "waitlist",
+            })
+        else:
+            fire_webhook({
+                "customer_id":          customer.id,
+                "driver_name":          melhor_v,
+                "driver_phone":         motorista_phone,
+                "customer_name":        nome,
+                "customer_phone":       client_phone,
+                "customer_phones":      all_phones,
+                "pickup_address":       endereco_completo,
+                "details":              details,
+                "pickup_datetime":      pickup_datetime,
+                "package":              package,
+                "guests":               guests,
+                "distance_km":          distancia_arredondada,
+                "destination":          destination,
+                "needs_transport":      True,
+                "car_model":            car_model,
+                "car_color":            car_color,
+                "car_plate":            car_plate,
+                "status":               "scheduled",
+                "shopify_order_id":     shopify_result.get("shopify_order_id"),
+                "shopify_order_number": shopify_result.get("shopify_order_number"),
+                "shopify_order_url":    shopify_result.get("shopify_order_url"),
+            })
 
         # 9. FIRE "SCHEDULED" SMS WEBHOOK (text to customer's phone #1)
         car_full = " ".join(p for p in [car_color, car_model] if p).strip().upper()
@@ -871,29 +900,34 @@ def cadastrar_cep():
         if pickup_datetime and len(pickup_datetime.split(' ')) >= 3:
             parts = pickup_datetime.split(' ')
             time_part = f"{parts[1]} {parts[2]}"
-        sms_text = (
-            f"Hi {nome}! Your ClubLifter ride is booked. "
-            f"{melhor_v} will pick you up"
-            f"{' at ' + time_part if time_part else ''}"
-            f"{' in a ' + car_full if car_full and car_full != 'N/A' else ''}. "
-            f"See you soon!"
-        )
-        fire_webhook({
-            "type":            "scheduled",
-            "customer_name":   nome,
-            "customer_phone":  client_phone,   # phone #1
-            "driver_name":     melhor_v,
-            "driver_car":      car_full or "N/A",
-            "driver_car_photo_url": car_photo_url,
-            "pickup_datetime": pickup_datetime,
-            "pickup_time":     time_part,
-            "destination":     destination,
-            "message":         sms_text,
-            "customer_id":     customer.id,
-        })
+        # Only send the "ride booked" SMS when a real driver was assigned
+        if not is_waitlist:
+            sms_text = (
+                f"Hi {nome}! Your ClubLifter ride is booked. "
+                f"{melhor_v} will pick you up"
+                f"{' at ' + time_part if time_part else ''}"
+                f"{' in a ' + car_full if car_full and car_full != 'N/A' else ''}. "
+                f"See you soon!"
+            )
+            fire_webhook({
+                "type":            "scheduled",
+                "customer_name":   nome,
+                "customer_phone":  client_phone,   # phone #1
+                "driver_name":     melhor_v,
+                "driver_car":      car_full or "N/A",
+                "driver_car_photo_url": car_photo_url,
+                "pickup_datetime": pickup_datetime,
+                "pickup_time":     time_part,
+                "destination":     destination,
+                "message":         sms_text,
+                "customer_id":     customer.id,
+            })
 
         return jsonify({
-            "success": True, "motorista": melhor_v, "motorista_phone": motorista_phone,
+            "success": True,
+            "waitlist": is_waitlist,
+            "motorista": ("Waitlist — no driver yet" if is_waitlist else melhor_v),
+            "motorista_phone": motorista_phone,
             "distancia": distancia_arredondada,
             "cliente_coords": {"lat": lat_cli, "lng": lng_cli},
             "motorista_coords": motorista_coords,

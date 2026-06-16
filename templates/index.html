@@ -580,11 +580,39 @@ async function submitSchedule(fd) {
     document.getElementById('drBox').style.display='none';
     try{
         const d=await(await fetch('/cadastrar_cep',{method:'POST',body:fd})).json();
+
+        // NO DRIVER AVAILABLE → ask whether to waitlist
+        if (!d.success && d.no_driver) {
+            st.innerHTML="<span style='color:var(--gold)'>⚠️ All drivers busy</span>";
+            if (confirm(d.message || "All drivers are busy. Add this customer to the waitlist and assign a driver later?")) {
+                fd.set('force_waitlist', 'true');
+                st.innerHTML="<span style='color:#60a5fa'>⏳ Adding to waitlist…</span>";
+                const d2=await(await fetch('/cadastrar_cep',{method:'POST',body:fd})).json();
+                if (d2.success && d2.waitlist) {
+                    st.innerHTML="<span style='color:var(--gold)'>🕓 Added to waitlist — assign a driver later.</span>";
+                    document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('package')}</td><td>${fd.get('guests')}</td><td class="ac" style="color:var(--gold)">waitlist</td></tr>`);
+                    resetFormState(form);
+                } else {
+                    st.innerHTML=`<span style='color:var(--red)'>❌ ${d2.error||'Could not add to waitlist'}</span>`;
+                }
+            } else {
+                st.innerHTML="<span style='color:var(--muted)'>Cancelled — not scheduled.</span>";
+            }
+            return;
+        }
+
         if(d.success){
             // WALK-IN: no map / driver, just confirm
             if (d.walk_in) {
                 st.innerHTML="<span style='color:var(--green)'>✅ Walk-in registered!</span>";
                 document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('package')}</td><td>${fd.get('guests')}</td><td class="ac">walk-in</td></tr>`);
+                resetFormState(form);
+                return;
+            }
+            // WAITLIST (forced through earlier): no map route to draw
+            if (d.waitlist) {
+                st.innerHTML="<span style='color:var(--gold)'>🕓 Added to waitlist — assign a driver later.</span>";
+                document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('package')}</td><td>${fd.get('guests')}</td><td class="ac" style="color:var(--gold)">waitlist</td></tr>`);
                 resetFormState(form);
                 return;
             }
