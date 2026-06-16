@@ -222,32 +222,79 @@ class Package(db.Model):
         }
 
 class Driver(db.Model):
+    """A person who drives. Cars are separate and assigned via Shifts."""
     id         = db.Column(db.Integer, primary_key=True)
     name       = db.Column(db.String(100), nullable=False, unique=True)
     phone      = db.Column(db.String(20), default="")
     # available: False means driver reported a problem and is temporarily disabled
     available  = db.Column(db.Boolean, default=True)
-    # NEW: vehicle info
+    # DEPRECATED car fields (kept for backward-compat migration into Car)
     car_model  = db.Column(db.String(100), default="")
     car_color  = db.Column(db.String(50), default="")
     car_plate  = db.Column(db.String(30), default="")
-    car_photo  = db.Column(db.String(255), default="")  # filename in /data/uploads
-
-    def car_string(self):
-        # Structured like: RED HONDA CIVIC — NV-12345
-        parts = [self.car_color, self.car_model]
-        s = " ".join(p for p in parts if p).strip().upper()
-        if self.car_plate:
-            s = f"{s} ({self.car_plate})" if s else self.car_plate
-        return s or "N/A"
+    car_photo  = db.Column(db.String(255), default="")
 
     def to_dict(self):
         return {
             "id": self.id, "name": self.name, "phone": self.phone,
-            "available": self.available,
-            "car_model": self.car_model, "car_color": self.car_color,
-            "car_plate": self.car_plate, "car_photo": self.car_photo,
-            "car_string": self.car_string()
+            "available": self.available
+        }
+
+class Car(db.Model):
+    """A vehicle. `name` must match the OneStepGPS display_name to get GPS."""
+    id         = db.Column(db.Integer, primary_key=True)
+    name       = db.Column(db.String(100), nullable=False, unique=True)  # = OneStepGPS display_name
+    model      = db.Column(db.String(100), default="")
+    color      = db.Column(db.String(50), default="")
+    plate      = db.Column(db.String(30), default="")
+    photo      = db.Column(db.String(255), default="")  # filename in /data/uploads
+    active     = db.Column(db.Boolean, default=True)
+
+    def car_string(self):
+        parts = [self.color, self.model]
+        s = " ".join(p for p in parts if p).strip().upper()
+        if self.plate:
+            s = f"{s} ({self.plate})" if s else self.plate
+        return s or self.name or "N/A"
+
+    def to_dict(self):
+        return {
+            "id": self.id, "name": self.name, "model": self.model,
+            "color": self.color, "plate": self.plate, "photo": self.photo,
+            "active": self.active, "car_string": self.car_string()
+        }
+
+class Shift(db.Model):
+    """
+    Assigns a driver + car for a time window.
+    Either weekly (day_of_week 0=Mon..6=Sun) OR a specific date (MM/DD/YYYY).
+    Specific-date shifts take priority over weekly ones.
+    """
+    id            = db.Column(db.Integer, primary_key=True)
+    driver_id     = db.Column(db.Integer, db.ForeignKey('driver.id'), nullable=False)
+    car_id        = db.Column(db.Integer, db.ForeignKey('car.id'), nullable=False)
+    day_of_week   = db.Column(db.Integer, nullable=True)   # 0=Mon .. 6=Sun (weekly)
+    specific_date = db.Column(db.String(20), nullable=True)  # MM/DD/YYYY (one-off)
+    start_time    = db.Column(db.String(8), default="18:00")  # 24h HH:MM
+    end_time      = db.Column(db.String(8), default="05:30")  # 24h HH:MM (can cross midnight)
+    active        = db.Column(db.Boolean, default=True)
+
+    driver = db.relationship('Driver', foreign_keys=[driver_id])
+    car    = db.relationship('Car', foreign_keys=[car_id])
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "driver_id": self.driver_id,
+            "driver_name": self.driver.name if self.driver else "",
+            "car_id": self.car_id,
+            "car_name": self.car.name if self.car else "",
+            "car_string": self.car.car_string() if self.car else "",
+            "day_of_week": self.day_of_week,
+            "specific_date": self.specific_date,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "active": self.active
         }
 
 class Customer(db.Model):
@@ -259,6 +306,9 @@ class Customer(db.Model):
     details         = db.Column(db.String(500), default="")
     motorista       = db.Column(db.String(100))
     motorista_phone = db.Column(db.String(20), default="")
+    car_name        = db.Column(db.String(100), default="")   # GPS display_name of assigned car
+    car_string_val  = db.Column(db.String(200), default="")   # cached "RED HONDA CIVIC (NV-123)"
+    car_photo       = db.Column(db.String(255), default="")   # photo filename of assigned car
     distancia       = db.Column(db.Float)
     package         = db.Column(db.String(100))
     guests          = db.Column(db.Integer)
@@ -390,6 +440,51 @@ def driver_is_busy(driver_name: str, pickup_dt: datetime) -> bool:
             return True
     return False
 
+def _time_in_window(t_minutes, start_str, end_str):
+    """True if t_minutes (minutes since midnight) falls in [start,end], handling overnight."""
+    def to_min(s):
+        try:
+            h, m = s.split(":")
+            return int(h) * 60 + int(m)
+        except Exception:
+            return None
+    start = to_min(start_str)
+    end   = to_min(end_str)
+    if start is None or end is None:
+        return True
+    if start <= end:
+        return start <= t_minutes <= end
+    # overnight window (e.g. 18:00 → 05:30)
+    return t_minutes >= start or t_minutes <= end
+
+def get_scheduled_shifts(pickup_dt: datetime):
+    """
+    Returns list of active Shifts that cover the given pickup datetime.
+    Specific-date shifts take priority; if any exist for that date, weekly are ignored.
+    Returns [] if no shifts configured (caller should fall back to nearest-car).
+    """
+    if pickup_dt is None:
+        return []
+    date_str = pickup_dt.strftime("%m/%d/%Y")
+    dow      = pickup_dt.weekday()  # 0=Mon..6=Sun
+    t_min    = pickup_dt.hour * 60 + pickup_dt.minute
+
+    all_active = Shift.query.filter_by(active=True).all()
+
+    # Specific-date matches first
+    specific = [s for s in all_active
+                if s.specific_date and s.specific_date.strip() == date_str
+                and _time_in_window(t_min, s.start_time, s.end_time)]
+    if specific:
+        return specific
+
+    # Otherwise weekly matches
+    weekly = [s for s in all_active
+              if s.specific_date in (None, "")
+              and s.day_of_week == dow
+              and _time_in_window(t_min, s.start_time, s.end_time)]
+    return weekly
+
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
 # ─── SIMPLE IN-MEMORY RATE LIMITER FOR LOGIN ──────────────────────────────────
 from collections import defaultdict
@@ -490,15 +585,23 @@ def promoter_dashboard():
     total_sales      = len(my_customers)
     total_commission = commission_rate * total_sales
 
-    # Car availability — which drivers are free right now (this hour)
+    # Car availability — which cars are free right now (this hour)
     now = datetime.now()
-    drivers = Driver.query.filter_by(available=True).all()
+    cars = Car.query.filter_by(active=True).all()
+    # Find which cars are tied up by a scheduled customer this hour
     car_status = []
-    for d in drivers:
-        busy = driver_is_busy(d.name, now)
+    for car in cars:
+        # A car is "in use" if any scheduled customer this hour uses it
+        busy = False
+        hour_customers = Customer.query.filter_by(status='scheduled', car_name=car.name).all()
+        for c in hour_customers:
+            cdt = parse_pickup_datetime(c.pickup_datetime)
+            if cdt and cdt.replace(minute=0, second=0, microsecond=0) == now.replace(minute=0, second=0, microsecond=0):
+                busy = True
+                break
         car_status.append({
-            "name": d.name, "car_model": d.car_model, "car_color": d.car_color,
-            "car_plate": d.car_plate, "car_photo": d.car_photo,
+            "name": car.name, "car_model": car.model, "car_color": car.color,
+            "car_plate": car.plate, "car_photo": car.photo,
             "in_use": busy
         })
 
@@ -611,7 +714,7 @@ def cadastrar_cep():
         lat_cli = float(geo_res[0]['lat'])
         lng_cli = float(geo_res[0]['lon'])
 
-        # 2. GET ALL VEHICLES FROM ONESTEPGPS (sorted by distance)
+        # 2. GET ALL VEHICLES FROM ONESTEPGPS (live coords keyed by display_name)
         headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
         res_v = requests.get(
             "https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
@@ -619,42 +722,75 @@ def cadastrar_cep():
         ).json()
 
         lista = res_v if isinstance(res_v, list) else [res_v]
-
-        # Build list of (distance, display_name, coords) sorted nearest first
-        candidates = []
+        gps_by_name = {}
         for v in lista:
             v_lat = v.get('lat') or v.get('last_tap', {}).get('lat')
             v_lng = v.get('lng') or v.get('last_tap', {}).get('lng')
             if v_lat and v_lng:
-                d = calcular_distancia(lat_cli, lng_cli, v_lat, v_lng)
-                candidates.append((d, v.get('display_name', 'Tracker'), {"lat": float(v_lat), "lng": float(v_lng)}))
+                gps_by_name[v.get('display_name', '')] = {"lat": float(v_lat), "lng": float(v_lng)}
 
-        candidates.sort(key=lambda x: x[0])
+        # 3. PICK THE DRIVER + CAR
+        # Strategy A: use the SHIFT SCHEDULE for this pickup time (preferred)
+        # Strategy B (fallback): nearest available car if no shift is configured
+        melhor_v        = "Unavailable"   # driver name (person)
+        menor_d         = float('inf')
+        motorista_coords = None
+        chosen_car      = None            # Car object
 
-        # 3. PICK THE NEAREST AVAILABLE DRIVER
-        melhor_v, menor_d, motorista_coords = "Unavailable", float('inf'), None
+        shifts = get_scheduled_shifts(requested_dt)
 
-        for dist, display_name, coords in candidates:
-            # Check if driver exists in DB and is globally available (not disabled)
-            driver_profile = Driver.query.filter_by(name=display_name).first()
-            if driver_profile and not driver_profile.available:
-                continue  # driver reported a problem, skip
+        if shifts:
+            # Among scheduled drivers, pick the closest one whose driver is free this hour
+            best = None
+            for sh in shifts:
+                drv = sh.driver
+                car = sh.car
+                if not drv or not car:
+                    continue
+                if not drv.available:
+                    continue
+                if driver_is_busy(drv.name, requested_dt):
+                    continue
+                coords = gps_by_name.get(car.name)
+                if not coords:
+                    # car has no live GPS — still assignable, distance unknown
+                    dist = float('inf')
+                else:
+                    dist = calcular_distancia(lat_cli, lng_cli, coords["lat"], coords["lng"])
+                if best is None or dist < best[1]:
+                    best = (drv, dist, coords, car)
+            if best:
+                melhor_v, menor_d, motorista_coords, chosen_car = best
 
-            # Check hourly slot availability
-            if driver_is_busy(display_name, requested_dt):
-                continue  # driver already has a pickup this hour, skip
+        if melhor_v == "Unavailable":
+            # FALLBACK: no shift matched (or all busy) → nearest available car
+            candidates = []
+            for name, coords in gps_by_name.items():
+                d = calcular_distancia(lat_cli, lng_cli, coords["lat"], coords["lng"])
+                candidates.append((d, name, coords))
+            candidates.sort(key=lambda x: x[0])
+            for dist, name, coords in candidates:
+                car = Car.query.filter_by(name=name).first()
+                # If car registered & inactive, skip
+                if car and not car.active:
+                    continue
+                # Try to find a driver assigned via shift to this car; else leave name
+                melhor_v        = name   # use car/display name as fallback "driver"
+                menor_d         = dist
+                motorista_coords = coords
+                chosen_car      = car
+                break
 
-            melhor_v       = display_name
-            menor_d        = dist
-            motorista_coords = coords
-            break  # found the best available driver
-
-        # 4. LOOK UP DRIVER PHONE + CAR INFO
+        # 4. RESOLVE PHONE + CAR INFO
         driver_profile  = Driver.query.filter_by(name=melhor_v).first()
         motorista_phone = driver_profile.phone if driver_profile else ""
-        car_model = driver_profile.car_model if driver_profile else ""
-        car_color = driver_profile.car_color if driver_profile else ""
-        car_plate = driver_profile.car_plate if driver_profile else ""
+        if chosen_car:
+            car_model = chosen_car.model
+            car_color = chosen_car.color
+            car_plate = chosen_car.plate
+            car_photo = chosen_car.photo
+        else:
+            car_model = car_color = car_plate = car_photo = ""
 
         # 5. REGISTER ON ONESTEPGPS
         payload_gps = {
@@ -672,6 +808,9 @@ def cadastrar_cep():
             nome=nome, phone=client_phone, phones_json=json.dumps(extra_phones),
             endereco=endereco_completo, details=details,
             motorista=melhor_v, motorista_phone=motorista_phone,
+            car_name=(chosen_car.name if chosen_car else ""),
+            car_string_val=(chosen_car.car_string() if chosen_car else ""),
+            car_photo=car_photo,
             distancia=distancia_arredondada, package=package,
             guests=guests, pickup_datetime=pickup_datetime,
             destination=destination,
@@ -725,8 +864,8 @@ def cadastrar_cep():
             car_full = f"{car_full} ({car_plate})" if car_full else car_plate
         # Build absolute car photo URL (for Twilio MMS Media URL)
         car_photo_url = ""
-        if driver_profile and driver_profile.car_photo:
-            car_photo_url = f"{PUBLIC_BASE_URL}/uploads/{driver_profile.car_photo}"
+        if car_photo:
+            car_photo_url = f"{PUBLIC_BASE_URL}/uploads/{car_photo}"
         # Extract just the time portion for a cleaner message
         time_part = ""
         if pickup_datetime and len(pickup_datetime.split(' ')) >= 3:
@@ -1013,7 +1152,9 @@ def serve_upload(filename):
 @app.route('/admin/drivers')
 def admin_drivers():
     if not session.get("logged") or not is_master(): return redirect(url_for("login"))
-    return render_template('admin_drivers.html', drivers=Driver.query.all())
+    return render_template('admin_drivers.html',
+                           drivers=Driver.query.all(),
+                           cars=Car.query.all())
 
 @app.route('/admin/drivers/new', methods=['POST'])
 def new_driver():
@@ -1022,15 +1163,7 @@ def new_driver():
     if not name: return jsonify({"success": False, "error": "Name is required"})
     if Driver.query.filter_by(name=name).first():
         return jsonify({"success": False, "error": "A driver with this name already exists"})
-    photo = save_car_photo(request.files.get('car_photo'))
-    driver = Driver(
-        name=name,
-        phone=request.form.get('phone','').strip(),
-        car_model=request.form.get('car_model','').strip(),
-        car_color=request.form.get('car_color','').strip(),
-        car_plate=request.form.get('car_plate','').strip(),
-        car_photo=photo
-    )
+    driver = Driver(name=name, phone=request.form.get('phone','').strip())
     db.session.add(driver); db.session.commit()
     return jsonify({"success": True, "driver": driver.to_dict()})
 
@@ -1038,14 +1171,8 @@ def new_driver():
 def edit_driver(driver_id):
     if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
     driver = Driver.query.get_or_404(driver_id)
-    driver.name      = request.form.get('name', driver.name).strip()
-    driver.phone     = request.form.get('phone', driver.phone).strip()
-    driver.car_model = request.form.get('car_model', driver.car_model).strip()
-    driver.car_color = request.form.get('car_color', driver.car_color).strip()
-    driver.car_plate = request.form.get('car_plate', driver.car_plate).strip()
-    new_photo = save_car_photo(request.files.get('car_photo'))
-    if new_photo:
-        driver.car_photo = new_photo
+    driver.name  = request.form.get('name', driver.name).strip()
+    driver.phone = request.form.get('phone', driver.phone).strip()
     db.session.commit()
     return jsonify({"success": True, "driver": driver.to_dict()})
 
@@ -1055,6 +1182,94 @@ def delete_driver(driver_id):
     driver = Driver.query.get_or_404(driver_id)
     db.session.delete(driver); db.session.commit()
     return jsonify({"success": True})
+
+# ─── ADMIN: CARS ──────────────────────────────────────────────────────────────
+@app.route('/admin/cars/new', methods=['POST'])
+def new_car():
+    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    name = request.form.get('name', '').strip()
+    if not name: return jsonify({"success": False, "error": "Car name is required (must match OneStepGPS)"})
+    if Car.query.filter_by(name=name).first():
+        return jsonify({"success": False, "error": "A car with this name already exists"})
+    photo = save_car_photo(request.files.get('photo'))
+    car = Car(
+        name=name,
+        model=request.form.get('model','').strip(),
+        color=request.form.get('color','').strip(),
+        plate=request.form.get('plate','').strip(),
+        photo=photo
+    )
+    db.session.add(car); db.session.commit()
+    return jsonify({"success": True, "car": car.to_dict()})
+
+@app.route('/admin/cars/edit/<int:car_id>', methods=['POST'])
+def edit_car(car_id):
+    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    car = Car.query.get_or_404(car_id)
+    car.name  = request.form.get('name', car.name).strip()
+    car.model = request.form.get('model', car.model).strip()
+    car.color = request.form.get('color', car.color).strip()
+    car.plate = request.form.get('plate', car.plate).strip()
+    new_photo = save_car_photo(request.files.get('photo'))
+    if new_photo:
+        car.photo = new_photo
+    db.session.commit()
+    return jsonify({"success": True, "car": car.to_dict()})
+
+@app.route('/admin/cars/delete/<int:car_id>', methods=['POST'])
+def delete_car(car_id):
+    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    car = Car.query.get_or_404(car_id)
+    db.session.delete(car); db.session.commit()
+    return jsonify({"success": True})
+
+# ─── ADMIN: SHIFTS (driver schedule) ──────────────────────────────────────────
+@app.route('/admin/schedule')
+def admin_schedule():
+    if not session.get("logged") or not is_master(): return redirect(url_for("login"))
+    return render_template('admin_schedule.html',
+                           shifts=Shift.query.all(),
+                           drivers=Driver.query.all(),
+                           cars=Car.query.all())
+
+@app.route('/admin/schedule/new', methods=['POST'])
+def new_shift():
+    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    driver_id = request.form.get('driver_id')
+    car_id    = request.form.get('car_id')
+    if not driver_id or not car_id:
+        return jsonify({"success": False, "error": "Driver and car are required"})
+    mode = request.form.get('mode', 'weekly')  # 'weekly' or 'specific'
+    shift = Shift(
+        driver_id=int(driver_id),
+        car_id=int(car_id),
+        start_time=request.form.get('start_time', '18:00').strip(),
+        end_time=request.form.get('end_time', '05:30').strip(),
+    )
+    if mode == 'specific':
+        shift.specific_date = request.form.get('specific_date', '').strip()
+        shift.day_of_week = None
+    else:
+        dow = request.form.get('day_of_week')
+        shift.day_of_week = int(dow) if dow not in (None, '') else None
+        shift.specific_date = None
+    db.session.add(shift); db.session.commit()
+    return jsonify({"success": True, "shift": shift.to_dict()})
+
+@app.route('/admin/schedule/delete/<int:shift_id>', methods=['POST'])
+def delete_shift(shift_id):
+    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    shift = Shift.query.get_or_404(shift_id)
+    db.session.delete(shift); db.session.commit()
+    return jsonify({"success": True})
+
+@app.route('/admin/schedule/toggle/<int:shift_id>', methods=['POST'])
+def toggle_shift(shift_id):
+    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    shift = Shift.query.get_or_404(shift_id)
+    shift.active = not shift.active
+    db.session.commit()
+    return jsonify({"success": True, "active": shift.active})
 
 # ─── DRIVER PORTAL ────────────────────────────────────────────────────────────
 @app.route('/driver')
@@ -1210,6 +1425,250 @@ def api_drivers():
 def api_clubs():
     return jsonify([c.to_dict() for c in Club.query.filter_by(active=True).all()])
 
+# ══════════════════════════════════════════════════════════════════════════════
+# CARTVIP INTEGRATION API (v1) — external partners POST here with X-API-Key
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _assign_driver_and_car(lat_cli, lng_cli, requested_dt):
+    """Shared driver/car assignment logic. Returns dict with assignment details."""
+    headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    try:
+        res_v = requests.get(
+            "https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
+            headers=headers_api, timeout=10
+        ).json()
+    except Exception:
+        res_v = []
+    lista = res_v if isinstance(res_v, list) else [res_v]
+    gps_by_name = {}
+    for v in lista:
+        v_lat = v.get('lat') or v.get('last_tap', {}).get('lat')
+        v_lng = v.get('lng') or v.get('last_tap', {}).get('lng')
+        if v_lat and v_lng:
+            gps_by_name[v.get('display_name', '')] = {"lat": float(v_lat), "lng": float(v_lng)}
+
+    melhor_v, menor_d, motorista_coords, chosen_car = "Unavailable", float('inf'), None, None
+
+    shifts = get_scheduled_shifts(requested_dt)
+    if shifts:
+        best = None
+        for sh in shifts:
+            drv, car = sh.driver, sh.car
+            if not drv or not car or not drv.available:
+                continue
+            if driver_is_busy(drv.name, requested_dt):
+                continue
+            coords = gps_by_name.get(car.name)
+            dist = calcular_distancia(lat_cli, lng_cli, coords["lat"], coords["lng"]) if coords else float('inf')
+            if best is None or dist < best[1]:
+                best = (drv, dist, coords, car)
+        if best:
+            melhor_v, menor_d, motorista_coords, chosen_car = best
+
+    if melhor_v == "Unavailable":
+        candidates = []
+        for name, coords in gps_by_name.items():
+            d = calcular_distancia(lat_cli, lng_cli, coords["lat"], coords["lng"])
+            candidates.append((d, name, coords))
+        candidates.sort(key=lambda x: x[0])
+        for dist, name, coords in candidates:
+            car = Car.query.filter_by(name=name).first()
+            if car and not car.active:
+                continue
+            melhor_v, menor_d, motorista_coords, chosen_car = name, dist, coords, car
+            break
+
+    driver_profile = Driver.query.filter_by(name=melhor_v).first() if melhor_v != "Unavailable" else None
+    return {
+        "driver_name": melhor_v,
+        "driver_phone": driver_profile.phone if driver_profile else "",
+        "distance_km": round(menor_d, 2) if menor_d != float('inf') else 0,
+        "driver_coords": motorista_coords,
+        "car": chosen_car,
+    }
+
+@app.route('/api/v1/schedule', methods=['POST'])
+@require_api_key
+def api_v1_schedule():
+    """
+    Schedule a customer WITH transport. CartVIP posts customer + pickup address.
+    Body (JSON):
+      customer_name (required), customer_phone, extra_phones [list],
+      pickup_address (required), details, package, guests,
+      pickup_datetime (required, "MM/DD/YYYY HH:MM AM/PM"), destination
+    """
+    data = request.get_json(silent=True) or {}
+    name = (data.get("customer_name") or "").strip()
+    pickup_address = (data.get("pickup_address") or "").strip()
+    pickup_datetime = (data.get("pickup_datetime") or "").strip()
+    if not name or not pickup_address or not pickup_datetime:
+        return jsonify({"success": False, "error": "customer_name, pickup_address and pickup_datetime are required"}), 400
+
+    client_phone = (data.get("customer_phone") or "").strip()
+    extra_phones = data.get("extra_phones") or []
+    if not isinstance(extra_phones, list):
+        extra_phones = []
+    all_phones = ([client_phone] if client_phone else []) + [p for p in extra_phones if p]
+    details     = (data.get("details") or "").strip()
+    package     = (data.get("package") or "").strip()
+    guests      = int(data.get("guests") or 0)
+    destination = (data.get("destination") or "").strip()
+
+    requested_dt = parse_pickup_datetime(pickup_datetime)
+
+    # Geocode
+    try:
+        encoded = urllib.parse.quote(pickup_address)
+        geo = requests.get(
+            f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1",
+            headers={'User-Agent': 'ClubLifter_CartVIP'}, timeout=10
+        ).json()
+        if not geo:
+            return jsonify({"success": False, "error": "Address not found"}), 422
+        lat_cli, lng_cli = float(geo[0]['lat']), float(geo[0]['lon'])
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Geocoding failed: {e}"}), 500
+
+    a = _assign_driver_and_car(lat_cli, lng_cli, requested_dt)
+    chosen_car = a["car"]
+    car_string = chosen_car.car_string() if chosen_car else ""
+    car_photo  = chosen_car.photo if chosen_car else ""
+    car_photo_url = f"{PUBLIC_BASE_URL}/uploads/{car_photo}" if car_photo else ""
+
+    # Register marker on OneStepGPS (best-effort)
+    try:
+        headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+        requests.post(URL_API, json={
+            "display_name": name, "active": True, "status": "active", "marker_type": "point",
+            "detail": {"description": pickup_address, "lat_lng": {"lat": lat_cli, "lng": lng_cli}}
+        }, headers=headers_api, timeout=8)
+    except Exception:
+        pass
+
+    customer = Customer(
+        nome=name, phone=client_phone, phones_json=json.dumps([p for p in extra_phones if p]),
+        endereco=pickup_address, details=details,
+        motorista=a["driver_name"], motorista_phone=a["driver_phone"],
+        car_name=(chosen_car.name if chosen_car else ""),
+        car_string_val=car_string, car_photo=car_photo,
+        distancia=a["distance_km"], package=package, guests=guests,
+        pickup_datetime=pickup_datetime, destination=destination,
+        needs_transport=True, club_status="coming",
+        promoter="cartvip", status='scheduled', created_at=datetime.utcnow()
+    )
+    db.session.add(customer); db.session.commit()
+
+    # Fire the scheduled SMS webhook (same as the web flow)
+    time_part = ""
+    if pickup_datetime and len(pickup_datetime.split(' ')) >= 3:
+        parts = pickup_datetime.split(' ')
+        time_part = f"{parts[1]} {parts[2]}"
+    sms_text = (f"Hi {name}! Your ClubLifter ride is booked. {a['driver_name']} will pick you up"
+                f"{' at ' + time_part if time_part else ''}"
+                f"{' in a ' + car_string if car_string else ''}. See you soon!")
+    fire_webhook({
+        "type": "scheduled", "source": "cartvip",
+        "customer_name": name, "customer_phone": client_phone,
+        "driver_name": a["driver_name"], "driver_car": car_string or "N/A",
+        "driver_car_photo_url": car_photo_url,
+        "pickup_datetime": pickup_datetime, "pickup_time": time_part,
+        "destination": destination, "message": sms_text, "customer_id": customer.id,
+    })
+
+    return jsonify({
+        "success": True,
+        "customer_id": customer.id,
+        "driver_name": a["driver_name"],
+        "driver_phone": a["driver_phone"],
+        "car": car_string,
+        "distance_km": a["distance_km"],
+        "status": "scheduled"
+    })
+
+@app.route('/api/v1/walkin', methods=['POST'])
+@require_api_key
+def api_v1_walkin():
+    """Register a walk-in (no transport). Body: customer_name (req), customer_phone,
+    extra_phones[], details, package, guests, destination, pickup_datetime."""
+    data = request.get_json(silent=True) or {}
+    name = (data.get("customer_name") or "").strip()
+    if not name:
+        return jsonify({"success": False, "error": "customer_name is required"}), 400
+    client_phone = (data.get("customer_phone") or "").strip()
+    extra_phones = data.get("extra_phones") or []
+    if not isinstance(extra_phones, list):
+        extra_phones = []
+
+    customer = Customer(
+        nome=name, phone=client_phone, phones_json=json.dumps([p for p in extra_phones if p]),
+        endereco="(walk-in)", details=(data.get("details") or "").strip(),
+        motorista="(walk-in)", motorista_phone="",
+        distancia=0, package=(data.get("package") or "").strip(),
+        guests=int(data.get("guests") or 0),
+        pickup_datetime=(data.get("pickup_datetime") or "").strip(),
+        destination=(data.get("destination") or "").strip(),
+        needs_transport=False, club_status="coming",
+        promoter="cartvip", status='scheduled', created_at=datetime.utcnow()
+    )
+    db.session.add(customer); db.session.commit()
+
+    fire_webhook({
+        "event": "walk_in_registered", "source": "cartvip",
+        "customer_id": customer.id, "customer_name": name,
+        "customer_phone": client_phone, "destination": customer.destination,
+        "package": customer.package, "guests": customer.guests,
+    })
+    return jsonify({"success": True, "customer_id": customer.id, "status": "scheduled"})
+
+@app.route('/api/v1/customer/<int:customer_id>', methods=['GET'])
+@require_api_key
+def api_v1_customer_status(customer_id):
+    """Get the current status of a customer/booking."""
+    c = Customer.query.get(customer_id)
+    if not c:
+        return jsonify({"success": False, "error": "Customer not found"}), 404
+    return jsonify({
+        "success": True,
+        "customer_id": c.id, "customer_name": c.nome,
+        "needs_transport": c.needs_transport,
+        "driver_name": c.motorista, "driver_phone": c.motorista_phone,
+        "car": c.car_string_val, "distance_km": c.distancia,
+        "pickup_datetime": c.pickup_datetime, "destination": c.destination,
+        "pickup_status": c.status,          # scheduled | picked_up
+        "club_status": c.club_status,       # coming | arrived | left
+        "package": c.package, "guests": c.guests,
+    })
+
+@app.route('/api/v1/customer/<int:customer_id>/cancel', methods=['POST'])
+@require_api_key
+def api_v1_cancel(customer_id):
+    """Cancel/remove a booking."""
+    c = Customer.query.get(customer_id)
+    if not c:
+        return jsonify({"success": False, "error": "Customer not found"}), 404
+    db.session.delete(c); db.session.commit()
+    fire_webhook({"event": "booking_cancelled", "source": "cartvip", "customer_id": customer_id})
+    return jsonify({"success": True, "cancelled": customer_id})
+
+@app.route('/api/v1/packages', methods=['GET'])
+@require_api_key
+def api_v1_packages():
+    """List active packages for CartVIP's checkout."""
+    return jsonify({"success": True, "packages": [
+        {"name": p.name, "description": p.description, "price": p.price,
+         "max_guests": p.max_guests, "checkout_url": p.checkout_url}
+        for p in Package.query.filter_by(active=True).all()
+    ]})
+
+@app.route('/api/v1/clubs', methods=['GET'])
+@require_api_key
+def api_v1_clubs():
+    """List active clubs/destinations."""
+    return jsonify({"success": True, "clubs": [
+        {"name": c.name, "address": c.address}
+        for c in Club.query.filter_by(active=True).all()
+    ]})
+
 # ─── LIVE DRIVER TRACKING (admin only) ────────────────────────────────────────
 @app.route('/admin/tracking')
 def admin_tracking():
@@ -1239,16 +1698,16 @@ def api_live_drivers():
             if not (v_lat and v_lng):
                 continue
             name = v.get('display_name', 'Unknown')
-            # Match a registered driver profile (if any)
-            drv = Driver.query.filter_by(name=name).first()
+            # Match a registered car profile (if any)
+            car = Car.query.filter_by(name=name).first()
             result.append({
                 "name": name,
                 "lat": float(v_lat),
                 "lng": float(v_lng),
-                "registered": bool(drv),
-                "available": drv.available if drv else None,
-                "car": drv.car_string() if drv else "",
-                "phone": drv.phone if drv else "",
+                "registered": bool(car),
+                "available": car.active if car else None,
+                "car": car.car_string() if car else "",
+                "phone": "",
             })
         return jsonify({"drivers": result, "count": len(result)})
     except Exception as e:
@@ -1372,11 +1831,12 @@ def distance_tracker_loop():
                         driver_pos[v.get('display_name', '')] = (float(v_lat), float(v_lng))
 
                 # Re-geocode each customer's address to get current target
-                # (we cache by ID in memory? for now, re-query)
                 for c in scheduled:
-                    if c.motorista not in driver_pos:
+                    # Look up GPS by the assigned car's name (fallback to motorista for old records)
+                    gps_key = c.car_name or c.motorista
+                    if gps_key not in driver_pos:
                         continue
-                    d_lat, d_lng = driver_pos[c.motorista]
+                    d_lat, d_lng = driver_pos[gps_key]
 
                     # Geocode customer address
                     try:
@@ -1397,8 +1857,8 @@ def distance_tracker_loop():
 
                     # Look up the driver's car string
                     drv = Driver.query.filter_by(name=c.motorista).first()
-                    car_str = drv.car_string() if drv else "N/A"
-                    car_photo_url = f"{PUBLIC_BASE_URL}/uploads/{drv.car_photo}" if (drv and drv.car_photo) else ""
+                    car_str = c.car_string_val or (Car.query.filter_by(name=c.car_name).first().car_string() if c.car_name and Car.query.filter_by(name=c.car_name).first() else "N/A")
+                    car_photo_url = f"{PUBLIC_BASE_URL}/uploads/{c.car_photo}" if c.car_photo else ""
 
                     def fire_distance(threshold_label):
                         fire_webhook({
@@ -1506,6 +1966,15 @@ with app.app_context():
         if "promoter" not in existing_customer_cols:
             conn.execute(text("ALTER TABLE customer ADD COLUMN promoter VARCHAR(80) DEFAULT ''"))
             conn.commit()
+        if "car_name" not in existing_customer_cols:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN car_name VARCHAR(100) DEFAULT ''"))
+            conn.commit()
+        if "car_string_val" not in existing_customer_cols:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN car_string_val VARCHAR(200) DEFAULT ''"))
+            conn.commit()
+        if "car_photo" not in existing_customer_cols:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN car_photo VARCHAR(255) DEFAULT ''"))
+            conn.commit()
 
         existing_driver_cols = [c["name"] for c in inspector.get_columns("driver")]
         if "available" not in existing_driver_cols:
@@ -1531,6 +2000,19 @@ with app.app_context():
         if "commission" not in existing_user_cols:
             conn.execute(text('ALTER TABLE "user" ADD COLUMN commission FLOAT DEFAULT 0'))
             conn.commit()
+
+    # ── BACKFILL: create Car records from old Driver car data (one-time) ───────
+    if Car.query.count() == 0:
+        for d in Driver.query.all():
+            if d.car_model or d.car_color or d.car_plate:
+                # Use the driver name as the car name only if it matches GPS;
+                # otherwise create a car named after the driver as a starting point
+                if not Car.query.filter_by(name=d.name).first():
+                    db.session.add(Car(
+                        name=d.name, model=d.car_model, color=d.car_color,
+                        plate=d.car_plate, photo=d.car_photo, active=True
+                    ))
+        db.session.commit()
 
     seed_data()
 
