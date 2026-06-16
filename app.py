@@ -1210,6 +1210,50 @@ def api_drivers():
 def api_clubs():
     return jsonify([c.to_dict() for c in Club.query.filter_by(active=True).all()])
 
+# ─── LIVE DRIVER TRACKING (admin only) ────────────────────────────────────────
+@app.route('/admin/tracking')
+def admin_tracking():
+    if not session.get("logged") or not is_master():
+        return redirect(url_for("login"))
+    return render_template('admin_tracking.html')
+
+@app.route('/api/live-drivers', methods=['GET'])
+def api_live_drivers():
+    """Returns every vehicle the OneStepGPS account currently reports, with live coords.
+    Cross-references registered drivers (DB) to add car info + availability."""
+    if not session.get("logged") or not is_master():
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+        res = requests.get(
+            "https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
+            headers=headers_api, timeout=10
+        )
+        data = res.json()
+        lista = data if isinstance(data, list) else [data]
+
+        result = []
+        for v in lista:
+            v_lat = v.get('lat') or v.get('last_tap', {}).get('lat')
+            v_lng = v.get('lng') or v.get('last_tap', {}).get('lng')
+            if not (v_lat and v_lng):
+                continue
+            name = v.get('display_name', 'Unknown')
+            # Match a registered driver profile (if any)
+            drv = Driver.query.filter_by(name=name).first()
+            result.append({
+                "name": name,
+                "lat": float(v_lat),
+                "lng": float(v_lng),
+                "registered": bool(drv),
+                "available": drv.available if drv else None,
+                "car": drv.car_string() if drv else "",
+                "phone": drv.phone if drv else "",
+            })
+        return jsonify({"drivers": result, "count": len(result)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # ─── GUEST LIST (admin only) ──────────────────────────────────────────────────
 @app.route('/admin/guestlist')
 def admin_guestlist():
