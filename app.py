@@ -982,6 +982,26 @@ def last_client():
         return jsonify({"error": "No clients found"})
     return jsonify(c.to_dict())
 
+@app.route('/api/debug/recent')
+def debug_recent():
+    """TEMP debug: shows the 10 most recent customers so we can see what's saved.
+    Requires admin login OR API key."""
+    if not (session.get("logged") and is_master()):
+        provided = request.headers.get("X-API-Key", "") or request.args.get("key", "")
+        valid = get_setting("api_access_key", "") or API_ACCESS_KEY
+        if not (valid and provided == valid):
+            return jsonify({"error": "Unauthorized"}), 401
+    rows = Customer.query.order_by(Customer.id.desc()).limit(10).all()
+    return jsonify({
+        "count": Customer.query.count(),
+        "recent": [{
+            "id": c.id, "nome": c.nome, "pickup_datetime": c.pickup_datetime,
+            "status": c.status, "needs_transport": c.needs_transport,
+            "destination": c.destination, "promoter": c.promoter,
+            "created_at": c.created_at.isoformat() if c.created_at else None
+        } for c in rows]
+    })
+
 # ─── ADMIN: USER MANAGEMENT ───────────────────────────────────────────────────
 @app.route('/admin/users')
 def admin_users():
