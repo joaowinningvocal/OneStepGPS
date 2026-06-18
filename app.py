@@ -1754,9 +1754,11 @@ def admin_guestlist():
         return redirect(url_for("login"))
 
     # Filters
-    filter_type = request.args.get('type', 'all')  # all | transport | walkin
+    filter_type = request.args.get('type', 'all')   # all | transport | walkin
     filter_club = request.args.get('club', 'all')
-    filter_date = request.args.get('date', date.today().strftime("%-m/%-d/%Y") if os.name != 'nt' else date.today().strftime("%#m/%#d/%Y"))
+    view_all    = request.args.get('view', '') == 'all'
+    # date arrives as ISO (YYYY-MM-DD) from the date picker; default = today
+    filter_date_iso = request.args.get('date', date.today().strftime("%Y-%m-%d"))
 
     q = Customer.query
     if filter_type == 'transport':
@@ -1766,11 +1768,24 @@ def admin_guestlist():
     if filter_club != 'all':
         q = q.filter_by(destination=filter_club)
 
-    all_customers = q.order_by(Customer.pickup_datetime).all()
-
-    # Filter by date in pickup_datetime
-    if filter_date:
-        all_customers = [c for c in all_customers if filter_date in (c.pickup_datetime or "")]
+    if view_all:
+        # Newest first (most recently scheduled at top)
+        all_customers = q.order_by(Customer.id.desc()).all()
+    else:
+        all_customers = q.order_by(Customer.pickup_datetime).all()
+        # Convert ISO date → MM/DD/YYYY for matching against stored pickup_datetime
+        match = ""
+        try:
+            y, m, d = filter_date_iso.split("-")
+            match = f"{int(m)}/{int(d)}/{y}"   # e.g. 6/20/2026
+        except Exception:
+            match = ""
+        if match:
+            # Match both non-padded (6/20/2026) and padded (06/20/2026) forms
+            padded = f"{int(m):02d}/{int(d):02d}/{y}"
+            all_customers = [c for c in all_customers
+                             if match in (c.pickup_datetime or "")
+                             or padded in (c.pickup_datetime or "")]
 
     clubs = Club.query.filter_by(active=True).all()
 
@@ -1782,7 +1797,8 @@ def admin_guestlist():
 
     return render_template('admin_guestlist.html',
         customers=all_customers, clubs=clubs,
-        filter_type=filter_type, filter_club=filter_club, filter_date=filter_date,
+        filter_type=filter_type, filter_club=filter_club,
+        filter_date_iso=filter_date_iso, view_all=view_all,
         total=total, coming=coming, arrived=arrived, left=left_
     )
 

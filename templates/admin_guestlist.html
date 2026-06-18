@@ -41,6 +41,8 @@
         .seg a{padding:6px 14px;border-radius:7px;font-size:.78rem;font-weight:600;color:var(--m2);text-decoration:none;transition:.2s;}
         .seg a.act{background:rgba(138,92,246,.2);color:var(--acc);}
         .fs,.fc{background:var(--s2);border:1px solid var(--bd);color:var(--t);border-radius:9px;padding:7px 12px;font-size:.82rem;font-family:'DM Sans',sans-serif;appearance:none;}
+        input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.6;cursor:pointer;}
+        input[type=date]{color-scheme:dark;}
         .fs{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7'%3E%3Cpath fill='%238892a0' d='M5 7L0 0h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:30px;}
         .fs option{background:var(--s2);}
 
@@ -156,14 +158,14 @@
             <div>
                 <label>Type</label>
                 <div class="seg">
-                    <a href="?type=all&club={{ filter_club }}&date={{ filter_date }}"       class="{{ 'act' if filter_type=='all' else '' }}">All</a>
-                    <a href="?type=transport&club={{ filter_club }}&date={{ filter_date }}" class="{{ 'act' if filter_type=='transport' else '' }}">🚗 Transport</a>
-                    <a href="?type=walkin&club={{ filter_club }}&date={{ filter_date }}"    class="{{ 'act' if filter_type=='walkin' else '' }}">🚶 Walk-in</a>
+                    <a href="?type=all&club={{ filter_club }}&date={{ filter_date_iso }}{{ '&view=all' if view_all else '' }}"       class="{{ 'act' if filter_type=='all' else '' }}">All</a>
+                    <a href="?type=transport&club={{ filter_club }}&date={{ filter_date_iso }}{{ '&view=all' if view_all else '' }}" class="{{ 'act' if filter_type=='transport' else '' }}">🚗 Transport</a>
+                    <a href="?type=walkin&club={{ filter_club }}&date={{ filter_date_iso }}{{ '&view=all' if view_all else '' }}"    class="{{ 'act' if filter_type=='walkin' else '' }}">🚶 Walk-in</a>
                 </div>
             </div>
             <div>
                 <label>Club</label>
-                <select class="fs" onchange="window.location='?type={{ filter_type }}&club='+this.value+'&date={{ filter_date }}'">
+                <select class="fs" onchange="window.location='?type={{ filter_type }}&club='+encodeURIComponent(this.value)+'&date={{ filter_date_iso }}{{ '&view=all' if view_all else '' }}'">
                     <option value="all" {% if filter_club=='all' %}selected{% endif %}>All clubs</option>
                     {% for c in clubs %}
                     <option value="{{ c.name }}" {% if filter_club==c.name %}selected{% endif %}>{{ c.name }}</option>
@@ -171,11 +173,21 @@
                 </select>
             </div>
             <div>
+                <label>View</label>
+                <div class="seg">
+                    <a href="?type={{ filter_type }}&club={{ filter_club }}&date={{ filter_date_iso }}" class="{{ '' if view_all else 'act' }}">📅 By Date</a>
+                    <a href="?type={{ filter_type }}&club={{ filter_club }}&view=all" class="{{ 'act' if view_all else '' }}">🗂️ View All</a>
+                </div>
+            </div>
+            <div id="dateBox" style="{{ 'display:none;' if view_all else '' }}">
                 <label>Date</label>
-                <input type="text" class="fc" value="{{ filter_date }}" placeholder="MM/DD/YYYY" id="dateFilter"
+                <input type="date" class="fc" value="{{ filter_date_iso }}" id="dateFilter"
                     onchange="window.location='?type={{ filter_type }}&club={{ filter_club }}&date='+this.value">
             </div>
         </div>
+        {% if view_all %}
+        <div style="font-size:.74rem;color:var(--m2);margin-top:10px;">🗂️ Showing all guests, most recent first.</div>
+        {% endif %}
     </div>
 
     <!-- TABLE -->
@@ -257,16 +269,6 @@ async function delGuest(id){
     } else toast(d.error||'Error', false);
 }
 
-// Date format helper
-const dateF = document.getElementById('dateFilter');
-if (dateF) {
-    dateF.addEventListener('input', e=>{
-        let v=e.target.value.replace(/\D/g,'');
-        if(v.length>2)v=v.slice(0,2)+'/'+v.slice(2);
-        if(v.length>5)v=v.slice(0,5)+'/'+v.slice(5,9);
-        e.target.value=v;
-    });
-}
 </script>
 <script>
 function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.classList.toggle('open');}
