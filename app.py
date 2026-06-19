@@ -1007,6 +1007,25 @@ def last_client():
         return jsonify({"error": "No clients found"})
     return jsonify(c.to_dict())
 
+@app.route('/api/debug/schema')
+def debug_schema():
+    """TEMP: shows which columns exist in the live DB, to diagnose migration issues.
+    Requires admin login OR API key."""
+    if not (session.get("logged") and is_master()):
+        provided = request.headers.get("X-API-Key", "") or request.args.get("key", "")
+        valid = get_setting("api_access_key", "") or API_ACCESS_KEY
+        if not (valid and provided == valid):
+            return jsonify({"error": "Unauthorized"}), 401
+    from sqlalchemy import inspect as _inspect
+    insp = _inspect(db.engine)
+    out = {}
+    for tbl in ("customer", "driver", "car", "shift", "user", "package"):
+        try:
+            out[tbl] = [c["name"] for c in insp.get_columns(tbl)]
+        except Exception as e:
+            out[tbl] = f"ERROR: {e}"
+    return jsonify(out)
+
 # ─── ADMIN: USER MANAGEMENT ───────────────────────────────────────────────────
 @app.route('/admin/users')
 def admin_users():
@@ -2280,86 +2299,49 @@ with app.app_context():
     db.create_all()
 
     # ── MIGRATIONS: add new columns to existing databases ─────────────────────
-    with db.engine.connect() as conn:
-        from sqlalchemy import text, inspect
-        inspector = inspect(db.engine)
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
 
-        existing_package_cols = [c["name"] for c in inspector.get_columns("package")]
-        if "checkout_url" not in existing_package_cols:
-            conn.execute(text("ALTER TABLE package ADD COLUMN checkout_url VARCHAR(500) DEFAULT ''"))
-            conn.commit()
+    def safe_migrate(table, column, ddl):
+        """Add a column if missing. Each runs in its own transaction so one
+        failure never blocks the others (the bug that broke production)."""
+        try:
+            cols = [c["name"] for c in inspector.get_columns(table)]
+            if column in cols:
+                return
+            with db.engine.connect() as conn:
+                conn.execute(text(ddl))
+                conn.commit()
+            print(f"[MIGRATION] added {table}.{column}", flush=True)
+        except Exception as e:
+            print(f"[MIGRATION] FAILED {table}.{column}: {e}", flush=True)
 
-        existing_customer_cols = [c["name"] for c in inspector.get_columns("customer")]
-        if "destination" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN destination VARCHAR(100) DEFAULT ''"))
-            conn.commit()
-        if "status" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN status VARCHAR(20) DEFAULT 'scheduled'"))
-            conn.commit()
-        if "phones_json" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN phones_json TEXT DEFAULT '[]'"))
-            conn.commit()
-        if "needs_transport" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN needs_transport BOOLEAN DEFAULT 1"))
-            conn.commit()
-        if "club_status" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN club_status VARCHAR(20) DEFAULT 'coming'"))
-            conn.commit()
-        if "notified_15km" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN notified_15km BOOLEAN DEFAULT 0"))
-            conn.commit()
-        if "notified_10km" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN notified_10km BOOLEAN DEFAULT 0"))
-            conn.commit()
-        if "notified_5km" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN notified_5km BOOLEAN DEFAULT 0"))
-            conn.commit()
-        if "promoter" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN promoter VARCHAR(80) DEFAULT ''"))
-            conn.commit()
-        if "dispatch_status" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN dispatch_status VARCHAR(20) DEFAULT 'none'"))
-            conn.commit()
-        if "here_photo" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN here_photo TEXT DEFAULT ''"))
-            conn.commit()
-        if "here_photo_at" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN here_photo_at DATETIME"))
-            conn.commit()
-        if "car_name" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN car_name VARCHAR(100) DEFAULT ''"))
-            conn.commit()
-        if "car_string_val" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN car_string_val VARCHAR(200) DEFAULT ''"))
-            conn.commit()
-        if "car_photo" not in existing_customer_cols:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN car_photo VARCHAR(255) DEFAULT ''"))
-            conn.commit()
+    safe_migrate("package", "checkout_url", "ALTER TABLE package ADD COLUMN checkout_url VARCHAR(500) DEFAULT ''")
 
-        existing_driver_cols = [c["name"] for c in inspector.get_columns("driver")]
-        if "available" not in existing_driver_cols:
-            conn.execute(text("ALTER TABLE driver ADD COLUMN available BOOLEAN DEFAULT 1"))
-            conn.commit()
-        if "car_model" not in existing_driver_cols:
-            conn.execute(text("ALTER TABLE driver ADD COLUMN car_model VARCHAR(100) DEFAULT ''"))
-            conn.commit()
-        if "car_color" not in existing_driver_cols:
-            conn.execute(text("ALTER TABLE driver ADD COLUMN car_color VARCHAR(50) DEFAULT ''"))
-            conn.commit()
-        if "car_plate" not in existing_driver_cols:
-            conn.execute(text("ALTER TABLE driver ADD COLUMN car_plate VARCHAR(30) DEFAULT ''"))
-            conn.commit()
-        if "car_photo" not in existing_driver_cols:
-            conn.execute(text("ALTER TABLE driver ADD COLUMN car_photo VARCHAR(255) DEFAULT ''"))
-            conn.commit()
+    safe_migrate("customer", "destination",     "ALTER TABLE customer ADD COLUMN destination VARCHAR(100) DEFAULT ''")
+    safe_migrate("customer", "status",          "ALTER TABLE customer ADD COLUMN status VARCHAR(20) DEFAULT 'scheduled'")
+    safe_migrate("customer", "phones_json",     "ALTER TABLE customer ADD COLUMN phones_json TEXT DEFAULT '[]'")
+    safe_migrate("customer", "needs_transport", "ALTER TABLE customer ADD COLUMN needs_transport BOOLEAN DEFAULT 1")
+    safe_migrate("customer", "club_status",     "ALTER TABLE customer ADD COLUMN club_status VARCHAR(20) DEFAULT 'coming'")
+    safe_migrate("customer", "notified_15km",   "ALTER TABLE customer ADD COLUMN notified_15km BOOLEAN DEFAULT 0")
+    safe_migrate("customer", "notified_10km",   "ALTER TABLE customer ADD COLUMN notified_10km BOOLEAN DEFAULT 0")
+    safe_migrate("customer", "notified_5km",    "ALTER TABLE customer ADD COLUMN notified_5km BOOLEAN DEFAULT 0")
+    safe_migrate("customer", "promoter",        "ALTER TABLE customer ADD COLUMN promoter VARCHAR(80) DEFAULT ''")
+    safe_migrate("customer", "dispatch_status", "ALTER TABLE customer ADD COLUMN dispatch_status VARCHAR(20) DEFAULT 'none'")
+    safe_migrate("customer", "here_photo",      "ALTER TABLE customer ADD COLUMN here_photo TEXT DEFAULT ''")
+    safe_migrate("customer", "here_photo_at",   "ALTER TABLE customer ADD COLUMN here_photo_at DATETIME")
+    safe_migrate("customer", "car_name",        "ALTER TABLE customer ADD COLUMN car_name VARCHAR(100) DEFAULT ''")
+    safe_migrate("customer", "car_string_val",  "ALTER TABLE customer ADD COLUMN car_string_val VARCHAR(200) DEFAULT ''")
+    safe_migrate("customer", "car_photo",       "ALTER TABLE customer ADD COLUMN car_photo VARCHAR(255) DEFAULT ''")
 
-        existing_user_cols = [c["name"] for c in inspector.get_columns("user")]
-        if "club_id" not in existing_user_cols:
-            conn.execute(text('ALTER TABLE "user" ADD COLUMN club_id INTEGER DEFAULT NULL'))
-            conn.commit()
-        if "commission" not in existing_user_cols:
-            conn.execute(text('ALTER TABLE "user" ADD COLUMN commission FLOAT DEFAULT 0'))
-            conn.commit()
+    safe_migrate("driver", "available", "ALTER TABLE driver ADD COLUMN available BOOLEAN DEFAULT 1")
+    safe_migrate("driver", "car_model", "ALTER TABLE driver ADD COLUMN car_model VARCHAR(100) DEFAULT ''")
+    safe_migrate("driver", "car_color", "ALTER TABLE driver ADD COLUMN car_color VARCHAR(50) DEFAULT ''")
+    safe_migrate("driver", "car_plate", "ALTER TABLE driver ADD COLUMN car_plate VARCHAR(30) DEFAULT ''")
+    safe_migrate("driver", "car_photo", "ALTER TABLE driver ADD COLUMN car_photo VARCHAR(255) DEFAULT ''")
+
+    safe_migrate("user", "club_id",    'ALTER TABLE "user" ADD COLUMN club_id INTEGER DEFAULT NULL')
+    safe_migrate("user", "commission", 'ALTER TABLE "user" ADD COLUMN commission FLOAT DEFAULT 0')
 
     # ── BACKFILL: create Car records from old Driver car data (one-time) ───────
     if Car.query.count() == 0:
