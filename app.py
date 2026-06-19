@@ -1,11 +1,12 @@
 import math
 import os
 import json
+import base64
 import threading
 import time
 import requests
 import urllib.parse
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -251,7 +252,9 @@ class Car(db.Model):
     active     = db.Column(db.Boolean, default=True)
 
     def car_string(self):
-        parts = [self.color, self.model]
+        # If model is blank, use the GPS display name (e.g. "2013 Mercedes Sprinter 3500")
+        model = self.model or self.name
+        parts = [self.color, model]
         s = " ".join(p for p in parts if p).strip().upper()
         if self.plate:
             s = f"{s} ({self.plate})" if s else self.plate
@@ -317,6 +320,8 @@ class Customer(db.Model):
     needs_transport = db.Column(db.Boolean, default=True)              # NEW: walk-in vs transport
     club_status     = db.Column(db.String(20), default="coming")       # NEW: coming | arrived | left
     dispatch_status = db.Column(db.String(20), default="none")         # none | sent | confirmed | enroute
+    here_photo      = db.Column(db.Text, default="")                   # base64 image from driver "I'm here"
+    here_photo_at   = db.Column(db.DateTime, nullable=True)            # when photo was uploaded (for 24h cleanup)
     promoter        = db.Column(db.String(80), default="")             # NEW: which promoter created this
     # Pickup status: 'scheduled', 'picked_up'
     status          = db.Column(db.String(20), default="scheduled")
@@ -358,8 +363,9 @@ class Customer(db.Model):
 
 # ─── UTILITY ──────────────────────────────────────────────────────────────────
 def calcular_distancia(lat1, lon1, lat2, lon2):
+    """Haversine distance in MILES (R = 3959 mi). Whole system uses miles."""
     try:
-        R = 6371
+        R = 3959  # Earth radius in miles (was 6371 km)
         phi1, phi2 = math.radians(float(lat1)), math.radians(float(lat2))
         dlat = math.radians(float(lat2) - float(lat1))
         dlon = math.radians(float(lon2) - float(lon1))
@@ -795,7 +801,10 @@ def cadastrar_cep():
         driver_profile  = Driver.query.filter_by(name=melhor_v).first()
         motorista_phone = driver_profile.phone if driver_profile else ""
         if chosen_car:
-            car_model = chosen_car.model
+            # The vehicle's descriptive name (e.g. "2013 Mercedes Sprinter 3500") is
+            # often stored in `name` (the OneStepGPS display name) while `model` is blank.
+            # Fall back to `name` so the car never shows up empty in SMS/webhooks.
+            car_model = chosen_car.model or chosen_car.name
             car_color = chosen_car.color
             car_plate = chosen_car.plate
             car_photo = chosen_car.photo
@@ -886,11 +895,17 @@ def cadastrar_cep():
                 "package":              package,
                 "guests":               guests,
                 "distance_km":          distancia_arredondada,
+                "distance_mi":          distancia_arredondada,
+                "distance_unit":        "mi",
                 "destination":          destination,
                 "needs_transport":      True,
                 "car_model":            car_model,
                 "car_color":            car_color,
                 "car_plate":            car_plate,
+                "model":                car_model,
+                "color":                car_color,
+                "license_plate":        car_plate,
+                "driver_car":           " ".join(p for p in [car_color, car_model] if p).strip() + (f" ({car_plate})" if car_plate else ""),
                 "status":               "scheduled",
                 "shopify_order_id":     shopify_result.get("shopify_order_id"),
                 "shopify_order_number": shopify_result.get("shopify_order_number"),
@@ -1027,6 +1042,13 @@ def new_user():
         user.club_id = int(club_ids[0])  # keep first as legacy primary
     db.session.add(user)
     db.session.commit()
+
+    # If this is a driver, auto-create a matching Driver record (linked by name)
+    # so they appear in Shift scheduling and can be assigned cars.
+    if role == 'driver' and not Driver.query.filter_by(name=username).first():
+        db.session.add(Driver(name=username, phone=request.form.get('phone', '').strip(), available=True))
+        db.session.commit()
+
     return jsonify({"success": True, "user": user.to_dict()})
 
 @app.route('/admin/users/edit/<int:user_id>', methods=['POST'])
@@ -1038,6 +1060,9 @@ def edit_user(user_id):
     commission = request.form.get('commission', None)
     if role in ('promoter', 'driver'):
         user.role = role
+        # If switched to driver, ensure a matching Driver record exists
+        if role == 'driver' and not Driver.query.filter_by(name=user.username).first():
+            db.session.add(Driver(name=user.username, available=True))
     if commission is not None:
         try:
             user.commission = float(commission or 0)
@@ -1340,11 +1365,63 @@ def driver_dashboard():
     driver_profile = Driver.query.filter_by(name=driver_name).first()
     driver_available = driver_profile.available if driver_profile else True
 
+    # Driver's live car GPS (for the map) — look up by the car on their pickups or shift
+    car_lat = car_lng = None
+    car_name = None
+    for c in my_customers:
+        if c.car_name:
+            car_name = c.car_name
+            break
+    try:
+        if car_name:
+            headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+            res = requests.get("https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
+                               headers=headers_api, timeout=8).json()
+            lista = res if isinstance(res, list) else [res]
+            for v in lista:
+                if v.get('display_name', '') == car_name:
+                    car_lat = v.get('lat') or v.get('last_tap', {}).get('lat')
+                    car_lng = v.get('lng') or v.get('last_tap', {}).get('lng')
+                    break
+    except Exception:
+        pass
+
+    # Build pickup list with coords + distance from car
+    pickups = []
+    for c in my_customers:
+        p_lat = p_lng = None
+        # geocode pickup address (best-effort, cached would be better but fine for now)
+        try:
+            if c.endereco:
+                encoded = urllib.parse.quote(c.endereco)
+                geo = requests.get(
+                    f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1",
+                    headers={'User-Agent': 'ClubLifter_Driver'}, timeout=8).json()
+                if geo:
+                    p_lat = float(geo[0]['lat']); p_lng = float(geo[0]['lon'])
+        except Exception:
+            pass
+        dist_mi = None
+        if car_lat and car_lng and p_lat and p_lng:
+            dist_mi = round(calcular_distancia(float(car_lat), float(car_lng), p_lat, p_lng), 1)
+        time_part = ""
+        if c.pickup_datetime and len(c.pickup_datetime.split(' ')) >= 3:
+            parts = c.pickup_datetime.split(' '); time_part = f"{parts[1]} {parts[2]}"
+        pickups.append({
+            "id": c.id, "nome": c.nome, "endereco": c.endereco, "destination": c.destination,
+            "package": c.package, "guests": c.guests, "details": c.details,
+            "phone": c.phone, "time": time_part, "status": c.status,
+            "dispatch_status": c.dispatch_status,
+            "lat": p_lat, "lng": p_lng, "dist_mi": dist_mi,
+            "car_string": c.car_string_val,
+        })
+
     return render_template('driver_dashboard.html',
-        customers=my_customers,
+        pickups=pickups,
         driver_name=driver_name,
         driver_available=driver_available,
-        today_str=today_str
+        today_str=today_str,
+        car_lat=car_lat, car_lng=car_lng
     )
 
 @app.route('/driver/pickup/<int:customer_id>', methods=['POST'])
@@ -1452,11 +1529,130 @@ def driver_back_online():
 
     return jsonify({"success": True, "message": "You are back online!"})
 
-# ─── PUBLIC API ───────────────────────────────────────────────────────────────
-@app.route('/api/customers', methods=['GET'])
-@require_api_key
-def api_customers():
-    return jsonify([c.to_dict() for c in Customer.query.order_by(Customer.id.desc()).all()])
+# ─── DRIVER PICKUP ACTIONS (enroute / I'm here / custom message) ───────────────
+def _driver_owns(customer):
+    return customer.motorista == session.get("username")
+
+@app.route('/driver/available', methods=['POST'])
+def driver_set_available():
+    """Driver toggles their own availability (finished a pickup → ready for next)."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"})
+    driver_name = session.get("username")
+    prof = Driver.query.filter_by(name=driver_name).first()
+    if not prof:
+        return jsonify({"success": False, "error": "Driver profile not found"})
+    prof.available = request.form.get('available', 'true').lower() == 'true'
+    db.session.commit()
+    if prof.available:
+        fire_webhook({"event": "driver_back_online", "driver_name": driver_name,
+                      "driver_phone": prof.phone, "timestamp": datetime.utcnow().isoformat()})
+    return jsonify({"success": True, "available": prof.available})
+
+@app.route('/driver/enroute/<int:customer_id>', methods=['POST'])
+def driver_enroute(customer_id):
+    """I'm enroute → text the customer that the driver is on the way."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"})
+    c = Customer.query.get_or_404(customer_id)
+    if not _driver_owns(c):
+        return jsonify({"success": False, "error": "Not your pickup"})
+    c.dispatch_status = "enroute"
+    db.session.commit()
+    car_str = c.car_string_val or "your ride"
+    fire_webhook({
+        "type":            "enroute",
+        "customer_id":     c.id,
+        "customer_name":   c.nome,
+        "customer_phone":  c.phone,
+        "customer_phones": c.get_phones(),
+        "driver_name":     c.motorista,
+        "driver_phone":    c.motorista_phone,
+        "driver_car":      car_str,
+        "pickup_address":  c.endereco,
+        "destination":     c.destination,
+        "pickup_datetime": c.pickup_datetime,
+        "message":         f"Hi {c.nome}! Your ClubLifter driver {c.motorista} is on the way in a {car_str}. See you soon!",
+    })
+    return jsonify({"success": True})
+
+@app.route('/driver/imhere/<int:customer_id>', methods=['POST'])
+def driver_imhere(customer_id):
+    """I'm here → text the customer the driver arrived; optional photo (auto-deletes in 24h)."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"})
+    c = Customer.query.get_or_404(customer_id)
+    if not _driver_owns(c):
+        return jsonify({"success": False, "error": "Not your pickup"})
+
+    photo_url = ""
+    photo_b64 = request.form.get('photo_b64', '').strip()
+    if photo_b64:
+        # Store base64 in DB with timestamp; served via /here-photo/<id>, purged after 24h
+        c.here_photo = photo_b64
+        c.here_photo_at = datetime.utcnow()
+        db.session.commit()
+        photo_url = f"{PUBLIC_BASE_URL}/here-photo/{c.id}"
+
+    car_str = c.car_string_val or "your ride"
+    fire_webhook({
+        "type":            "imhere",
+        "customer_id":     c.id,
+        "customer_name":   c.nome,
+        "customer_phone":  c.phone,
+        "customer_phones": c.get_phones(),
+        "driver_name":     c.motorista,
+        "driver_phone":    c.motorista_phone,
+        "driver_car":      car_str,
+        "pickup_address":  c.endereco,
+        "destination":     c.destination,
+        "photo_url":       photo_url,
+        "message":         f"Hi {c.nome}! Your ClubLifter driver {c.motorista} has arrived in a {car_str}. Come on out!",
+    })
+    return jsonify({"success": True, "photo_url": photo_url})
+
+@app.route('/driver/customsg/<int:customer_id>', methods=['POST'])
+def driver_customsg(customer_id):
+    """Custom → driver types a short message sent to the customer via SMS."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"})
+    c = Customer.query.get_or_404(customer_id)
+    if not _driver_owns(c):
+        return jsonify({"success": False, "error": "Not your pickup"})
+    msg = (request.form.get('message', '') or "").strip()
+    if not msg:
+        return jsonify({"success": False, "error": "Message is empty"})
+    if len(msg) > 300:
+        msg = msg[:300]
+    fire_webhook({
+        "type":            "customsg",
+        "customer_id":     c.id,
+        "customer_name":   c.nome,
+        "customer_phone":  c.phone,
+        "customer_phones": c.get_phones(),
+        "driver_name":     c.motorista,
+        "destination":     c.destination,
+        "message":         msg,
+    })
+    return jsonify({"success": True})
+
+@app.route('/here-photo/<int:customer_id>')
+def serve_here_photo(customer_id):
+    """Serves the driver's 'I'm here' photo (public, so Twilio MMS can fetch it).
+    Returns 404 once the photo has been purged (after 24h)."""
+    c = Customer.query.get_or_404(customer_id)
+    if not c.here_photo:
+        return ("Not found", 404)
+    try:
+        raw = c.here_photo
+        if ',' in raw and raw.strip().startswith('data:'):
+            raw = raw.split(',', 1)[1]
+        img_bytes = base64.b64decode(raw)
+        return app.response_class(img_bytes, mimetype='image/jpeg')
+    except Exception:
+        return ("Not found", 404)
+
+
 
 @app.route('/api/packages', methods=['GET'])
 @require_api_key
@@ -1915,10 +2111,10 @@ def customer_eta(customer_id):
             return jsonify({"eta_min": None, "distance_km": None, "reason": "could not locate club"})
         club_lat = float(geo[0]['lat']); club_lng = float(geo[0]['lon'])
 
-        # 3. Distance + rough ETA (avg 40 km/h city speed)
+        # 3. Distance (miles) + rough ETA (avg 25 mph city speed)
         dist = calcular_distancia(float(car_lat), float(car_lng), club_lat, club_lng)
-        eta_min = round((dist / 40.0) * 60)
-        return jsonify({"eta_min": eta_min, "distance_km": round(dist, 1)})
+        eta_min = round((dist / 25.0) * 60)
+        return jsonify({"eta_min": eta_min, "distance_mi": round(dist, 1), "distance_km": round(dist, 1)})
     except Exception as e:
         return jsonify({"eta_min": None, "distance_km": None, "reason": str(e)}), 500
 
@@ -1933,6 +2129,23 @@ def distance_tracker_loop():
         try:
             time.sleep(120)  # check every 2 minutes
             with app.app_context():
+                # ── Purge "I'm here" photos older than 24h ──
+                try:
+                    cutoff = datetime.utcnow() - timedelta(hours=24)
+                    stale = Customer.query.filter(
+                        Customer.here_photo != "",
+                        Customer.here_photo_at != None,
+                        Customer.here_photo_at < cutoff
+                    ).all()
+                    for sc in stale:
+                        sc.here_photo = ""
+                        sc.here_photo_at = None
+                    if stale:
+                        db.session.commit()
+                        print(f"[CLEANUP] Purged {len(stale)} expired here-photo(s)", flush=True)
+                except Exception as e:
+                    print(f"[CLEANUP] photo purge error: {e}", flush=True)
+
                 today = date.today()
                 today_str = today.strftime("%-m/%-d/%Y") if os.name != 'nt' else today.strftime("%#m/%#d/%Y")
 
@@ -1989,8 +2202,8 @@ def distance_tracker_loop():
                     except Exception:
                         continue
 
-                    dist_km = calcular_distancia(c_lat, c_lng, d_lat, d_lng)
-                    print(f"[TRACKER] {c.nome}: driver {c.motorista} is {dist_km:.2f} km away", flush=True)
+                    dist_mi = calcular_distancia(c_lat, c_lng, d_lat, d_lng)
+                    print(f"[TRACKER] {c.nome}: driver {c.motorista} is {dist_mi:.2f} mi away", flush=True)
 
                     # Look up the driver's car string
                     drv = Driver.query.filter_by(name=c.motorista).first()
@@ -2000,7 +2213,9 @@ def distance_tracker_loop():
                     def fire_distance(threshold_label):
                         fire_webhook({
                             "type":             "distance",
-                            "current_distance": round(dist_km, 2),
+                            "current_distance": round(dist_mi, 1),
+                            "distance_mi":      round(dist_mi, 1),
+                            "distance_unit":    "mi",
                             "driver_name":      c.motorista,
                             "driver_car":       car_str,
                             "driver_car_photo_url": car_photo_url,
@@ -2013,23 +2228,22 @@ def distance_tracker_loop():
                             "customer_id":      c.id,
                         })
 
-                    # Fire once per threshold, nearest first to avoid multiple in one pass
-                    if dist_km <= 5 and not c.notified_5km:
+                    # Fire once per threshold, nearest first (9mi / 6mi / 3mi)
+                    if dist_mi <= 3 and not c.notified_5km:
                         c.notified_5km = True
-                        # mark earlier ones too in case they were skipped
                         c.notified_10km = True
                         c.notified_15km = True
                         db.session.commit()
-                        fire_distance("5km")
-                    elif dist_km <= 10 and not c.notified_10km:
+                        fire_distance("3mi")
+                    elif dist_mi <= 6 and not c.notified_10km:
                         c.notified_10km = True
                         c.notified_15km = True
                         db.session.commit()
-                        fire_distance("10km")
-                    elif dist_km <= 15 and not c.notified_15km:
+                        fire_distance("6mi")
+                    elif dist_mi <= 9 and not c.notified_15km:
                         c.notified_15km = True
                         db.session.commit()
-                        fire_distance("15km")
+                        fire_distance("9mi")
         except Exception as e:
             print(f"[TRACKER] Loop error: {e}", flush=True)
 
@@ -2105,6 +2319,12 @@ with app.app_context():
             conn.commit()
         if "dispatch_status" not in existing_customer_cols:
             conn.execute(text("ALTER TABLE customer ADD COLUMN dispatch_status VARCHAR(20) DEFAULT 'none'"))
+            conn.commit()
+        if "here_photo" not in existing_customer_cols:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN here_photo TEXT DEFAULT ''"))
+            conn.commit()
+        if "here_photo_at" not in existing_customer_cols:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN here_photo_at DATETIME"))
             conn.commit()
         if "car_name" not in existing_customer_cols:
             conn.execute(text("ALTER TABLE customer ADD COLUMN car_name VARCHAR(100) DEFAULT ''"))

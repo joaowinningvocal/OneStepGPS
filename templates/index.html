@@ -377,7 +377,7 @@
                                 {% for c in clientes %}
                                 <tr>
                                     <td>{{ c.nome }}</td><td>{{ c.package }}</td>
-                                    <td>{{ c.guests }}</td><td class="ac">{{ c.distancia }}km</td>
+                                    <td>{{ c.guests }}</td><td class="ac">{{ c.distancia }}mi</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -629,10 +629,10 @@ async function submitSchedule(fd) {
             map.flyToBounds([pM,pC],{padding:[70,70],duration:1.5});
             const b=document.getElementById('drBox'); b.style.display='block';
             document.getElementById('drName').innerText=d.motorista;
-            document.getElementById('drDist').innerText=`📍 ${d.distancia} km away`;
+            document.getElementById('drDist').innerText=`📍 ${d.distancia} mi away`;
             document.getElementById('drPhone').innerHTML=d.motorista_phone?`📞 <a href="tel:${d.motorista_phone}" style="color:var(--green)">${d.motorista_phone}</a>`:`<span style="color:var(--muted)">No phone registered</span>`;
             if(window.innerWidth<=960)document.getElementById('map').scrollIntoView({behavior:'smooth',block:'start'});
-            document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('package')}</td><td>${fd.get('guests')}</td><td class="ac">${d.distancia}km</td></tr>`);
+            document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('package')}</td><td>${fd.get('guests')}</td><td class="ac">${d.distancia}mi</td></tr>`);
             resetFormState(form);
         }else{st.innerHTML=`<span style='color:var(--red)'>❌ ${d.error}</span>`;}
     }catch(err){st.innerHTML="<span style='color:var(--red)'>❌ Server error.</span>";}

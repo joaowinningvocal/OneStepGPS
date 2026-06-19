@@ -3,173 +3,265 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ClubLifter — Driver</title>
+    <title>ClubLifter — My Pickups</title>
     <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
     <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png">
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--bd:rgba(255,255,255,.07);--acc:#8a5cf6;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
+        :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--s3:#0d1117;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--acc2:#6d28d9;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--b:#3b82f6;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
         *{margin:0;padding:0;box-sizing:border-box;}
-        body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;}
-        body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;background-image:linear-gradient(rgba(138,92,246,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(138,92,246,.03) 1px,transparent 1px);background-size:40px 40px;}
-        .wrap{position:relative;z-index:1;max-width:680px;margin:0 auto;padding:14px;}
-        .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;margin-bottom:16px;background:var(--s);border:1px solid var(--bd);border-radius:14px;gap:10px;}
-        .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.15rem;color:var(--acc);}
+        body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;padding:12px;}
+        .wrap{max-width:1300px;margin:0 auto;}
+        .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;margin-bottom:14px;background:var(--s);border:1px solid var(--bd);border-radius:14px;gap:10px;flex-wrap:wrap;}
+        .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:var(--acc);}
         .brand span{color:var(--t);}
-        .topbar-r{display:flex;align-items:center;gap:8px;}
-        .who{font-size:.75rem;color:var(--m2);}
-        .btn-out{font-size:.72rem;font-weight:600;color:var(--m);padding:5px 11px;border-radius:20px;border:1px solid var(--bd);background:none;cursor:pointer;transition:.2s;text-decoration:none;}
-        .btn-out:hover{color:var(--r);border-color:rgba(239,68,68,.5);}
-        .banner{border-radius:14px;padding:14px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
-        .banner.on{background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.35);}
-        .banner.off{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.35);}
-        .dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;}
-        .dot.on{background:var(--g);box-shadow:0 0 8px var(--g);animation:pulse 2s infinite;}
-        .dot.off{background:var(--r);box-shadow:0 0 8px var(--r);}
-        @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
-        .b-info{flex:1;min-width:0;}
-        .b-title{font-family:'Syne',sans-serif;font-weight:700;font-size:.93rem;}
-        .b-sub{font-size:.77rem;color:var(--m2);margin-top:2px;}
-        .btn-problem{background:none;border:1px solid var(--r);color:var(--r);font-weight:700;font-size:.77rem;border-radius:10px;padding:8px 14px;cursor:pointer;transition:.2s;white-space:nowrap;}
-        .btn-problem:hover{background:var(--r);color:#fff;}
-        .btn-back{background:linear-gradient(135deg,var(--g),#16a34a);border:none;color:#fff;font-weight:700;font-size:.77rem;border-radius:10px;padding:8px 14px;cursor:pointer;transition:.2s;white-space:nowrap;}
-        .btn-back:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(34,197,94,.4);}
-        .card{background:var(--s);border:1px solid var(--bd);border-radius:18px;overflow:hidden;}
-        .c-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid var(--bd);flex-wrap:wrap;gap:8px;}
-        .c-hdr h5{font-family:'Syne',sans-serif;font-weight:700;font-size:.98rem;}
-        .c-hdr .day{font-size:.76rem;color:var(--m2);}
-        .btn-ref{font-size:.72rem;font-weight:600;color:var(--m2);padding:5px 11px;border-radius:10px;border:1px solid var(--bd);background:none;cursor:pointer;transition:.2s;}
-        .btn-ref:hover{color:var(--acc);border-color:var(--acc);}
-        .c-body{padding:16px;}
-        .pk{background:var(--s2);border:1px solid var(--bd);border-radius:13px;padding:16px;margin-bottom:10px;transition:border-color .2s;}
-        .pk:last-child{margin-bottom:0;}
-        .pk:hover{border-color:rgba(138,92,246,.3);}
-        .pk.done{opacity:.42;}
-        .pk-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
-        .badges{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px;}
-        .bg{border-radius:7px;padding:3px 9px;font-size:.69rem;font-weight:700;}
-        .bt{background:rgba(34,197,94,.1);color:var(--g);border:1px solid rgba(34,197,94,.4);}
-        .bp{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.4);}
-        .bd2{background:rgba(251,191,36,.1);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
-        .bdn{background:rgba(34,197,94,.1);color:var(--g);border:1px solid rgba(34,197,94,.4);}
-        .pk-name{font-family:'Syne',sans-serif;font-weight:700;font-size:.98rem;margin-bottom:5px;}
-        .pk-meta{font-size:.78rem;color:var(--m2);margin-bottom:3px;}
-        .pk-meta a{color:var(--g);text-decoration:none;}
-        .btn-done{background:linear-gradient(135deg,var(--g),#16a34a);border:none;color:#fff;font-weight:700;font-size:.77rem;border-radius:9px;padding:9px 15px;cursor:pointer;transition:.2s;white-space:nowrap;flex-shrink:0;}
-        .btn-done:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(34,197,94,.4);}
-        .btn-done:disabled{opacity:.45;cursor:not-allowed;transform:none;}
-        .empty{text-align:center;padding:48px 16px;color:var(--m);}
-        .empty .ic{font-size:2.4rem;margin-bottom:8px;}
-        .off-box{background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.2);border-radius:13px;padding:34px 18px;text-align:center;}
-        #toast{position:fixed;bottom:16px;right:14px;left:14px;max-width:420px;margin:0 auto;z-index:9999;display:none;border-radius:12px;padding:13px 18px;font-weight:600;font-size:.86rem;box-shadow:0 8px 24px rgba(0,0,0,.5);}
-        @media(max-width:480px){
-            .topbar{padding:10px 12px;border-radius:11px;}
-            .c-hdr{padding:13px 14px 10px;}
-            .c-body{padding:11px;}
-            .pk{padding:13px;}
-            .pk-top{flex-direction:column;}
-            .btn-done{width:100%;margin-top:8px;}
+        .hi{font-size:.82rem;color:var(--m2);}
+        .hi b{color:var(--t);}
+        .btn-out{font-size:.72rem;font-weight:600;color:var(--m2);padding:6px 12px;border-radius:10px;border:1px solid var(--bd);background:none;cursor:pointer;text-decoration:none;}
+        .btn-out:hover{color:var(--t);}
+        /* Availability banner */
+        .avail-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-radius:14px;margin-bottom:14px;flex-wrap:wrap;}
+        .avail-on{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.4);}
+        .avail-off{background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.4);}
+        .avail-txt{font-family:'Syne',sans-serif;font-weight:700;font-size:.95rem;}
+        .avail-on .avail-txt{color:var(--g);}
+        .avail-off .avail-txt{color:var(--gold);}
+        .avail-sub{font-size:.74rem;color:var(--m2);margin-top:2px;}
+        .toggle-btn{font-family:'Syne',sans-serif;font-weight:700;font-size:.82rem;border:none;border-radius:11px;padding:11px 22px;cursor:pointer;transition:.2s;color:#fff;}
+        .toggle-avail{background:linear-gradient(135deg,var(--g),#16a34a);}
+        .toggle-busy{background:linear-gradient(135deg,var(--gold),#d97706);}
+        .toggle-btn:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.4);}
+        /* Layout */
+        .layout{display:grid;grid-template-columns:380px 1fr;gap:14px;}
+        #map{height:calc(100vh - 180px);min-height:420px;border-radius:16px;border:1px solid var(--bd);}
+        .sidebar{display:flex;flex-direction:column;gap:11px;max-height:calc(100vh - 180px);overflow-y:auto;padding-right:4px;}
+        .pickup{background:var(--s);border:1px solid var(--bd);border-radius:15px;padding:15px;}
+        .pickup.done{opacity:.55;}
+        .pk-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:9px;}
+        .pk-name{font-family:'Syne',sans-serif;font-weight:700;font-size:1rem;}
+        .pk-time{font-size:.72rem;font-weight:700;color:var(--b);background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.35);border-radius:7px;padding:3px 9px;white-space:nowrap;}
+        .pk-dist{font-size:.74rem;color:var(--acc);font-weight:600;margin-bottom:8px;}
+        .pk-row{font-size:.8rem;color:var(--m2);margin-bottom:5px;display:flex;gap:6px;}
+        .pk-row .ic{flex-shrink:0;}
+        .pk-row a{color:var(--g);text-decoration:none;}
+        .pk-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:12px;}
+        .ab{font-family:'Syne',sans-serif;font-weight:700;font-size:.78rem;border:none;border-radius:10px;padding:10px;cursor:pointer;transition:.2s;color:#fff;}
+        .ab:hover{transform:translateY(-1px);}
+        .ab-enroute{background:linear-gradient(135deg,var(--b),#2563eb);}
+        .ab-here{background:linear-gradient(135deg,var(--g),#16a34a);}
+        .ab-custom{background:linear-gradient(135deg,var(--acc),var(--acc2));}
+        .ab-pick{background:var(--s2);border:1px solid var(--bd);color:var(--m2);grid-column:span 2;}
+        .ab-pick:hover{color:var(--t);}
+        .ab-pick.done{background:rgba(34,197,94,.12);color:var(--g);border-color:rgba(34,197,94,.4);}
+        .ab-full{grid-column:span 2;}
+        .empty{text-align:center;padding:40px 16px;color:var(--m);background:var(--s);border:1px solid var(--bd);border-radius:15px;}
+        .empty .ic{font-size:2rem;margin-bottom:8px;}
+        /* Modal */
+        .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:center;justify-content:center;padding:18px;}
+        .modal.open{display:flex;}
+        .modal-card{background:var(--s);border:1px solid var(--bhi);border-radius:18px;padding:22px;max-width:420px;width:100%;}
+        .modal-card h3{font-family:'Syne',sans-serif;font-size:1.05rem;margin-bottom:6px;}
+        .modal-card p{font-size:.8rem;color:var(--m2);margin-bottom:14px;}
+        .modal-card textarea,.modal-card input[type=file]{width:100%;background:var(--s3);border:1px solid var(--bd);color:var(--t);border-radius:11px;padding:11px;font-family:'DM Sans',sans-serif;font-size:.88rem;}
+        .modal-card textarea{min-height:90px;resize:vertical;}
+        .modal-btns{display:flex;gap:9px;margin-top:14px;}
+        .mb{flex:1;font-family:'Syne',sans-serif;font-weight:700;font-size:.84rem;border:none;border-radius:11px;padding:11px;cursor:pointer;}
+        .mb-cancel{background:var(--s2);color:var(--m2);border:1px solid var(--bd);}
+        .mb-send{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;}
+        .preview{margin-top:10px;border-radius:10px;max-width:100%;max-height:200px;display:none;}
+        #toast{position:fixed;bottom:16px;right:14px;left:14px;max-width:380px;margin:0 auto;z-index:10000;display:none;border-radius:11px;padding:13px 16px;font-weight:600;font-size:.86rem;box-shadow:0 8px 24px rgba(0,0,0,.5);text-align:center;}
+        .leaflet-popup-content-wrapper{background:var(--s2);color:var(--t);border-radius:10px;}
+        .leaflet-popup-tip{background:var(--s2);}
+        @media(max-width:900px){
+            .layout{grid-template-columns:1fr;}
+            #map{height:300px;order:2;}
+            .sidebar{max-height:none;order:1;}
         }
-    
-        /* HAMBURGER MENU */
-        .hamburger { display:none; background:none; border:1px solid var(--bd,rgba(255,255,255,.07)); color:var(--t,#e8eaf0); border-radius:10px; width:40px; height:38px; cursor:pointer; font-size:1.2rem; align-items:center; justify-content:center; flex-shrink:0; }
-        .hamburger:hover { border-color:var(--acc,#8a5cf6); color:var(--acc,#8a5cf6); }
-        .mobile-menu { display:none; flex-direction:column; gap:4px; background:var(--s,#0f1420); border:1px solid var(--bd,rgba(255,255,255,.07)); border-radius:14px; padding:10px; margin-bottom:16px; }
-        .mobile-menu.open { display:flex; }
-        .mobile-menu a { font-size:.85rem; font-weight:600; color:var(--m2,#8892a0); text-decoration:none; padding:11px 14px; border-radius:10px; transition:.15s; }
-        .mobile-menu a:hover, .mobile-menu a.act { color:var(--acc,#8a5cf6); background:rgba(138,92,246,.1); }
-        @media (max-width:760px) {
-            .pills-desk { display:none !important; }
-            .m-nav { display:none !important; }
-            .hamburger { display:flex !important; }
-        }
-
     </style>
 </head>
 <body>
 <div class="wrap">
     <div class="topbar">
-        <div class="brand">Club<span>Lifter</span></div>
-        <div class="topbar-r">
-            <span class="who">👤 {{ driver_name }}</span>
-            <a href="/logout" class="btn-out">Logout</a>
+        <div>
+            <div class="brand">Club<span>Lifter</span></div>
+            <div class="hi">Driver: <b>{{ driver_name }}</b> · {{ today_str }}</div>
         </div>
+        <a href="/logout" class="btn-out">Logout</a>
     </div>
 
-    {% if driver_available %}
-    <div class="banner on">
-        <div class="dot on"></div>
-        <div class="b-info">
-            <div class="b-title" style="color:var(--g)">Online & Available</div>
-            <div class="b-sub">You are active and receiving pickups.</div>
+    <!-- Availability -->
+    <div class="avail-bar {{ 'avail-on' if driver_available else 'avail-off' }}" id="availBar">
+        <div>
+            <div class="avail-txt" id="availTxt">{{ '🟢 Available' if driver_available else '🟡 Busy / Offline' }}</div>
+            <div class="avail-sub" id="availSub">{{ 'You can be assigned new pickups.' if driver_available else 'You will not get new pickups until you tap Available.' }}</div>
         </div>
-        <button class="btn-problem" onclick="reportProblem()">⚠️ Report Problem</button>
+        <button class="toggle-btn {{ 'toggle-busy' if driver_available else 'toggle-avail' }}" id="availBtn" onclick="toggleAvail()">
+            {{ 'Set Busy' if driver_available else "I'm Available" }}
+        </button>
     </div>
-    {% else %}
-    <div class="banner off">
-        <div class="dot off"></div>
-        <div class="b-info">
-            <div class="b-title" style="color:var(--r)">Offline — Problem Reported</div>
-            <div class="b-sub">Your pickups were reassigned.</div>
-        </div>
-        <button class="btn-back" onclick="goOnline()">✅ I'm Back</button>
-    </div>
-    {% endif %}
 
-    <div class="card">
-        <div class="c-hdr">
-            <div><h5>Today's Pickups</h5><div class="day">{{ today_str }}</div></div>
-            <button class="btn-ref" onclick="location.reload()">🔄 Refresh</button>
-        </div>
-        <div class="c-body">
-            {% if driver_available %}
-                {% if customers %}
-                    {% for c in customers %}
-                    <div class="pk {% if c.status=='picked_up' %}done{% endif %}" id="card-{{ c.id }}">
-                        <div class="badges">
-                            <span class="bg bt">🕐 {{ c.pickup_datetime.split(' ')[1] ~ ' ' ~ c.pickup_datetime.split(' ')[2] if c.pickup_datetime else '—' }}</span>
-                            <span class="bg bp">{{ c.package }}</span>
-                            {% if c.destination %}<span class="bg bd2">🏢 {{ c.destination }}</span>{% endif %}
-                            {% if c.status=='picked_up' %}<span class="bg bdn">✅ Done</span>{% endif %}
-                        </div>
-                        <div class="pk-top">
-                            <div style="flex:1;min-width:0;">
-                                <div class="pk-name">{{ c.nome }}</div>
-                                {% if c.phone %}<div class="pk-meta">📞 <a href="tel:{{ c.phone }}">{{ c.phone }}</a></div>{% endif %}
-                                <div class="pk-meta">📍 {{ c.endereco }}</div>
-                                {% if c.details %}<div class="pk-meta">💬 {{ c.details }}</div>{% endif %}
-                                <div class="pk-meta">👥 {{ c.guests }} guest{{ 's' if c.guests!=1 else '' }}</div>
-                            </div>
-                            {% if c.status!='picked_up' %}
-                            <button class="btn-done" onclick="markDone({{ c.id }},this)">✅ Picked Up</button>
-                            {% endif %}
-                        </div>
+    <div class="layout">
+        <div class="sidebar" id="sidebar">
+            {% if pickups %}
+                {% for p in pickups %}
+                <div class="pickup {{ 'done' if p.status=='picked_up' else '' }}" id="pk-{{ p.id }}">
+                    <div class="pk-top">
+                        <div class="pk-name">{{ p.nome }}</div>
+                        <div class="pk-time">{{ p.time or '—' }}</div>
                     </div>
-                    {% endfor %}
-                {% else %}
-                <div class="empty"><div class="ic">🚗</div><div style="font-weight:600;margin-bottom:4px;">No pickups today</div><div style="font-size:.78rem;">Check back later.</div></div>
-                {% endif %}
+                    {% if p.dist_mi is not none %}<div class="pk-dist">📍 {{ p.dist_mi }} mi away</div>{% endif %}
+                    <div class="pk-row"><span class="ic">📍</span><span>{{ p.endereco or '—' }}</span></div>
+                    {% if p.destination %}<div class="pk-row"><span class="ic">🏢</span><span>{{ p.destination }}</span></div>{% endif %}
+                    <div class="pk-row"><span class="ic">🎟️</span><span>{{ p.package or '—' }} · {{ p.guests or 0 }} guests</span></div>
+                    {% if p.phone %}<div class="pk-row"><span class="ic">📞</span><a href="tel:{{ p.phone }}">{{ p.phone }}</a></div>{% endif %}
+                    {% if p.details %}<div class="pk-row"><span class="ic">📝</span><span>{{ p.details }}</span></div>{% endif %}
+
+                    <div class="pk-actions">
+                        <button class="ab ab-enroute" onclick="sendEnroute({{ p.id }})">🚗 I'm Enroute</button>
+                        <button class="ab ab-here" onclick="openHere({{ p.id }})">📍 I'm Here</button>
+                        <button class="ab ab-custom ab-full" onclick="openCustom({{ p.id }})">✍️ Custom Message</button>
+                        <button class="ab ab-pick {{ 'done' if p.status=='picked_up' else '' }}" id="pickbtn-{{ p.id }}" onclick="markPicked({{ p.id }})">
+                            {{ '✅ Picked Up' if p.status=='picked_up' else 'Mark as Picked Up' }}
+                        </button>
+                    </div>
+                </div>
+                {% endfor %}
             {% else %}
-            <div class="off-box">
-                <div style="font-size:2.4rem;margin-bottom:10px;">⚠️</div>
-                <div style="font-family:'Syne',sans-serif;font-weight:700;color:var(--r);margin-bottom:6px;">You Are Offline</div>
-                <div style="font-size:.81rem;color:var(--m2);">Tap "I'm Back" above when you're ready to receive pickups again.</div>
-            </div>
+                <div class="empty"><div class="ic">🌙</div><div style="font-weight:600;">No pickups assigned today</div><div style="font-size:.8rem;margin-top:4px;">Enjoy the break — new pickups will appear here.</div></div>
             {% endif %}
+        </div>
+        <div id="map"></div>
+    </div>
+</div>
+
+<!-- I'm Here modal (with photo) -->
+<div class="modal" id="hereModal">
+    <div class="modal-card">
+        <h3>📍 I'm Here</h3>
+        <p>Notify the customer you've arrived. Optionally add a photo of where you are (auto-deletes after 24h).</p>
+        <input type="file" id="herePhoto" accept="image/*" capture="environment" onchange="previewPhoto()">
+        <img id="herePreview" class="preview">
+        <div class="modal-btns">
+            <button class="mb mb-cancel" onclick="closeModal('hereModal')">Cancel</button>
+            <button class="mb mb-send" onclick="sendHere()">Send</button>
         </div>
     </div>
 </div>
+
+<!-- Custom message modal -->
+<div class="modal" id="customModal">
+    <div class="modal-card">
+        <h3>✍️ Custom Message</h3>
+        <p>Type a short message to text the customer.</p>
+        <textarea id="customMsg" maxlength="300" placeholder="e.g. I'm parked by the south entrance in the black Escalade."></textarea>
+        <div class="modal-btns">
+            <button class="mb mb-cancel" onclick="closeModal('customModal')">Cancel</button>
+            <button class="mb mb-send" onclick="sendCustom()">Send SMS</button>
+        </div>
+    </div>
+</div>
+
 <div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-function toast(m,ok=true){const t=document.getElementById('toast');t.style.display='block';t.style.background=ok?'#16a34a':'#dc2626';t.style.color='#fff';t.innerText=m;setTimeout(()=>t.style.display='none',4000);}
-async function markDone(id,btn){btn.disabled=true;btn.innerText='⏳';const d=await(await fetch(`/driver/pickup/${id}`,{method:'POST'})).json();if(d.success){toast('✅ Marked as picked up!');const c=document.getElementById(`card-${id}`);c.classList.add('done');btn.remove();const b=c.querySelector('.badges');const s=document.createElement('span');s.className='bg bdn';s.innerText='✅ Done';b.appendChild(s);}else{toast(d.error||'Error',false);btn.disabled=false;btn.innerText='✅ Picked Up';}}
-async function reportProblem(){if(!confirm('⚠️ Report a problem?\n\nYour pickups will be reassigned and you will go offline.'))return;const d=await(await fetch('/driver/report-problem',{method:'POST'})).json();if(d.success){toast('Problem reported. You are now offline.',false);setTimeout(()=>location.reload(),1800);}else toast(d.error||'Error',false);}
-async function goOnline(){if(!confirm('Confirm you are ready to receive pickups?'))return;const d=await(await fetch('/driver/back-online',{method:'POST'})).json();if(d.success){toast('✅ Back online!');setTimeout(()=>location.reload(),1200);}else toast(d.error||'Error',false);}
-</script>
-<script>
-function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.classList.toggle('open');}
+const DRIVER_AVAILABLE = {{ 'true' if driver_available else 'false' }};
+const CAR_LAT = {{ car_lat if car_lat else 'null' }};
+const CAR_LNG = {{ car_lng if car_lng else 'null' }};
+const PICKUPS = {{ pickups|tojson }};
+
+function toast(m,ok=true){const t=document.getElementById('toast');t.style.display='block';t.style.background=ok?'#16a34a':'#dc2626';t.style.color='#fff';t.innerText=m;setTimeout(()=>t.style.display='none',3200);}
+
+// ---- Map ----
+const map = L.map('map').setView([36.1699,-115.1398], 11);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© ClubLifter'}).addTo(map);
+const bounds = [];
+if (CAR_LAT && CAR_LNG){
+    const carIcon = L.divIcon({className:'',html:'<div style="font-size:26px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6));">🚗</div>',iconSize:[30,30],iconAnchor:[15,28]});
+    L.marker([CAR_LAT,CAR_LNG],{icon:carIcon}).addTo(map).bindPopup('<b>You</b>');
+    bounds.push([CAR_LAT,CAR_LNG]);
+}
+PICKUPS.forEach(p=>{
+    if(p.lat && p.lng){
+        L.marker([p.lat,p.lng]).addTo(map).bindPopup(`<b>${p.nome}</b><br>${p.endereco||''}${p.dist_mi!=null?'<br>📍 '+p.dist_mi+' mi':''}`);
+        bounds.push([p.lat,p.lng]);
+    }
+});
+if(bounds.length) map.fitBounds(bounds,{padding:[50,50],maxZoom:13});
+
+// ---- Availability ----
+let avail = DRIVER_AVAILABLE;
+async function toggleAvail(){
+    const fd=new FormData(); fd.append('available', (!avail).toString());
+    const d=await(await fetch('/driver/available',{method:'POST',body:fd})).json();
+    if(d.success){
+        avail=d.available;
+        const bar=document.getElementById('availBar'),txt=document.getElementById('availTxt'),sub=document.getElementById('availSub'),btn=document.getElementById('availBtn');
+        if(avail){bar.className='avail-bar avail-on';txt.innerText='🟢 Available';sub.innerText='You can be assigned new pickups.';btn.className='toggle-btn toggle-busy';btn.innerText='Set Busy';toast('You are now available');}
+        else{bar.className='avail-bar avail-off';txt.innerText='🟡 Busy / Offline';sub.innerText='You will not get new pickups until you tap Available.';btn.className='toggle-btn toggle-avail';btn.innerText="I'm Available";toast('Marked as busy');}
+    } else toast(d.error||'Error',false);
+}
+
+// ---- I'm Enroute ----
+async function sendEnroute(id){
+    const d=await(await fetch(`/driver/enroute/${id}`,{method:'POST'})).json();
+    toast(d.success?'🚗 Customer notified you are enroute':(d.error||'Error'), d.success);
+}
+
+// ---- Mark picked up ----
+async function markPicked(id){
+    const d=await(await fetch(`/driver/pickup/${id}`,{method:'POST'})).json();
+    if(d.success){
+        const b=document.getElementById('pickbtn-'+id); b.className='ab ab-pick done'; b.innerText='✅ Picked Up';
+        document.getElementById('pk-'+id).classList.add('done');
+        toast('Marked as picked up');
+    } else toast(d.error||'Error',false);
+}
+
+// ---- I'm Here (photo) ----
+let hereId=null, herePhotoB64='';
+function openHere(id){hereId=id;herePhotoB64='';document.getElementById('herePhoto').value='';document.getElementById('herePreview').style.display='none';document.getElementById('hereModal').classList.add('open');}
+function previewPhoto(){
+    const f=document.getElementById('herePhoto').files[0];
+    if(!f)return;
+    const reader=new FileReader();
+    reader.onload=e=>{
+        // downscale to keep payload small
+        const img=new Image();
+        img.onload=()=>{
+            const max=1000, scale=Math.min(1, max/Math.max(img.width,img.height));
+            const cv=document.createElement('canvas'); cv.width=img.width*scale; cv.height=img.height*scale;
+            cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+            herePhotoB64=cv.toDataURL('image/jpeg',0.75);
+            const pv=document.getElementById('herePreview'); pv.src=herePhotoB64; pv.style.display='block';
+        };
+        img.src=e.target.result;
+    };
+    reader.readAsDataURL(f);
+}
+async function sendHere(){
+    const fd=new FormData(); if(herePhotoB64) fd.append('photo_b64', herePhotoB64);
+    const d=await(await fetch(`/driver/imhere/${hereId}`,{method:'POST',body:fd})).json();
+    closeModal('hereModal');
+    toast(d.success?'📍 Customer notified you have arrived':(d.error||'Error'), d.success);
+}
+
+// ---- Custom message ----
+let customId=null;
+function openCustom(id){customId=id;document.getElementById('customMsg').value='';document.getElementById('customModal').classList.add('open');}
+async function sendCustom(){
+    const msg=document.getElementById('customMsg').value.trim();
+    if(!msg){toast('Type a message first',false);return;}
+    const fd=new FormData(); fd.append('message', msg);
+    const d=await(await fetch(`/driver/customsg/${customId}`,{method:'POST',body:fd})).json();
+    closeModal('customModal');
+    toast(d.success?'✍️ Message sent to customer':(d.error||'Error'), d.success);
+}
+
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
 </script>
 </body>
 </html>

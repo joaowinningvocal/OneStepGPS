@@ -357,7 +357,7 @@ async function loadEta(id){
     try{
         const d=await(await fetch(`/api/eta/${id}`)).json();
         if(d.eta_min!=null){
-            cell.innerHTML=`<span style="color:var(--g);font-weight:700;">~${d.eta_min} min</span> <span style="color:var(--m2);font-size:.76rem;">(${d.distance_km} km away)</span> <button class="eta-btn" style="margin-left:6px;" onclick="loadEta(${id})">↻</button>`;
+            cell.innerHTML=`<span style="color:var(--g);font-weight:700;">~${d.eta_min} min</span> <span style="color:var(--m2);font-size:.76rem;">(${d.distance_mi ?? d.distance_km} mi away)</span> <button class="eta-btn" style="margin-left:6px;" onclick="loadEta(${id})">↻</button>`;
         } else {
             cell.innerHTML=`<span style="color:var(--gold);font-size:.78rem;">${d.reason||'No ETA available'}</span> <button class="eta-btn" style="margin-left:6px;" onclick="loadEta(${id})">↻</button>`;
         }
