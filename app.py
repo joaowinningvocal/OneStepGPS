@@ -873,6 +873,7 @@ def cadastrar_cep():
             })
         else:
             fire_webhook({
+                "type":                 "driver",
                 "customer_id":          customer.id,
                 "driver_name":          melhor_v,
                 "driver_phone":         motorista_phone,
