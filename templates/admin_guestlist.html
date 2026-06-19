@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ClubLifter — Guest List</title>
+    <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png">
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
     <style>
         :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--s3:#0d1117;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--b:#3b82f6;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
@@ -62,6 +66,7 @@
         .b-walkin{background:rgba(251,191,36,.1);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
         .b-dest{background:rgba(149,191,71,.1);color:#95bf47;border:1px solid rgba(149,191,71,.4);}
         .b-time{background:rgba(59,130,246,.1);color:var(--b);border:1px solid rgba(59,130,246,.4);padding:3px 9px;border-radius:7px;}
+        .b-date{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.4);padding:3px 9px;border-radius:7px;font-weight:600;white-space:nowrap;}
 
         /* STATUS BUTTONS */
         .status-group{display:inline-flex;background:var(--s2);padding:2px;border-radius:8px;border:1px solid var(--bd);}
@@ -70,6 +75,30 @@
         .stb.act-coming{background:rgba(59,130,246,.25);color:var(--b);}
         .stb.act-arrived{background:rgba(34,197,94,.25);color:var(--g);}
         .stb.act-left{background:rgba(90,98,112,.25);color:var(--m);}
+
+        /* Dispatch buttons */
+        .dispatch-group{display:inline-flex;background:var(--s2);padding:2px;border-radius:8px;border:1px solid var(--bd);gap:1px;}
+        .dsb{padding:5px 9px;border-radius:6px;font-size:.68rem;font-weight:600;border:none;background:none;color:var(--m2);cursor:pointer;transition:.15s;white-space:nowrap;}
+        .dsb:hover{color:var(--t);}
+        .dsb.act-sent{background:rgba(251,191,36,.22);color:var(--gold);}
+        .dsb.act-confirmed{background:rgba(59,130,246,.22);color:var(--b);}
+        .dsb.act-enroute{background:rgba(34,197,94,.25);color:var(--g);}
+
+        /* Name click + caret */
+        .name-click{cursor:pointer;user-select:none;}
+        .name-click:hover{color:var(--acc);}
+        .caret{display:inline-block;font-size:.7rem;color:var(--m);transition:.15s;}
+        .caret.open{transform:rotate(90deg);color:var(--acc);}
+
+        /* Expandable detail row */
+        .detail-row td{background:rgba(138,92,246,.04);padding:0;}
+        .detail-box{padding:16px 20px;border-left:3px solid var(--acc);margin:4px 8px 12px;background:var(--s2);border-radius:10px;}
+        .detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;}
+        .detail-item{display:flex;flex-direction:column;gap:3px;}
+        .dlabel{font-size:.66rem;font-weight:700;color:var(--m);text-transform:uppercase;letter-spacing:.5px;}
+        .dval{font-size:.85rem;color:var(--t);}
+        .eta-btn{background:rgba(138,92,246,.15);border:1px solid rgba(138,92,246,.4);color:var(--acc);border-radius:7px;padding:4px 11px;font-size:.76rem;font-weight:600;cursor:pointer;}
+        .eta-btn:hover{background:rgba(138,92,246,.3);}
 
         .btn-del{background:none;border:1px solid rgba(239,68,68,.4);color:var(--r);font-size:.7rem;font-weight:600;border-radius:7px;padding:5px 9px;cursor:pointer;transition:.2s;}
         .btn-del:hover{background:var(--r);color:#fff;}
@@ -197,16 +226,18 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Time</th><th>Name</th><th>Phones</th><th>Type</th>
-                        <th>Destination</th><th>Package</th><th>Guests</th>
-                        <th>Status</th><th></th>
+                        <th>Date</th><th>Time</th><th>Name</th><th>Phones</th><th>Type</th>
+                        <th>Destination</th><th>Dispatch</th><th>Status</th><th></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for c in customers %}
-                    <tr id="row-{{ c.id }}">
-                        <td><span class="b-time">{{ c.pickup_datetime.split(' ')[1] ~ ' ' ~ c.pickup_datetime.split(' ')[2] if c.pickup_datetime else '—' }}</span></td>
-                        <td class="name">{{ c.nome }}</td>
+                    <tr id="row-{{ c.id }}" class="main-row">
+                        <td><span class="b-date">{{ c.pickup_datetime.split(' ')[0] if c.pickup_datetime else '—' }}</span></td>
+                        <td><span class="b-time">{{ c.pickup_datetime.split(' ')[1] ~ ' ' ~ c.pickup_datetime.split(' ')[2] if c.pickup_datetime and c.pickup_datetime.split(' ')|length >= 3 else '—' }}</span></td>
+                        <td class="name name-click" onclick="toggleDetails({{ c.id }})">
+                            <span class="caret" id="caret-{{ c.id }}">▸</span> {{ c.nome }}
+                        </td>
                         <td style="font-size:.78rem;">
                             {% for p in c.get_phones() %}
                             <a href="tel:{{ p }}" class="phone">{{ p }}</a>{% if not loop.last %}<br>{% endif %}
@@ -220,8 +251,15 @@
                             {% endif %}
                         </td>
                         <td>{% if c.destination %}<span class="bg b-dest">🏢 {{ c.destination }}</span>{% else %}—{% endif %}</td>
-                        <td>{{ c.package or '—' }}</td>
-                        <td>{{ c.guests or '—' }}</td>
+                        <td>
+                            {% if c.needs_transport %}
+                            <div class="dispatch-group">
+                                <button class="dsb {{ 'act-sent' if c.dispatch_status=='sent' else '' }}"           onclick="setDispatch({{ c.id }}, 'sent', this)" title="Driver notified">📤 Sent</button>
+                                <button class="dsb {{ 'act-confirmed' if c.dispatch_status=='confirmed' else '' }}" onclick="setDispatch({{ c.id }}, 'confirmed', this)" title="Driver confirmed enroute">✅ Confirmed</button>
+                                <button class="dsb {{ 'act-enroute' if c.dispatch_status=='enroute' else '' }}"     onclick="setDispatch({{ c.id }}, 'enroute', this)" title="Client on the way to club">🚀 Enroute</button>
+                            </div>
+                            {% else %}<span style="color:var(--m);font-size:.74rem;">—</span>{% endif %}
+                        </td>
                         <td>
                             <div class="status-group">
                                 <button class="stb {{ 'act-coming' if c.club_status=='coming' else '' }}"     onclick="setStatus({{ c.id }}, 'coming', this)">Coming</button>
@@ -230,6 +268,25 @@
                             </div>
                         </td>
                         <td><button class="btn-del" onclick="delGuest({{ c.id }})">✕</button></td>
+                    </tr>
+                    <!-- EXPANDABLE DETAIL ROW -->
+                    <tr id="details-{{ c.id }}" class="detail-row" style="display:none;">
+                        <td colspan="9">
+                            <div class="detail-box">
+                                <div class="detail-grid">
+                                    <div class="detail-item"><span class="dlabel">📍 Pickup Location</span><span class="dval">{{ c.endereco or '—' }}</span></div>
+                                    <div class="detail-item"><span class="dlabel">🏢 Destination</span><span class="dval">{{ c.destination or '—' }}</span></div>
+                                    <div class="detail-item"><span class="dlabel">🎟️ Package</span><span class="dval">{{ c.package or '—' }}</span></div>
+                                    <div class="detail-item"><span class="dlabel">👥 Guests</span><span class="dval">{{ c.guests or '—' }}</span></div>
+                                    <div class="detail-item"><span class="dlabel">🚘 Driver</span><span class="dval">{{ c.motorista or '—' }}{% if c.motorista_phone %} · {{ c.motorista_phone }}{% endif %}</span></div>
+                                    <div class="detail-item"><span class="dlabel">🚗 Car</span><span class="dval">{{ c.car_string_val or '—' }}</span></div>
+                                    <div class="detail-item"><span class="dlabel">📝 Notes</span><span class="dval">{{ c.details or '—' }}</span></div>
+                                    {% if c.needs_transport %}
+                                    <div class="detail-item"><span class="dlabel">⏱️ ETA to club</span><span class="dval" id="eta-{{ c.id }}"><button class="eta-btn" onclick="loadEta({{ c.id }})">Check ETA</button></span></div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -266,7 +323,47 @@ async function delGuest(id){
     if(d.success){
         toast('Guest removed');
         document.getElementById('row-'+id).remove();
+        const dr=document.getElementById('details-'+id); if(dr)dr.remove();
     } else toast(d.error||'Error', false);
+}
+
+// Dispatch status (Sent → Confirmed → Enroute)
+async function setDispatch(id, status, btn){
+    const fd=new FormData(); fd.append('dispatch_status', status);
+    const d=await(await fetch(`/admin/guestlist/dispatch/${id}`, {method:'POST',body:fd})).json();
+    if(d.success){
+        const labels={sent:'Dispatch Sent',confirmed:'Driver Confirmed',enroute:'Client Enroute'};
+        toast('✔ '+(labels[status]||status));
+        const row=document.getElementById('row-'+id);
+        row.querySelectorAll('.dsb').forEach(b=>{b.classList.remove('act-sent','act-confirmed','act-enroute');});
+        btn.classList.add('act-'+status);
+    } else toast(d.error||'Error', false);
+}
+
+// Expand/collapse order details
+function toggleDetails(id){
+    const dr=document.getElementById('details-'+id);
+    const caret=document.getElementById('caret-'+id);
+    if(!dr)return;
+    const open = dr.style.display==='none';
+    dr.style.display = open ? 'table-row' : 'none';
+    if(caret) caret.classList.toggle('open', open);
+}
+
+// Live ETA (car GPS → club)
+async function loadEta(id){
+    const cell=document.getElementById('eta-'+id);
+    cell.innerHTML='<span style="color:var(--m2);font-size:.78rem;">⏳ Calculating…</span>';
+    try{
+        const d=await(await fetch(`/api/eta/${id}`)).json();
+        if(d.eta_min!=null){
+            cell.innerHTML=`<span style="color:var(--g);font-weight:700;">~${d.eta_min} min</span> <span style="color:var(--m2);font-size:.76rem;">(${d.distance_km} km away)</span> <button class="eta-btn" style="margin-left:6px;" onclick="loadEta(${id})">↻</button>`;
+        } else {
+            cell.innerHTML=`<span style="color:var(--gold);font-size:.78rem;">${d.reason||'No ETA available'}</span> <button class="eta-btn" style="margin-left:6px;" onclick="loadEta(${id})">↻</button>`;
+        }
+    }catch(e){
+        cell.innerHTML='<span style="color:var(--r);font-size:.78rem;">Error</span>';
+    }
 }
 
 </script>

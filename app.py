@@ -316,6 +316,7 @@ class Customer(db.Model):
     destination     = db.Column(db.String(100), default="")
     needs_transport = db.Column(db.Boolean, default=True)              # NEW: walk-in vs transport
     club_status     = db.Column(db.String(20), default="coming")       # NEW: coming | arrived | left
+    dispatch_status = db.Column(db.String(20), default="none")         # none | sent | confirmed | enroute
     promoter        = db.Column(db.String(80), default="")             # NEW: which promoter created this
     # Pickup status: 'scheduled', 'picked_up'
     status          = db.Column(db.String(20), default="scheduled")
@@ -349,6 +350,7 @@ class Customer(db.Model):
             "destination": self.destination,
             "needs_transport": self.needs_transport,
             "club_status": self.club_status,
+            "dispatch_status": self.dispatch_status,
             "promoter": self.promoter,
             "status": self.status,
             "created_at": self.created_at.isoformat() if self.created_at else ""
@@ -982,26 +984,6 @@ def last_client():
         return jsonify({"error": "No clients found"})
     return jsonify(c.to_dict())
 
-@app.route('/api/debug/recent')
-def debug_recent():
-    """TEMP debug: shows the 10 most recent customers so we can see what's saved.
-    Requires admin login OR API key."""
-    if not (session.get("logged") and is_master()):
-        provided = request.headers.get("X-API-Key", "") or request.args.get("key", "")
-        valid = get_setting("api_access_key", "") or API_ACCESS_KEY
-        if not (valid and provided == valid):
-            return jsonify({"error": "Unauthorized"}), 401
-    rows = Customer.query.order_by(Customer.id.desc()).limit(10).all()
-    return jsonify({
-        "count": Customer.query.count(),
-        "recent": [{
-            "id": c.id, "nome": c.nome, "pickup_datetime": c.pickup_datetime,
-            "status": c.status, "needs_transport": c.needs_transport,
-            "destination": c.destination, "promoter": c.promoter,
-            "created_at": c.created_at.isoformat() if c.created_at else None
-        } for c in rows]
-    })
-
 # ─── ADMIN: USER MANAGEMENT ───────────────────────────────────────────────────
 @app.route('/admin/users')
 def admin_users():
@@ -1202,6 +1184,10 @@ def save_car_photo(file_storage):
 @app.route('/uploads/<path:filename>')
 def serve_upload(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(app.root_path, 'static', 'img'), 'favicon.ico')
 
 @app.route('/admin/drivers')
 def admin_drivers():
@@ -1855,6 +1841,79 @@ def delete_guest(customer_id):
     db.session.commit()
     return jsonify({"success": True})
 
+@app.route('/admin/guestlist/dispatch/<int:customer_id>', methods=['POST'])
+def update_dispatch_status(customer_id):
+    if not is_master():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    customer = Customer.query.get_or_404(customer_id)
+    new_status = request.form.get('dispatch_status', '').strip()
+    if new_status not in ('none', 'sent', 'confirmed', 'enroute'):
+        return jsonify({"success": False, "error": "Invalid status"})
+    customer.dispatch_status = new_status
+    db.session.commit()
+
+    # Fire webhook for dispatch status change
+    fire_webhook({
+        "event":           "dispatch_status_change",
+        "customer_id":     customer.id,
+        "customer_name":   customer.nome,
+        "customer_phone":  customer.phone,
+        "driver_name":     customer.motorista,
+        "driver_phone":    customer.motorista_phone,
+        "car":             customer.car_string_val,
+        "pickup_address":  customer.endereco,
+        "destination":     customer.destination,
+        "dispatch_status": new_status,
+        "timestamp":       datetime.utcnow().isoformat()
+    })
+    return jsonify({"success": True, "dispatch_status": new_status})
+
+@app.route('/api/eta/<int:customer_id>', methods=['GET'])
+def customer_eta(customer_id):
+    """Live ETA: distance from the assigned car's GPS to the destination club."""
+    if not (session.get("logged") and is_master()):
+        return jsonify({"error": "Unauthorized"}), 401
+    customer = Customer.query.get_or_404(customer_id)
+    if not customer.car_name:
+        return jsonify({"eta_min": None, "distance_km": None, "reason": "no car assigned"})
+    try:
+        # 1. Get the car's live position
+        headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+        res = requests.get(
+            "https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
+            headers=headers_api, timeout=10
+        ).json()
+        lista = res if isinstance(res, list) else [res]
+        car_lat = car_lng = None
+        for v in lista:
+            if v.get('display_name', '') == customer.car_name:
+                car_lat = v.get('lat') or v.get('last_tap', {}).get('lat')
+                car_lng = v.get('lng') or v.get('last_tap', {}).get('lng')
+                break
+        if not (car_lat and car_lng):
+            return jsonify({"eta_min": None, "distance_km": None, "reason": "car not reporting GPS"})
+
+        # 2. Geocode the destination club
+        club = Club.query.filter_by(name=customer.destination).first()
+        target_addr = club.address if (club and club.address) else customer.destination
+        if not target_addr:
+            return jsonify({"eta_min": None, "distance_km": None, "reason": "no destination"})
+        encoded = urllib.parse.quote(target_addr + ", Las Vegas, NV")
+        geo = requests.get(
+            f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1",
+            headers={'User-Agent': 'ClubLifter_ETA'}, timeout=10
+        ).json()
+        if not geo:
+            return jsonify({"eta_min": None, "distance_km": None, "reason": "could not locate club"})
+        club_lat = float(geo[0]['lat']); club_lng = float(geo[0]['lon'])
+
+        # 3. Distance + rough ETA (avg 40 km/h city speed)
+        dist = calcular_distancia(float(car_lat), float(car_lng), club_lat, club_lng)
+        eta_min = round((dist / 40.0) * 60)
+        return jsonify({"eta_min": eta_min, "distance_km": round(dist, 1)})
+    except Exception as e:
+        return jsonify({"eta_min": None, "distance_km": None, "reason": str(e)}), 500
+
 # ─── BACKGROUND DISTANCE TRACKER (15km/5km notifications) ─────────────────────
 def distance_tracker_loop():
     """
@@ -2035,6 +2094,9 @@ with app.app_context():
             conn.commit()
         if "promoter" not in existing_customer_cols:
             conn.execute(text("ALTER TABLE customer ADD COLUMN promoter VARCHAR(80) DEFAULT ''"))
+            conn.commit()
+        if "dispatch_status" not in existing_customer_cols:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN dispatch_status VARCHAR(20) DEFAULT 'none'"))
             conn.commit()
         if "car_name" not in existing_customer_cols:
             conn.execute(text("ALTER TABLE customer ADD COLUMN car_name VARCHAR(100) DEFAULT ''"))
