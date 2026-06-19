@@ -763,7 +763,14 @@ def cadastrar_cep():
                 if best is None or dist < best[1]:
                     best = (drv, dist, coords, car)
             if best:
-                melhor_v, menor_d, motorista_coords, chosen_car = best
+                # best[0] is a Driver object; store the driver NAME in melhor_v.
+                # Passing the Driver object into SQLAlchemy filters causes:
+                # "SQL expression element or literal value expected, got <Driver ...>"
+                drv, dist, coords, car = best
+                melhor_v = drv.name
+                menor_d = dist
+                motorista_coords = coords
+                chosen_car = car
 
         if melhor_v == "Unavailable":
             # FALLBACK: no shift matched (or all busy) → nearest available car
