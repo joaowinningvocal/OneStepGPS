@@ -1433,10 +1433,75 @@ def driver_dashboard():
             "dispatch_status": c.dispatch_status,
             "lat": p_lat, "lng": p_lng, "dist_mi": dist_mi,
             "car_string": c.car_string_val,
+            "_dt": parse_pickup_datetime(c.pickup_datetime),
         })
+
+    # ── GROUP PICKUPS INTO ROUTES ──────────────────────────────────────────────
+    # A route = same destination + pickup times within 90 min of each other.
+    # Stops are ordered by nearest-neighbor starting from the driver's car position.
+    ROUTE_WINDOW_MIN = 90
+
+    def order_route(stops, start_lat, start_lng):
+        """Nearest-neighbor ordering of stops from a start point."""
+        remaining = [s for s in stops]
+        ordered = []
+        cur_lat, cur_lng = start_lat, start_lng
+        while remaining:
+            if cur_lat and cur_lng:
+                # pick nearest with known coords; those without coords go last
+                with_coords = [s for s in remaining if s["lat"] and s["lng"]]
+                if with_coords:
+                    nxt = min(with_coords, key=lambda s: calcular_distancia(cur_lat, cur_lng, s["lat"], s["lng"]))
+                else:
+                    nxt = remaining[0]
+            else:
+                nxt = remaining[0]
+            ordered.append(nxt)
+            remaining.remove(nxt)
+            if nxt["lat"] and nxt["lng"]:
+                cur_lat, cur_lng = nxt["lat"], nxt["lng"]
+        return ordered
+
+    # Sort all pickups by time first
+    timed = sorted(pickups, key=lambda p: (p["_dt"] or datetime.max))
+    routes = []
+    used = set()
+    for i, p in enumerate(timed):
+        if p["id"] in used:
+            continue
+        group = [p]; used.add(p["id"])
+        for q in timed[i+1:]:
+            if q["id"] in used:
+                continue
+            same_dest = (q["destination"] or "") == (p["destination"] or "")
+            close_time = True
+            if p["_dt"] and q["_dt"]:
+                close_time = abs((q["_dt"] - p["_dt"]).total_seconds()) <= ROUTE_WINDOW_MIN * 60
+            if same_dest and close_time:
+                group.append(q); used.add(q["id"])
+        # order the stops
+        ordered = order_route(group, car_lat, car_lng) if len(group) > 1 else group
+        # assign stop numbers
+        for idx, s in enumerate(ordered, 1):
+            s["stop_no"] = idx
+        routes.append({
+            "destination": p["destination"] or "—",
+            "stops": ordered,
+            "is_multi": len(ordered) > 1,
+            "total_guests": sum((s["guests"] or 0) for s in ordered),
+            "start_time": ordered[0]["time"] if ordered else "",
+        })
+
+    # strip internal _dt before sending to template (not JSON serializable)
+    for r in routes:
+        for s in r["stops"]:
+            s.pop("_dt", None)
+    for p in pickups:
+        p.pop("_dt", None)
 
     return render_template('driver_dashboard.html',
         pickups=pickups,
+        routes=routes,
         driver_name=driver_name,
         driver_available=driver_available,
         today_str=today_str,
@@ -1651,7 +1716,34 @@ def driver_customsg(customer_id):
         "customer_phones": c.get_phones(),
         "driver_name":     c.motorista,
         "destination":     c.destination,
+        "custom_msg":      msg,
         "message":         msg,
+    })
+    return jsonify({"success": True})
+
+@app.route('/driver/startcall/<int:customer_id>', methods=['POST'])
+def driver_startcall(customer_id):
+    """Start Call → notifies the call center (Aloware) to bridge a 3-way call
+    between driver and customer, masking the customer's number from the driver."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"})
+    c = Customer.query.get_or_404(customer_id)
+    if not _driver_owns(c):
+        return jsonify({"success": False, "error": "Not your pickup"})
+    fire_webhook({
+        "type":            "aloware",
+        "customer_id":     c.id,
+        "customer_name":   c.nome,
+        "customer_phone":  c.phone,
+        "customer_phones": c.get_phones(),
+        "driver_name":     c.motorista,
+        "driver_phone":    c.motorista_phone,
+        "pickup_address":  c.endereco,
+        "destination":     c.destination,
+        "pickup_datetime": c.pickup_datetime,
+        "car":             c.car_string_val,
+        "package":         c.package,
+        "guests":          c.guests,
     })
     return jsonify({"success": True})
 

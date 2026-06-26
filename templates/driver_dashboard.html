@@ -39,6 +39,14 @@
         .sidebar{display:flex;flex-direction:column;gap:11px;max-height:calc(100vh - 180px);overflow-y:auto;padding-right:4px;}
         .pickup{background:var(--s);border:1px solid var(--bd);border-radius:15px;padding:15px;}
         .pickup.done{opacity:.55;}
+        /* Route grouping */
+        .route-card{background:rgba(138,92,246,.05);border:1px solid var(--bhi);border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:9px;}
+        .route-hdr{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px 2px;flex-wrap:wrap;}
+        .route-badge{font-family:'Syne',sans-serif;font-weight:800;font-size:.82rem;color:var(--acc);}
+        .route-meta{font-size:.72rem;color:var(--m2);}
+        .route-card .pickup{background:var(--s2);}
+        .route-end{text-align:center;font-size:.74rem;color:var(--gold);font-weight:600;padding:4px;}
+        .stop-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--acc);color:#fff;font-size:.74rem;font-weight:800;margin-right:6px;}
         .pk-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:9px;}
         .pk-name{font-family:'Syne',sans-serif;font-weight:700;font-size:1rem;}
         .pk-time{font-size:.72rem;font-weight:700;color:var(--b);background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.35);border-radius:7px;padding:3px 9px;white-space:nowrap;}
@@ -52,6 +60,7 @@
         .ab-enroute{background:linear-gradient(135deg,var(--b),#2563eb);}
         .ab-here{background:linear-gradient(135deg,var(--g),#16a34a);}
         .ab-custom{background:linear-gradient(135deg,var(--acc),var(--acc2));}
+        .ab-call{background:linear-gradient(135deg,#0ea5e9,#0369a1);}
         .ab-pick{background:var(--s2);border:1px solid var(--bd);color:var(--m2);grid-column:span 2;}
         .ab-pick:hover{color:var(--t);}
         .ab-pick.done{background:rgba(34,197,94,.12);color:var(--g);border-color:rgba(34,197,94,.4);}
@@ -104,28 +113,43 @@
 
     <div class="layout">
         <div class="sidebar" id="sidebar">
-            {% if pickups %}
-                {% for p in pickups %}
-                <div class="pickup {{ 'done' if p.status=='picked_up' else '' }}" id="pk-{{ p.id }}">
-                    <div class="pk-top">
-                        <div class="pk-name">{{ p.nome }}</div>
-                        <div class="pk-time">{{ p.time or '—' }}</div>
+            {% if routes %}
+                {% for route in routes %}
+                <div class="route-card">
+                    {% if route.is_multi %}
+                    <div class="route-hdr">
+                        <span class="route-badge">🛣️ Route · {{ route.stops|length }} stops</span>
+                        <span class="route-meta">→ {{ route.destination }} · {{ route.total_guests }} guests</span>
                     </div>
-                    {% if p.dist_mi is not none %}<div class="pk-dist">📍 {{ p.dist_mi }} mi away</div>{% endif %}
-                    <div class="pk-row"><span class="ic">📍</span><span>{{ p.endereco or '—' }}</span></div>
-                    {% if p.destination %}<div class="pk-row"><span class="ic">🏢</span><span>{{ p.destination }}</span></div>{% endif %}
-                    <div class="pk-row"><span class="ic">🎟️</span><span>{{ p.package or '—' }} · {{ p.guests or 0 }} guests</span></div>
-                    {% if p.phone %}<div class="pk-row"><span class="ic">📞</span><a href="tel:{{ p.phone }}">{{ p.phone }}</a></div>{% endif %}
-                    {% if p.details %}<div class="pk-row"><span class="ic">📝</span><span>{{ p.details }}</span></div>{% endif %}
+                    {% endif %}
+                    {% for p in route.stops %}
+                    <div class="pickup {{ 'done' if p.status=='picked_up' else '' }}" id="pk-{{ p.id }}">
+                        <div class="pk-top">
+                            <div class="pk-name">
+                                {% if route.is_multi %}<span class="stop-num">{{ p.stop_no }}</span>{% endif %}
+                                {{ p.nome }}
+                            </div>
+                            <div class="pk-time">{{ p.time or '—' }}</div>
+                        </div>
+                        {% if p.dist_mi is not none %}<div class="pk-dist">📍 {{ p.dist_mi }} mi away</div>{% endif %}
+                        <div class="pk-row"><span class="ic">📍</span><span>{{ p.endereco or '—' }}</span></div>
+                        {% if p.destination %}<div class="pk-row"><span class="ic">🏢</span><span>{{ p.destination }}</span></div>{% endif %}
+                        <div class="pk-row"><span class="ic">🎟️</span><span>{{ p.package or '—' }} · {{ p.guests or 0 }} guests</span></div>
+                        {% if p.phone %}<div class="pk-row"><span class="ic">📞</span><a href="tel:{{ p.phone }}">{{ p.phone }}</a></div>{% endif %}
+                        {% if p.details %}<div class="pk-row"><span class="ic">📝</span><span>{{ p.details }}</span></div>{% endif %}
 
-                    <div class="pk-actions">
-                        <button class="ab ab-enroute" onclick="sendEnroute({{ p.id }})">🚗 I'm Enroute</button>
-                        <button class="ab ab-here" onclick="openHere({{ p.id }})">📍 I'm Here</button>
-                        <button class="ab ab-custom ab-full" onclick="openCustom({{ p.id }})">✍️ Custom Message</button>
-                        <button class="ab ab-pick {{ 'done' if p.status=='picked_up' else '' }}" id="pickbtn-{{ p.id }}" onclick="markPicked({{ p.id }})">
-                            {{ '✅ Picked Up' if p.status=='picked_up' else 'Mark as Picked Up' }}
-                        </button>
+                        <div class="pk-actions">
+                            <button class="ab ab-enroute" onclick="sendEnroute({{ p.id }})">🚗 I'm Enroute</button>
+                            <button class="ab ab-here" onclick="openHere({{ p.id }})">📍 I'm Here</button>
+                            <button class="ab ab-call ab-full" onclick="startCall({{ p.id }})">📞 Start Call</button>
+                            <button class="ab ab-custom ab-full" onclick="openCustom({{ p.id }})">✍️ Custom Message</button>
+                            <button class="ab ab-pick {{ 'done' if p.status=='picked_up' else '' }}" id="pickbtn-{{ p.id }}" onclick="markPicked({{ p.id }})">
+                                {{ '✅ Picked Up' if p.status=='picked_up' else 'Mark as Picked Up' }}
+                            </button>
+                        </div>
                     </div>
+                    {% endfor %}
+                    {% if route.is_multi %}<div class="route-end">🏁 Then drop everyone at {{ route.destination }}</div>{% endif %}
                 </div>
                 {% endfor %}
             {% else %}
@@ -171,6 +195,7 @@ const DRIVER_AVAILABLE = {{ 'true' if driver_available else 'false' }};
 const CAR_LAT = {{ car_lat if car_lat else 'null' }};
 const CAR_LNG = {{ car_lng if car_lng else 'null' }};
 const PICKUPS = {{ pickups|tojson }};
+const ROUTES = {{ routes|tojson }};
 
 function toast(m,ok=true){const t=document.getElementById('toast');t.style.display='block';t.style.background=ok?'#16a34a':'#dc2626';t.style.color='#fff';t.innerText=m;setTimeout(()=>t.style.display='none',3200);}
 
@@ -183,10 +208,28 @@ if (CAR_LAT && CAR_LNG){
     L.marker([CAR_LAT,CAR_LNG],{icon:carIcon}).addTo(map).bindPopup('<b>You</b>');
     bounds.push([CAR_LAT,CAR_LNG]);
 }
-PICKUPS.forEach(p=>{
-    if(p.lat && p.lng){
-        L.marker([p.lat,p.lng]).addTo(map).bindPopup(`<b>${p.nome}</b><br>${p.endereco||''}${p.dist_mi!=null?'<br>📍 '+p.dist_mi+' mi':''}`);
-        bounds.push([p.lat,p.lng]);
+
+// Numbered stop icon
+function stopIcon(n){
+    return L.divIcon({className:'',html:`<div style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#8a5cf6;color:#fff;font-weight:800;font-size:13px;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.5);">${n}</div>`,iconSize:[28,28],iconAnchor:[14,14],popupAnchor:[0,-14]});
+}
+
+// Draw each route in sequence: car → stop1 → stop2 → ... 
+ROUTES.forEach(route=>{
+    const line = [];
+    if (CAR_LAT && CAR_LNG && route.is_multi) line.push([CAR_LAT,CAR_LNG]);
+    route.stops.forEach(s=>{
+        if(s.lat && s.lng){
+            const icon = route.is_multi ? stopIcon(s.stop_no) : L.marker([s.lat,s.lng]).options.icon;
+            L.marker([s.lat,s.lng], route.is_multi ? {icon:icon} : {}).addTo(map)
+                .bindPopup(`<b>${route.is_multi?('Stop '+s.stop_no+': '):''}${s.nome}</b><br>${s.endereco||''}${s.dist_mi!=null?'<br>📍 '+s.dist_mi+' mi':''}`);
+            line.push([s.lat,s.lng]);
+            bounds.push([s.lat,s.lng]);
+        }
+    });
+    // draw connecting line for multi-stop routes
+    if (route.is_multi && line.length > 1){
+        L.polyline(line, {color:'#8a5cf6', weight:3, opacity:.7, dashArray:'6,8'}).addTo(map);
     }
 });
 if(bounds.length) map.fitBounds(bounds,{padding:[50,50],maxZoom:13});
@@ -208,6 +251,12 @@ async function toggleAvail(){
 async function sendEnroute(id){
     const d=await(await fetch(`/driver/enroute/${id}`,{method:'POST'})).json();
     toast(d.success?'🚗 Customer notified you are enroute':(d.error||'Error'), d.success);
+}
+
+// ---- Start Call (Aloware 3-way) ----
+async function startCall(id){
+    const d=await(await fetch(`/driver/startcall/${id}`,{method:'POST'})).json();
+    toast(d.success?'📞 Connecting your call...':(d.error||'Error'), d.success);
 }
 
 // ---- Mark picked up ----
