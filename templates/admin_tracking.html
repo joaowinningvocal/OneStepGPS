@@ -40,6 +40,12 @@
         .drv:hover{border-color:var(--bhi);}
         .drv-name{font-family:'Syne',sans-serif;font-weight:700;font-size:.88rem;display:flex;align-items:center;}
         .drv-car{font-size:.74rem;color:var(--m2);margin-top:3px;}
+        .cur-pickup{margin-top:9px;padding:9px 11px;background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.3);border-radius:9px;}
+        .cur-pickup.idle{background:rgba(90,98,112,.08);border-color:var(--bd);color:var(--m);font-size:.76rem;text-align:center;}
+        .cp-label{font-size:.64rem;font-weight:700;color:var(--g);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;}
+        .cp-name{font-family:'Syne',sans-serif;font-weight:700;font-size:.84rem;color:var(--t);}
+        .cp-addr{font-size:.74rem;color:var(--m2);margin-top:3px;line-height:1.35;}
+        .cp-meta{font-size:.7rem;color:var(--m);margin-top:4px;}
         .drv-badge{font-size:.65rem;font-weight:700;padding:1px 7px;border-radius:10px;margin-left:auto;}
         .b-reg{background:rgba(34,197,94,.12);color:var(--g);border:1px solid rgba(34,197,94,.4);}
         .b-unreg{background:rgba(251,191,36,.12);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
@@ -136,11 +142,25 @@ async function loadDrivers(fit=false){
         list.innerHTML = '';
         const bounds = [];
         data.drivers.forEach(d=>{
+            const cp = d.current_pickup;
+            const popupPickup = cp
+                ? `<br><span style="color:#22c55e;">→ Going to: <b>${cp.customer_name}</b></span><br><span style="font-size:.85em;color:#8892a0;">📍 ${cp.pickup_address||'—'}${cp.pickup_time?' · '+cp.pickup_time:''}</span>`
+                : `<br><span style="color:#8892a0;font-size:.9em;">No active pickup</span>`;
             // marker
             const mk = L.marker([d.lat,d.lng],{icon:carIcon(d.registered)}).addTo(map);
-            mk.bindPopup(`<b>${d.name}</b><br>${d.car||'<i>not registered</i>'}${d.phone?'<br>📞 '+d.phone:''}`);
+            mk.bindPopup(`<b>${d.name}</b><br>${d.car||'<i>not registered</i>'}${popupPickup}`);
             markers.push(mk);
             bounds.push([d.lat,d.lng]);
+
+            // current pickup block for the sidebar
+            const cpBlock = cp
+                ? `<div class="cur-pickup">
+                       <div class="cp-label">→ Heading to</div>
+                       <div class="cp-name">${cp.customer_name}${cp.guests?` · ${cp.guests} guests`:''}</div>
+                       <div class="cp-addr">📍 ${cp.pickup_address||'—'}</div>
+                       <div class="cp-meta">${cp.pickup_time?'🕐 '+cp.pickup_time+' · ':''}🏢 ${cp.destination||'—'}${cp.dispatch_status&&cp.dispatch_status!=='none'?' · '+cp.dispatch_status:''}</div>
+                   </div>`
+                : `<div class="cur-pickup idle">💤 No active pickup</div>`;
 
             // list card
             const card = document.createElement('div');
@@ -149,7 +169,8 @@ async function loadDrivers(fit=false){
                 <div class="drv-name"><span class="dot ${d.available===false?'off':'on'}"></span>${d.name}
                     <span class="drv-badge ${d.registered?'b-reg':'b-unreg'}">${d.registered?'Registered':'Unregistered'}</span>
                 </div>
-                <div class="drv-car">${d.car||'No car info'}</div>`;
+                <div class="drv-car">${d.car||'No car info'}</div>
+                ${cpBlock}`;
             card.onclick = ()=>{ map.setView([d.lat,d.lng],14); mk.openPopup(); };
             list.appendChild(card);
         });

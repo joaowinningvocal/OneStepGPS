@@ -2055,6 +2055,29 @@ def api_live_drivers():
             name = v.get('display_name', 'Unknown')
             # Match a registered car profile (if any)
             car = Car.query.filter_by(name=name).first()
+
+            # Find the current active pickup for this car: a scheduled customer
+            # assigned to this car, not yet picked up, soonest pickup first.
+            current = None
+            cust = (Customer.query
+                    .filter_by(car_name=name, needs_transport=True)
+                    .filter(Customer.status == 'scheduled')
+                    .order_by(Customer.pickup_datetime)
+                    .first())
+            if cust:
+                time_part = ""
+                if cust.pickup_datetime and len(cust.pickup_datetime.split(' ')) >= 3:
+                    p = cust.pickup_datetime.split(' '); time_part = f"{p[1]} {p[2]}"
+                current = {
+                    "customer_id":   cust.id,
+                    "customer_name": cust.nome,
+                    "pickup_address": cust.endereco,
+                    "destination":   cust.destination,
+                    "pickup_time":   time_part,
+                    "dispatch_status": cust.dispatch_status,
+                    "guests":        cust.guests,
+                }
+
             result.append({
                 "name": name,
                 "lat": float(v_lat),
@@ -2063,6 +2086,7 @@ def api_live_drivers():
                 "available": car.active if car else None,
                 "car": car.car_string() if car else "",
                 "phone": "",
+                "current_pickup": current,
             })
         return jsonify({"drivers": result, "count": len(result)})
     except Exception as e:

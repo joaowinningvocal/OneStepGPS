@@ -398,35 +398,45 @@
 <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
 <script>
 const HOTELS=[
-    {name:"Bellagio",addr:"3600 S Las Vegas Blvd, Las Vegas, NV 89109"},
-    {name:"Caesars Palace",addr:"3570 Las Vegas Blvd S, Las Vegas, NV 89109"},
-    {name:"The Venetian Las Vegas",addr:"3355 S Las Vegas Blvd, Las Vegas, NV 89109"},
-    {name:"Paris Las Vegas",addr:"3655 S Las Vegas Blvd, Las Vegas, NV 89109"},
-    {name:"Flamingo Las Vegas",addr:"3555 Las Vegas Blvd S, Las Vegas, NV 89109"},
-    {name:"MGM Grand",addr:"3799 S Las Vegas Blvd, Las Vegas, NV 89109"},
-    {name:"Mandalay Bay",addr:"3950 S Las Vegas Blvd, Las Vegas, NV 89119"},
-    {name:"Luxor Hotel & Casino",addr:"3900 S Las Vegas Blvd, Las Vegas, NV 89119"},
-    {name:"ARIA Resort & Casino",addr:"3730 S Las Vegas Blvd, Las Vegas, NV 89158"},
-    {name:"The Cosmopolitan of Las Vegas",addr:"3708 S Las Vegas Blvd, Las Vegas, NV 89109"},
-    {name:"Park MGM",addr:"3770 S Las Vegas Blvd, Las Vegas, NV 89109"},
-    {name:"Planet Hollywood Resort & Casino",addr:"3667 S Las Vegas Blvd, Las Vegas, NV 89109"},
-    {name:"The LINQ Hotel + Experience",addr:"3535 Las Vegas Blvd S, Las Vegas, NV 89109"},
-    {name:"Harrah's Las Vegas",addr:"3475 Las Vegas Blvd S, Las Vegas, NV 89109"},
-    {name:"Treasure Island (TI)",addr:"3300 S Las Vegas Blvd, Las Vegas, NV 89109"},
-    {name:"Mirage (Hard Rock)",addr:"3400 S Las Vegas Blvd, Las Vegas, NV 89109"},
-    {name:"Resorts World Las Vegas",addr:"3000 S Las Vegas Blvd, Las Vegas, NV 89109"},
-    {name:"Wynn Las Vegas",addr:"3131 S Las Vegas Blvd, Las Vegas, NV 89109"},
-    {name:"Encore at Wynn",addr:"3121 S Las Vegas Blvd, Las Vegas, NV 89109"},
-    {name:"Four Seasons Hotel Las Vegas",addr:"3960 S Las Vegas Blvd, Las Vegas, NV 89119"},
-    {name:"Fontainebleau Las Vegas",addr:"2777 S Las Vegas Blvd, Las Vegas, NV 89109"},
-    {name:"Golden Nugget",addr:"129 E Fremont St, Las Vegas, NV 89101"},
-    {name:"Circa Resort & Casino",addr:"8 Fremont St, Las Vegas, NV 89101"},
-    {name:"Red Rock Casino Resort & Spa",addr:"11011 W Charleston Blvd, Las Vegas, NV 89135"},
-    {name:"Harry Reid International Airport",addr:"5757 Wayne Newton Blvd, Las Vegas, NV 89119"},
+    {name:"Aria",addr:"3730 S Las Vegas Blvd, Las Vegas, NV 89158",spot:"Lower level of the North Valet Lobby, adjacent to JEWEL Nightclub"},
+    {name:"Allegiant Stadium",addr:"3333 Al Davis Way, Las Vegas, NV 89118",spot:"Dedicated zone on Polaris Avenue near Gate 15 (Event Days Only)"},
+    {name:"Bellagio",addr:"3600 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"South Tour Lobby / Bus Lobby. Follow casino signage toward the south end of the property"},
+    {name:"Caesars Palace",addr:"3570 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Main parking garage lower level and open-air area near the Colosseum"},
+    {name:"Circa Downtown",addr:"8 Fremont St, Las Vegas, NV 89101",spot:"Main level of the Garage Mahal, follow signage near the main entrance"},
+    {name:"Cosmopolitan",addr:"3708 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Boulevard Tower entrance near valet; Chelsea Tower Uber-labeled option when available"},
+    {name:"Encore",addr:"3121 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Main resort North Valet area, accessible off Encore Resort Blvd east of Las Vegas Strip"},
+    {name:"Excalibur",addr:"3850 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Southern Royal Tower entrance; North Valet sometimes used as alternate"},
+    {name:"Flamingo Las Vegas",addr:"3555 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Dedicated area past the roundabout at the hotel's main entrance Porte Cochère"},
+    {name:"Fontainebleau",addr:"2777 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"North and South Valet Entrances; South is deeper in property garage level"},
+    {name:"Golden Nugget Downtown",addr:"129 E Fremont St, Las Vegas, NV 89101",spot:"Second floor of the main self-parking garage on the south side of the hotel"},
+    {name:"Harrah's Las Vegas",addr:"3475 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Main Porte Cochere / front entrance off Las Vegas Strip or drop-off lane before valet in parking garage"},
+    {name:"Harry Reid International Airport",addr:"5757 Wayne Newton Blvd, Las Vegas, NV 89119",spot:"Inside parking garages at Terminals 1 and 3"},
+    {name:"Horseshoe Las Vegas",addr:"3645 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Tour bus and shuttle area on north side of property near Flamingo Road"},
+    {name:"Luxor",addr:"3900 S Las Vegas Blvd, Las Vegas, NV 89119",spot:"North Entrance off Reno Drive near valet area"},
+    {name:"Mandalay Bay",addr:"3950 S Las Vegas Blvd, Las Vegas, NV 89119",spot:"South of hotel lobby, down escalator, beach level"},
+    {name:"MGM Grand",addr:"3799 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Ground floor of self-parking garage / Rideshare Lounge via MGM Underground exit near Monorail station"},
+    {name:"New York-New York",addr:"3790 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"South Entrance near dedicated rideshare zone"},
+    {name:"Palms Casino Resort",addr:"4321 W Flamingo Rd, Las Vegas, NV 89103",spot:"Main entrance valet area"},
+    {name:"Paris Las Vegas",addr:"3655 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Back Valet Entrance near convention area"},
+    {name:"Park MGM",addr:"3770 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Dedicated lower level pickup area, usually near bell desk"},
+    {name:"Planet Hollywood",addr:"3667 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Entrance near Miracle Mile Shops Valet"},
+    {name:"Plaza Hotel & Casino Downtown",addr:"1 S Main St, Las Vegas, NV 89101",spot:"Valet area on Main Street between Stewart and Ogden avenues"},
+    {name:"Resorts World",addr:"3000 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Lower Level Rideshare Lobby; take elevator or escalator down"},
+    {name:"SAHARA Las Vegas",addr:"2535 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Main Entrance Valet / designated lanes at primary porte cochère"},
+    {name:"South Point Hotel",addr:"9777 S Las Vegas Blvd, Las Vegas, NV 89183",spot:"Designated lane near main Valet Entrance or Bingo Hall entrance"},
+    {name:"T-Mobile Arena",addr:"3780 S Las Vegas Blvd, Las Vegas, NV 89158",spot:"Pickup requires walking to New York-New York or Park MGM"},
+    {name:"The LINQ",addr:"3535 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"End of the Promenade near the High Roller Ferris Wheel"},
+    {name:"The Palazzo",addr:"3325 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Lower Porte Cochere; down escalators across lobby from front desk; pickup near fountain. Alternate: Venetian Parking Garage Level 2"},
+    {name:"The Venetian",addr:"3355 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Level 2 of The Venetian Guest Parking Garage"},
+    {name:"Treasure Island",addr:"3300 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"South Valet Entrance near Sirens Cove"},
+    {name:"Vdara Hotel & Spa",addr:"2600 W Harmon Ave, Las Vegas, NV 89158",spot:"Main Valet and Porte Cochère located off Harmon Avenue"},
+    {name:"Westgate Las Vegas",addr:"3000 Paradise Rd, Las Vegas, NV 89109",spot:"East Tower Entrance near designated rideshare zone"},
+    {name:"Wynn",addr:"3131 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Main Valet entrance and South Gate/Tour Lobby entrance"},
+    {name:"Vanderpump Hotel",addr:"3535 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Designated lower-level valet or secondary pickup area"},
 ];
 function renderH(list){
     document.getElementById('hotelList').innerHTML=list.map(h=>`
-        <div class="hopt" onclick="selH('${h.name.replace(/'/g,"\\'")}','${h.addr.replace(/'/g,"\\'")}')">
+        <div class="hopt" onclick="selH(${JSON.stringify(h.name)}, ${JSON.stringify(h.addr)}, ${JSON.stringify(h.spot||'')})">
             <div class="hn">${h.name}</div><div class="ha">${h.addr}</div>
         </div>`).join('');
 }
@@ -436,14 +446,48 @@ function toggleDrop(){
     if(o){renderH(HOTELS);setTimeout(()=>document.getElementById('hotelSearch').focus(),50);}
 }
 function filterH(q){renderH(HOTELS.filter(h=>h.name.toLowerCase().includes(q.toLowerCase())||h.addr.toLowerCase().includes(q.toLowerCase())));}
-function selH(n,a){
-    document.getElementById('addrTxt').innerText=n;
-    document.getElementById('addrDisp').classList.add('filled');
-    document.getElementById('addrVal').value=a;
+
+let _valetHotel=null, _valetAddr=null, _valetSpot=null;
+function selH(n,a,spot){
     document.getElementById('addrDd').classList.remove('open');
     document.getElementById('addrDisp').classList.remove('open');
     document.getElementById('customF').classList.remove('show');
+    _valetHotel=n; _valetAddr=a; _valetSpot=spot||'';
+    if(spot){
+        // open valet spot picker
+        document.getElementById('valetHotelName').innerText=n;
+        document.getElementById('valetSpotText').innerText=spot;
+        document.getElementById('valetCustomInput').value='';
+        document.getElementById('valetCustomWrap').style.display='none';
+        document.getElementById('valetModal').classList.add('open');
+    } else {
+        // no spot data → just set the address
+        finalizeAddr(n, a);
+    }
 }
+function finalizeAddr(label, fullAddr){
+    document.getElementById('addrTxt').innerText=label;
+    document.getElementById('addrDisp').classList.add('filled');
+    document.getElementById('addrVal').value=fullAddr;
+}
+function chooseValetMain(){
+    // Main spot: prepend spot to the address so it geocodes near the valet
+    const full=`${_valetHotel}, ${_valetSpot}, ${_valetAddr}`;
+    finalizeAddr(`${_valetHotel} — ${_valetSpot.length>40?_valetSpot.slice(0,40)+'…':_valetSpot}`, full);
+    closeValet();
+}
+function showValetCustom(){
+    document.getElementById('valetCustomWrap').style.display='block';
+    setTimeout(()=>document.getElementById('valetCustomInput').focus(),50);
+}
+function chooseValetCustom(){
+    const c=document.getElementById('valetCustomInput').value.trim();
+    if(!c){alert('Type a pickup spot or pick the suggested one.');return;}
+    const full=`${_valetHotel}, ${c}, ${_valetAddr}`;
+    finalizeAddr(`${_valetHotel} — ${c}`, full);
+    closeValet();
+}
+function closeValet(){document.getElementById('valetModal').classList.remove('open');}
 function selectCustom(){
     document.getElementById('addrDd').classList.remove('open');
     document.getElementById('addrDisp').classList.remove('open');
@@ -663,8 +707,35 @@ function resetFormState(form) {
         </div>
     </div>
 </div>
+<!-- Valet Spot Picker Modal -->
+<style>#valetModal.open{display:flex !important;}</style>
+<div id="valetModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:18px;">
+    <div style="background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:20px;padding:26px 24px;max-width:460px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6);">
+        <div style="font-family:Syne,sans-serif;font-weight:800;font-size:1.1rem;margin-bottom:4px;color:#8a5cf6;">📍 Pickup Spot</div>
+        <div style="font-size:.82rem;color:#8892a0;margin-bottom:16px;">Where should the driver meet <b id="valetHotelName" style="color:#e8eaf0;"></b>?</div>
+
+        <div onclick="chooseValetMain()" style="cursor:pointer;background:#161d2e;border:1px solid rgba(138,92,246,.4);border-radius:13px;padding:14px;margin-bottom:10px;transition:.15s;" onmouseover="this.style.borderColor='#8a5cf6'" onmouseout="this.style.borderColor='rgba(138,92,246,.4)'">
+            <div style="font-size:.7rem;font-weight:700;color:#8a5cf6;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">✅ Recommended Valet Spot</div>
+            <div id="valetSpotText" style="font-size:.86rem;color:#e8eaf0;line-height:1.4;"></div>
+        </div>
+
+        <div onclick="showValetCustom()" style="cursor:pointer;background:#161d2e;border:1px solid rgba(255,255,255,.08);border-radius:13px;padding:13px;transition:.15s;" onmouseover="this.style.borderColor='#8892a0'" onmouseout="this.style.borderColor='rgba(255,255,255,.08)'">
+            <div style="font-size:.84rem;color:#e8eaf0;">✏️ Enter a custom pickup spot…</div>
+        </div>
+
+        <div id="valetCustomWrap" style="display:none;margin-top:12px;">
+            <input id="valetCustomInput" placeholder="e.g. North Valet, Door 3" style="width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.1);color:#e8eaf0;border-radius:10px;padding:11px 13px;font-size:.86rem;font-family:'DM Sans',sans-serif;">
+            <button onclick="chooseValetCustom()" style="margin-top:10px;width:100%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;color:#fff;border-radius:11px;padding:11px;font-weight:700;font-size:.85rem;cursor:pointer;">Use this spot</button>
+        </div>
+
+        <button onclick="closeValet()" style="margin-top:16px;width:100%;background:none;border:1px solid #5a6270;color:#8892a0;border-radius:11px;padding:9px;font-weight:600;font-size:.82rem;cursor:pointer;">Cancel</button>
+    </div>
+</div>
+
 <script>
 function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.classList.toggle('open');}
+// close valet modal on backdrop click
+document.getElementById('valetModal').addEventListener('click',function(e){if(e.target===this)closeValet();});
 </script>
 </body>
 </html>
