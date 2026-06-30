@@ -279,6 +279,7 @@
                                     <span class="chev">▼</span>
                                 </div>
                                 <input type="hidden" name="endereco_completo" id="addrVal" required>
+                                <input type="hidden" name="geocode_address" id="geoVal">
                                 <div class="addr-dd" id="addrDd">
                                     <div class="addr-search">
                                         <input id="hotelSearch" placeholder="🔍 Search hotels…" oninput="filterH(this.value)">
@@ -468,15 +469,17 @@ function selH(n,a,spot){
         finalizeAddr(n, a);
     }
 }
-function finalizeAddr(label, fullAddr){
+function finalizeAddr(label, fullAddr, geoAddr){
     document.getElementById('addrTxt').innerText=label;
     document.getElementById('addrDisp').classList.add('filled');
     document.getElementById('addrVal').value=fullAddr;
+    // geoAddr = clean street address used for geocoding (falls back to fullAddr)
+    document.getElementById('geoVal').value = geoAddr || fullAddr;
 }
 function chooseValetMain(){
-    // Main spot: prepend spot to the address so it geocodes near the valet
-    const full=`${_valetHotel}, ${_valetSpot}, ${_valetAddr}`;
-    finalizeAddr(`${_valetHotel} — ${_valetSpot.length>40?_valetSpot.slice(0,40)+'…':_valetSpot}`, full);
+    // Display shows hotel + valet spot; geocoding uses the clean street address only
+    const display=`${_valetHotel}, ${_valetSpot}`;
+    finalizeAddr(`${_valetHotel} — ${_valetSpot.length>40?_valetSpot.slice(0,40)+'…':_valetSpot}`, display, _valetAddr);
     closeValet();
 }
 function showValetCustom(){
@@ -486,8 +489,8 @@ function showValetCustom(){
 function chooseValetCustom(){
     const c=document.getElementById('valetCustomInput').value.trim();
     if(!c){alert('Type a pickup spot or pick the suggested one.');return;}
-    const full=`${_valetHotel}, ${c}, ${_valetAddr}`;
-    finalizeAddr(`${_valetHotel} — ${c}`, full);
+    const display=`${_valetHotel}, ${c}`;
+    finalizeAddr(`${_valetHotel} — ${c}`, display, _valetAddr);
     closeValet();
 }
 function closeValet(){document.getElementById('valetModal').classList.remove('open');}
@@ -505,6 +508,7 @@ function applyCustom(){
     const full=`${n} ${s}, ${c}${z?', '+z:''}`.trim();
     document.getElementById('addrTxt').innerText=full;
     document.getElementById('addrVal').value=full;
+    document.getElementById('geoVal').value=full;
     document.getElementById('customF').classList.remove('show');
 }
 document.addEventListener('click',e=>{

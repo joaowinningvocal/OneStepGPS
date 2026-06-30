@@ -640,6 +640,7 @@ def cadastrar_cep():
     client_phone      = request.form.get('client_phone', '').strip()
     extra_phones_raw  = request.form.get('extra_phones', '').strip()  # JSON array
     endereco_completo = request.form.get('endereco_completo', '').strip()
+    geocode_address   = request.form.get('geocode_address', '').strip() or endereco_completo
     details           = request.form.get('details', '').strip()
     package           = request.form.get('package', '').strip()
     guests            = int(request.form.get('guests', 0))
@@ -710,12 +711,21 @@ def cadastrar_cep():
         # Parse the requested pickup time for availability checking
         requested_dt = parse_pickup_datetime(pickup_datetime)
 
-        # 1. GEOCODING
-        encoded = urllib.parse.quote(endereco_completo)
+        # 1. GEOCODING — use the clean street address (geocode_address), not the
+        # descriptive valet text, so Nominatim can resolve it.
+        encoded = urllib.parse.quote(geocode_address)
         geo_res = requests.get(
             f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1&addressdetails=1",
             headers={'User-Agent': 'ClubLifter_LasVegas_App'}
         ).json()
+
+        # Fallback: if the clean address failed, try the full text
+        if not geo_res and geocode_address != endereco_completo:
+            encoded2 = urllib.parse.quote(endereco_completo)
+            geo_res = requests.get(
+                f"https://nominatim.openstreetmap.org/search?q={encoded2}&format=json&limit=1&addressdetails=1",
+                headers={'User-Agent': 'ClubLifter_LasVegas_App'}
+            ).json()
 
         if not geo_res:
             return jsonify({"success": False, "error": "Address not found on global map."})
