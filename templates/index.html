@@ -436,9 +436,12 @@ const HOTELS=[
 ];
 function renderH(list){
     document.getElementById('hotelList').innerHTML=list.map(h=>`
-        <div class="hopt" onclick="selH(${JSON.stringify(h.name)}, ${JSON.stringify(h.addr)}, ${JSON.stringify(h.spot||'')})">
+        <div class="hopt" data-hname="${(h.name||'').replace(/"/g,'&quot;')}" data-haddr="${(h.addr||'').replace(/"/g,'&quot;')}" data-hspot="${(h.spot||'').replace(/"/g,'&quot;')}" onclick="selHfromEl(this)">
             <div class="hn">${h.name}</div><div class="ha">${h.addr}</div>
         </div>`).join('');
+}
+function selHfromEl(el){
+    selH(el.getAttribute('data-hname'), el.getAttribute('data-haddr'), el.getAttribute('data-hspot'));
 }
 function toggleDrop(){
     const dd=document.getElementById('addrDd'), d=document.getElementById('addrDisp');
