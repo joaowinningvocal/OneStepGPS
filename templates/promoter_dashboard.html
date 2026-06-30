@@ -1,6 +1,8 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" translate="no">
 <head>
+    <meta name="google" content="notranslate">
+    <meta name="format-detection" content="telephone=no,date=no,address=no,email=no">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ClubLifter — Promoter Dashboard</title>
@@ -11,6 +13,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
     <style>
         :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--b:#3b82f6;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
+        /* Prevent browser (Opera GX / translate) auto-underline on detected text */
+        .bg,.b-dest,.b-transport,.b-walkin,.b-date,.b-time,td,span{text-decoration:none !important;}
+        [translate="no"]{-webkit-text-decoration:none;}
+
         *{margin:0;padding:0;box-sizing:border-box;}
         body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;padding:14px;}
         .wrap{max-width:1200px;margin:0 auto;}
@@ -170,5 +176,52 @@
 <script>
 function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.classList.toggle('open');}
 </script>
+<!-- Bug Report / Chat Widget -->
+<style>
+#bugFab{position:fixed;bottom:18px;left:18px;z-index:9997;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;cursor:pointer;box-shadow:0 6px 20px rgba(138,92,246,.5);display:flex;align-items:center;justify-content:center;font-size:1.4rem;transition:.2s;}
+#bugFab:hover{transform:scale(1.08);}
+#bugPanel{position:fixed;bottom:80px;left:18px;z-index:9997;width:320px;max-width:calc(100vw - 36px);background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:16px;box-shadow:0 16px 50px rgba(0,0,0,.6);padding:18px;display:none;}
+#bugPanel.open{display:block;}
+#bugPanel h4{font-family:'Syne',sans-serif;font-weight:800;font-size:1rem;color:#8a5cf6;margin:0 0 3px;}
+#bugPanel p{font-size:.76rem;color:#8892a0;margin:0 0 12px;}
+#bugPanel select,#bugPanel textarea{width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.1);color:#e8eaf0;border-radius:10px;padding:10px 12px;font-family:'DM Sans',sans-serif;font-size:.84rem;margin-bottom:10px;}
+#bugPanel textarea{min-height:90px;resize:vertical;}
+#bugPanel .bsend{width:100%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;color:#fff;border-radius:10px;padding:11px;font-weight:700;font-size:.85rem;cursor:pointer;font-family:'Syne',sans-serif;}
+#bugPanel .bclose{position:absolute;top:12px;right:14px;background:none;border:none;color:#5a6270;cursor:pointer;font-size:1.1rem;}
+</style>
+<button id="bugFab" onclick="toggleBug()" title="Report an issue">💬</button>
+<div id="bugPanel">
+    <button class="bclose" onclick="toggleBug()">✕</button>
+    <h4>💬 Report an Issue</h4>
+    <p>Found a bug or have feedback? Let us know.</p>
+    <select id="bugCat">
+        <option value="bug">🐛 Bug / Something broken</option>
+        <option value="feature">💡 Feature request</option>
+        <option value="question">❓ Question</option>
+        <option value="general">💬 General feedback</option>
+    </select>
+    <textarea id="bugDesc" placeholder="Describe what happened or what you need…"></textarea>
+    <button class="bsend" onclick="sendBug()">Send</button>
+</div>
+<script>
+function toggleBug(){document.getElementById('bugPanel').classList.toggle('open');}
+async function sendBug(){
+    const desc=document.getElementById('bugDesc').value.trim();
+    if(!desc){alert('Please describe the issue first.');return;}
+    const fd=new FormData();
+    fd.append('description',desc);
+    fd.append('category',document.getElementById('bugCat').value);
+    fd.append('page',window.location.pathname);
+    try{
+        const d=await(await fetch('/api/bug-report',{method:'POST',body:fd})).json();
+        if(d.success){document.getElementById('bugDesc').value='';toggleBug();
+            const t=document.getElementById('toast');
+            if(t){t.style.display='block';t.style.background='#16a34a';t.style.color='#fff';t.innerText='✅ Report sent — thank you!';setTimeout(()=>t.style.display='none',3000);}
+            else alert('Report sent — thank you!');
+        } else alert(d.error||'Could not send');
+    }catch(e){alert('Could not send report');}
+}
+</script>
+
 </body>
 </html>

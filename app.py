@@ -147,6 +147,7 @@ class User(db.Model):
     username      = db.Column(db.String(80), nullable=False, unique=True)
     password_hash = db.Column(db.String(200), nullable=False)
     role          = db.Column(db.String(20), default="promoter")
+    email         = db.Column(db.String(200), default="")
     # Legacy single club (kept for backward compat)
     club_id       = db.Column(db.Integer, db.ForeignKey('club.id'), nullable=True)
     club          = db.relationship('Club', foreign_keys=[club_id])
@@ -376,6 +377,15 @@ def calcular_distancia(lat1, lon1, lat2, lon2):
 
 def is_master():
     return session.get("role") == "master"
+
+def can_dispatch():
+    """Master + dispatch + dispatch_manager: access to operational tabs
+    (Today, Schedule, Guest List, Tracking) and scheduling."""
+    return session.get("role") in ("master", "dispatch", "dispatch_manager")
+
+def is_dispatch_manager():
+    """Master + dispatch_manager: can create/manage dispatch accounts."""
+    return session.get("role") in ("master", "dispatch_manager")
 
 def is_driver():
     return session.get("role") == "driver"
@@ -981,7 +991,7 @@ def cadastrar_cep():
 # ─── ADMIN: TODAY'S SCHEDULE ──────────────────────────────────────────────────
 @app.route('/admin/today')
 def admin_today():
-    if not session.get("logged") or not is_master():
+    if not session.get("logged") or not can_dispatch():
         return redirect(url_for("login"))
 
     today = date.today()
@@ -1009,6 +1019,28 @@ def admin_today():
     )
 
 # ─── API: LAST CLIENT (for AI voice calls) ────────────────────────────────────
+@app.route('/api/bug-report', methods=['POST'])
+def bug_report():
+    """Any logged-in user can submit a bug report / message → fires webhook."""
+    if not session.get("logged"):
+        return jsonify({"success": False, "error": "Unauthorized"})
+    description = (request.form.get('description', '') or "").strip()
+    category    = (request.form.get('category', '') or "general").strip()
+    if not description:
+        return jsonify({"success": False, "error": "Description is required"})
+    if len(description) > 2000:
+        description = description[:2000]
+    fire_webhook({
+        "type":        "bug_report",
+        "category":    category,
+        "description": description,
+        "username":    session.get("username", ""),
+        "role":        session.get("role", ""),
+        "page":        request.form.get('page', ''),
+        "timestamp":   datetime.utcnow().isoformat(),
+    })
+    return jsonify({"success": True})
+
 @app.route('/api/last-client')
 @require_api_key
 def last_client():
@@ -1039,17 +1071,27 @@ def debug_schema():
 # ─── ADMIN: USER MANAGEMENT ───────────────────────────────────────────────────
 @app.route('/admin/users')
 def admin_users():
-    if not session.get("logged") or not is_master():
+    if not session.get("logged"):
         return redirect(url_for("login"))
-    users  = User.query.filter(User.role.in_(['promoter', 'driver'])).all()
+    # dispatch_manager sees only dispatch accounts; master sees promoters/drivers/dispatch
+    if is_master():
+        users = User.query.filter(User.role.in_(['promoter', 'driver', 'dispatch', 'dispatch_manager'])).all()
+    elif session.get("role") == "dispatch_manager":
+        users = User.query.filter(User.role == 'dispatch').all()
+    else:
+        return redirect(url_for("login"))
     clubs  = Club.query.filter_by(active=True).all()
-    return render_template('admin_users.html', users=users, clubs=clubs)
+    return render_template('admin_users.html', users=users, clubs=clubs,
+                           viewer_role=session.get("role"))
 
 @app.route('/admin/users/new', methods=['POST'])
 def new_user():
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    # master can create any role; dispatch_manager can ONLY create dispatch accounts
+    if not (is_master() or is_dispatch_manager()):
+        return jsonify({"success": False, "error": "Unauthorized"})
     username = request.form.get('username', '').strip()
     password = request.form.get('password', '').strip()
+    email    = request.form.get('email', '').strip()
     role     = request.form.get('role', 'promoter').strip()
     club_ids = request.form.getlist('club_ids')  # multi-select
     commission = request.form.get('commission', '0')
@@ -1057,39 +1099,59 @@ def new_user():
         return jsonify({"success": False, "error": "Username and password are required"})
     if User.query.filter_by(username=username).first():
         return jsonify({"success": False, "error": "Username already exists"})
-    if role not in ('promoter', 'driver'):
+
+    valid_roles = ('promoter', 'driver', 'dispatch', 'dispatch_manager')
+    if role not in valid_roles:
         role = 'promoter'
-    user = User(username=username, role=role)
+    # dispatch_manager can only create 'dispatch' accounts
+    if not is_master():
+        role = 'dispatch'
+
+    user = User(username=username, role=role, email=email)
     user.set_password(password)
     try:
         user.commission = float(commission or 0)
     except ValueError:
         user.commission = 0
-    # Assign multiple clubs
     if club_ids:
         user.clubs = Club.query.filter(Club.id.in_([int(c) for c in club_ids])).all()
-        user.club_id = int(club_ids[0])  # keep first as legacy primary
+        user.club_id = int(club_ids[0])
     db.session.add(user)
     db.session.commit()
 
-    # If this is a driver, auto-create a matching Driver record (linked by name)
-    # so they appear in Shift scheduling and can be assigned cars.
     if role == 'driver' and not Driver.query.filter_by(name=username).first():
         db.session.add(Driver(name=username, phone=request.form.get('phone', '').strip(), available=True))
         db.session.commit()
+
+    # Fire webhook so an email with the credentials can be sent
+    fire_webhook({
+        "type":     "acc_created",
+        "username": username,
+        "password": password,   # plaintext, for the welcome email
+        "email":    email,
+        "role":     role,
+        "created_by": session.get("username", ""),
+    })
 
     return jsonify({"success": True, "user": user.to_dict()})
 
 @app.route('/admin/users/edit/<int:user_id>', methods=['POST'])
 def edit_user(user_id):
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not (is_master() or is_dispatch_manager()):
+        return jsonify({"success": False, "error": "Unauthorized"})
     user     = User.query.get_or_404(user_id)
+    # dispatch_manager can only edit dispatch accounts
+    if not is_master() and user.role != 'dispatch':
+        return jsonify({"success": False, "error": "Unauthorized"})
     club_ids = request.form.getlist('club_ids')
     role     = request.form.get('role', user.role).strip()
     commission = request.form.get('commission', None)
-    if role in ('promoter', 'driver'):
+    email    = request.form.get('email', None)
+    if email is not None:
+        user.email = email.strip()
+    # Only master can change roles
+    if is_master() and role in ('promoter', 'driver', 'dispatch', 'dispatch_manager'):
         user.role = role
-        # If switched to driver, ensure a matching Driver record exists
         if role == 'driver' and not Driver.query.filter_by(name=user.username).first():
             db.session.add(Driver(name=user.username, available=True))
     if commission is not None:
@@ -1097,7 +1159,6 @@ def edit_user(user_id):
             user.commission = float(commission or 0)
         except ValueError:
             pass
-    # Update multiple clubs
     if club_ids:
         user.clubs = Club.query.filter(Club.id.in_([int(c) for c in club_ids])).all()
         user.club_id = int(club_ids[0])
@@ -1109,8 +1170,12 @@ def edit_user(user_id):
 
 @app.route('/admin/users/reset/<int:user_id>', methods=['POST'])
 def reset_password(user_id):
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not (is_master() or is_dispatch_manager()):
+        return jsonify({"success": False, "error": "Unauthorized"})
     user = User.query.get_or_404(user_id)
+    # dispatch_manager can only reset dispatch accounts
+    if not is_master() and user.role != 'dispatch':
+        return jsonify({"success": False, "error": "Unauthorized"})
     new_password = request.form.get('password', '').strip()
     if not new_password: return jsonify({"success": False, "error": "Password cannot be empty"})
     user.set_password(new_password)
@@ -1328,7 +1393,7 @@ def delete_car(car_id):
 # ─── ADMIN: SHIFTS (driver schedule) ──────────────────────────────────────────
 @app.route('/admin/schedule')
 def admin_schedule():
-    if not session.get("logged") or not is_master(): return redirect(url_for("login"))
+    if not session.get("logged") or not can_dispatch(): return redirect(url_for("login"))
     return render_template('admin_schedule.html',
                            shifts=Shift.query.all(),
                            drivers=Driver.query.all(),
@@ -2037,7 +2102,7 @@ def api_v1_clubs():
 # ─── LIVE DRIVER TRACKING (admin only) ────────────────────────────────────────
 @app.route('/admin/tracking')
 def admin_tracking():
-    if not session.get("logged") or not is_master():
+    if not session.get("logged") or not can_dispatch():
         return redirect(url_for("login"))
     return render_template('admin_tracking.html')
 
@@ -2045,7 +2110,7 @@ def admin_tracking():
 def api_live_drivers():
     """Returns every vehicle the OneStepGPS account currently reports, with live coords.
     Cross-references registered drivers (DB) to add car info + availability."""
-    if not session.get("logged") or not is_master():
+    if not session.get("logged") or not can_dispatch():
         return jsonify({"error": "Unauthorized"}), 401
     try:
         headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
@@ -2105,7 +2170,7 @@ def api_live_drivers():
 # ─── GUEST LIST (admin only) ──────────────────────────────────────────────────
 @app.route('/admin/guestlist')
 def admin_guestlist():
-    if not session.get("logged") or not is_master():
+    if not session.get("logged") or not can_dispatch():
         return redirect(url_for("login"))
 
     # Filters
@@ -2159,7 +2224,7 @@ def admin_guestlist():
 
 @app.route('/admin/guestlist/status/<int:customer_id>', methods=['POST'])
 def update_club_status(customer_id):
-    if not is_master():
+    if not can_dispatch():
         return jsonify({"success": False, "error": "Unauthorized"})
     customer = Customer.query.get_or_404(customer_id)
     new_status = request.form.get('club_status', '').strip()
@@ -2183,7 +2248,7 @@ def update_club_status(customer_id):
 
 @app.route('/admin/guestlist/delete/<int:customer_id>', methods=['POST'])
 def delete_guest(customer_id):
-    if not is_master():
+    if not can_dispatch():
         return jsonify({"success": False, "error": "Unauthorized"})
     customer = Customer.query.get_or_404(customer_id)
     db.session.delete(customer)
@@ -2192,7 +2257,7 @@ def delete_guest(customer_id):
 
 @app.route('/admin/guestlist/dispatch/<int:customer_id>', methods=['POST'])
 def update_dispatch_status(customer_id):
-    if not is_master():
+    if not can_dispatch():
         return jsonify({"success": False, "error": "Unauthorized"})
     customer = Customer.query.get_or_404(customer_id)
     new_status = request.form.get('dispatch_status', '').strip()
@@ -2220,7 +2285,7 @@ def update_dispatch_status(customer_id):
 @app.route('/api/eta/<int:customer_id>', methods=['GET'])
 def customer_eta(customer_id):
     """Live ETA: distance from the assigned car's GPS to the destination club."""
-    if not (session.get("logged") and is_master()):
+    if not (session.get("logged") and can_dispatch()):
         return jsonify({"error": "Unauthorized"}), 401
     customer = Customer.query.get_or_404(customer_id)
     if not customer.car_name:
@@ -2468,6 +2533,7 @@ with app.app_context():
 
     safe_migrate("user", "club_id",    'ALTER TABLE "user" ADD COLUMN club_id INTEGER DEFAULT NULL')
     safe_migrate("user", "commission", 'ALTER TABLE "user" ADD COLUMN commission FLOAT DEFAULT 0')
+    safe_migrate("user", "email",      'ALTER TABLE "user" ADD COLUMN email VARCHAR(200) DEFAULT \'\'')
 
     # ── BACKFILL: create Car records from old Driver car data (one-time) ───────
     if Car.query.count() == 0:
