@@ -104,11 +104,11 @@
                 <a href="/admin/today"    class="pill">Today</a>
                 <a href="/admin/tracking" class="pill">Tracking</a>
                 <a href="/admin/guestlist" class="pill">Guest List</a>
-                {% if session.get('role') == 'master' %}<a href="/admin/packages" class="pill">Packages</a>{% endif %}
-                {% if session.get('role') == 'master' %}<a href="/admin/drivers"  class="pill">Drivers</a>{% endif %}
-                <a href="/admin/schedule" class="pill">Schedule</a>
-                {% if session.get('role') in ['master','dispatch_manager'] %}<a href="/admin/users"    class="pill act">Users</a>{% endif %}
-                {% if session.get('role') == 'master' %}<a href="/admin/clubs"    class="pill">Clubs</a>{% endif %}
+                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages" class="pill">Packages</a>{% endif %}
+                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers"  class="pill">Drivers</a>{% endif %}
+                <a href="/admin/schedule" class="pill">Cars Schedule</a>
+                {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users"    class="pill act">Users</a>{% endif %}
+                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs"    class="pill">Clubs</a>{% endif %}
             {% if session.get('role') == 'master' %}<a href="/admin/api" class="pill">API</a>{% endif %}
                 </div>
             <button class="hamburger" onclick="toggleMobileMenu()">☰</button>
@@ -119,11 +119,11 @@
         <a href="/admin/today">Today</a>
         <a href="/admin/tracking">Tracking</a>
         <a href="/admin/guestlist">Guest List</a>
-        {% if session.get('role') == 'master' %}<a href="/admin/packages">Packages</a>{% endif %}
-        {% if session.get('role') == 'master' %}<a href="/admin/drivers">Drivers</a>{% endif %}
-        <a href="/admin/schedule">Schedule</a>
-        {% if session.get('role') in ['master','dispatch_manager'] %}<a href="/admin/users" class="act">Users</a>{% endif %}
-        {% if session.get('role') == 'master' %}<a href="/admin/clubs">Clubs</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages">Packages</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers">Drivers</a>{% endif %}
+        <a href="/admin/schedule">Cars Schedule</a>
+        {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users" class="act">Users</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs">Clubs</a>{% endif %}
         {% if session.get('role') == 'master' %}<a href="/admin/api">API</a>{% endif %}
         <a href="/">← Dashboard</a>
     </div>
@@ -136,14 +136,10 @@
             <div class="f"><label>Email</label><input type="email" id="nEmail" class="fc" placeholder="person@email.com"></div>
             <div class="f"><label>Role</label>
                 <select id="nRole" class="fs" onchange="toggleRoleFields()">
-                    {% if viewer_role == 'master' %}
-                    <option value="promoter">Promoter</option>
-                    <option value="driver">Driver</option>
-                    <option value="dispatch">Dispatch</option>
-                    <option value="dispatch_manager">Dispatch Manager</option>
-                    {% else %}
-                    <option value="dispatch">Dispatch</option>
-                    {% endif %}
+                    {% set role_labels = {'promoter':'Promoter','driver':'Driver','dispatch':'Dispatch','dispatch_manager':'Dispatch Manager','club_manager':'Club Manager','club_owner':'Club Owner'} %}
+                    {% for r in creatable_roles %}
+                    <option value="{{ r }}">{{ role_labels.get(r, r) }}</option>
+                    {% endfor %}
                 </select>
             </div>
             <div class="f" id="commissionField"><label>Commission per Sale ($)</label>

@@ -378,14 +378,36 @@ def calcular_distancia(lat1, lon1, lat2, lon2):
 def is_master():
     return session.get("role") == "master"
 
+def is_admin_level():
+    """Master + club_owner + club_manager: near-full admin access.
+    Club owner/manager see everything EXCEPT the API tab."""
+    return session.get("role") in ("master", "club_owner", "club_manager")
+
+def can_see_api():
+    """Only master sees the API tab."""
+    return session.get("role") == "master"
+
 def can_dispatch():
-    """Master + dispatch + dispatch_manager: access to operational tabs
-    (Today, Schedule, Guest List, Tracking) and scheduling."""
-    return session.get("role") in ("master", "dispatch", "dispatch_manager")
+    """Operational tabs (Today, Schedule, Guest List, Tracking) + scheduling."""
+    return session.get("role") in ("master", "club_owner", "club_manager", "dispatch", "dispatch_manager")
 
 def is_dispatch_manager():
-    """Master + dispatch_manager: can create/manage dispatch accounts."""
-    return session.get("role") in ("master", "dispatch_manager")
+    """Can create/manage dispatch accounts."""
+    return session.get("role") in ("master", "club_owner", "club_manager", "dispatch_manager")
+
+# Which roles each account type is allowed to CREATE
+CREATABLE_ROLES = {
+    "master":           ["promoter", "driver", "dispatch", "dispatch_manager", "club_manager", "club_owner"],
+    "club_owner":       ["promoter", "driver", "dispatch", "dispatch_manager", "club_manager"],
+    "club_manager":     ["promoter", "driver", "dispatch", "dispatch_manager"],
+    "dispatch_manager": ["dispatch"],
+}
+
+def can_create_accounts():
+    return session.get("role") in CREATABLE_ROLES
+
+def creatable_roles():
+    return CREATABLE_ROLES.get(session.get("role"), [])
 
 def is_driver():
     return session.get("role") == "driver"
@@ -995,10 +1017,16 @@ def admin_today():
         return redirect(url_for("login"))
 
     today = date.today()
-    today_str = today.strftime("%-m/%-d/%Y") if os.name != 'nt' else today.strftime("%#m/%#d/%Y")
+    # Match both non-padded (7/1/2026) and padded (07/01/2026) date formats,
+    # since pickups may be stored either way.
+    today_np = f"{today.month}/{today.day}/{today.year}"           # 7/1/2026
+    today_p  = f"{today.month:02d}/{today.day:02d}/{today.year}"   # 07/01/2026
+    today_str = today_np
 
     all_customers = Customer.query.order_by(Customer.pickup_datetime).all()
-    today_customers = [c for c in all_customers if today_str in (c.pickup_datetime or "")]
+    today_customers = [c for c in all_customers
+                       if today_np in (c.pickup_datetime or "")
+                       or today_p in (c.pickup_datetime or "")]
 
     month_start = datetime(today.year, today.month, 1)
     month_customers = Customer.query.filter(Customer.created_at >= month_start).all()
@@ -1073,21 +1101,21 @@ def debug_schema():
 def admin_users():
     if not session.get("logged"):
         return redirect(url_for("login"))
-    # dispatch_manager sees only dispatch accounts; master sees promoters/drivers/dispatch
-    if is_master():
-        users = User.query.filter(User.role.in_(['promoter', 'driver', 'dispatch', 'dispatch_manager'])).all()
-    elif session.get("role") == "dispatch_manager":
-        users = User.query.filter(User.role == 'dispatch').all()
-    else:
+    if not can_create_accounts():
         return redirect(url_for("login"))
+    allowed = creatable_roles()
+    # Show accounts the viewer is allowed to manage
+    if is_master():
+        users = User.query.filter(User.role.in_(['promoter', 'driver', 'dispatch', 'dispatch_manager', 'club_manager', 'club_owner'])).all()
+    else:
+        users = User.query.filter(User.role.in_(allowed)).all()
     clubs  = Club.query.filter_by(active=True).all()
     return render_template('admin_users.html', users=users, clubs=clubs,
-                           viewer_role=session.get("role"))
+                           viewer_role=session.get("role"), creatable_roles=allowed)
 
 @app.route('/admin/users/new', methods=['POST'])
 def new_user():
-    # master can create any role; dispatch_manager can ONLY create dispatch accounts
-    if not (is_master() or is_dispatch_manager()):
+    if not can_create_accounts():
         return jsonify({"success": False, "error": "Unauthorized"})
     username = request.form.get('username', '').strip()
     password = request.form.get('password', '').strip()
@@ -1100,12 +1128,9 @@ def new_user():
     if User.query.filter_by(username=username).first():
         return jsonify({"success": False, "error": "Username already exists"})
 
-    valid_roles = ('promoter', 'driver', 'dispatch', 'dispatch_manager')
-    if role not in valid_roles:
-        role = 'promoter'
-    # dispatch_manager can only create 'dispatch' accounts
-    if not is_master():
-        role = 'dispatch'
+    allowed = creatable_roles()
+    if role not in allowed:
+        return jsonify({"success": False, "error": f"You are not allowed to create '{role}' accounts"})
 
     user = User(username=username, role=role, email=email)
     user.set_password(password)
@@ -1137,11 +1162,12 @@ def new_user():
 
 @app.route('/admin/users/edit/<int:user_id>', methods=['POST'])
 def edit_user(user_id):
-    if not (is_master() or is_dispatch_manager()):
+    if not can_create_accounts():
         return jsonify({"success": False, "error": "Unauthorized"})
     user     = User.query.get_or_404(user_id)
-    # dispatch_manager can only edit dispatch accounts
-    if not is_master() and user.role != 'dispatch':
+    allowed  = creatable_roles()
+    # Can only edit accounts of roles you're allowed to manage (master edits anyone)
+    if not is_master() and user.role not in allowed:
         return jsonify({"success": False, "error": "Unauthorized"})
     club_ids = request.form.getlist('club_ids')
     role     = request.form.get('role', user.role).strip()
@@ -1149,11 +1175,12 @@ def edit_user(user_id):
     email    = request.form.get('email', None)
     if email is not None:
         user.email = email.strip()
-    # Only master can change roles
-    if is_master() and role in ('promoter', 'driver', 'dispatch', 'dispatch_manager'):
-        user.role = role
-        if role == 'driver' and not Driver.query.filter_by(name=user.username).first():
-            db.session.add(Driver(name=user.username, available=True))
+    # Can change role only to a role you're allowed to create
+    if role in allowed or is_master():
+        if role in ('promoter', 'driver', 'dispatch', 'dispatch_manager', 'club_manager', 'club_owner'):
+            user.role = role
+            if role == 'driver' and not Driver.query.filter_by(name=user.username).first():
+                db.session.add(Driver(name=user.username, available=True))
     if commission is not None:
         try:
             user.commission = float(commission or 0)
@@ -1170,11 +1197,11 @@ def edit_user(user_id):
 
 @app.route('/admin/users/reset/<int:user_id>', methods=['POST'])
 def reset_password(user_id):
-    if not (is_master() or is_dispatch_manager()):
+    if not can_create_accounts():
         return jsonify({"success": False, "error": "Unauthorized"})
     user = User.query.get_or_404(user_id)
-    # dispatch_manager can only reset dispatch accounts
-    if not is_master() and user.role != 'dispatch':
+    allowed = creatable_roles()
+    if not is_master() and user.role not in allowed:
         return jsonify({"success": False, "error": "Unauthorized"})
     new_password = request.form.get('password', '').strip()
     if not new_password: return jsonify({"success": False, "error": "Password cannot be empty"})
@@ -1219,13 +1246,13 @@ def revoke_api_key():
 # ─── ADMIN: CLUBS ─────────────────────────────────────────────────────────────
 @app.route('/admin/clubs')
 def admin_clubs():
-    if not session.get("logged") or not is_master():
+    if not session.get("logged") or not is_admin_level():
         return redirect(url_for("login"))
     return render_template('admin_clubs.html', clubs=Club.query.all())
 
 @app.route('/admin/clubs/new', methods=['POST'])
 def new_club():
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     name = request.form.get('name', '').strip()
     if not name: return jsonify({"success": False, "error": "Name is required"})
     if Club.query.filter_by(name=name).first():
@@ -1237,7 +1264,7 @@ def new_club():
 
 @app.route('/admin/clubs/edit/<int:club_id>', methods=['POST'])
 def edit_club(club_id):
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     club = Club.query.get_or_404(club_id)
     club.name    = request.form.get('name', club.name).strip()
     club.address = request.form.get('address', club.address).strip()
@@ -1247,7 +1274,7 @@ def edit_club(club_id):
 
 @app.route('/admin/clubs/delete/<int:club_id>', methods=['POST'])
 def delete_club(club_id):
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     club = Club.query.get_or_404(club_id)
     db.session.delete(club)
     db.session.commit()
@@ -1256,12 +1283,12 @@ def delete_club(club_id):
 # ─── ADMIN: PACKAGES ──────────────────────────────────────────────────────────
 @app.route('/admin/packages')
 def admin_packages():
-    if not session.get("logged") or not is_master(): return redirect(url_for("login"))
+    if not session.get("logged") or not is_admin_level(): return redirect(url_for("login"))
     return render_template('admin_packages.html', packages=Package.query.all())
 
 @app.route('/admin/packages/new', methods=['POST'])
 def new_package():
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     name = request.form.get('name', '').strip()
     if not name: return jsonify({"success": False, "error": "Name is required"})
     pkg = Package(name=name, description=request.form.get('description','').strip(),
@@ -1272,7 +1299,7 @@ def new_package():
 
 @app.route('/admin/packages/edit/<int:pkg_id>', methods=['POST'])
 def edit_package(pkg_id):
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     pkg = Package.query.get_or_404(pkg_id)
     pkg.name               = request.form.get('name', pkg.name).strip()
     pkg.description        = request.form.get('description', pkg.description).strip()
@@ -1285,7 +1312,7 @@ def edit_package(pkg_id):
 
 @app.route('/admin/packages/delete/<int:pkg_id>', methods=['POST'])
 def delete_package(pkg_id):
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     pkg = Package.query.get_or_404(pkg_id)
     db.session.delete(pkg); db.session.commit()
     return jsonify({"success": True})
@@ -1318,14 +1345,14 @@ def favicon():
 
 @app.route('/admin/drivers')
 def admin_drivers():
-    if not session.get("logged") or not is_master(): return redirect(url_for("login"))
+    if not session.get("logged") or not is_admin_level(): return redirect(url_for("login"))
     return render_template('admin_drivers.html',
                            drivers=Driver.query.all(),
                            cars=Car.query.all())
 
 @app.route('/admin/drivers/new', methods=['POST'])
 def new_driver():
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     name = request.form.get('name', '').strip()
     if not name: return jsonify({"success": False, "error": "Name is required"})
     if Driver.query.filter_by(name=name).first():
@@ -1336,7 +1363,7 @@ def new_driver():
 
 @app.route('/admin/drivers/edit/<int:driver_id>', methods=['POST'])
 def edit_driver(driver_id):
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     driver = Driver.query.get_or_404(driver_id)
     driver.name  = request.form.get('name', driver.name).strip()
     driver.phone = request.form.get('phone', driver.phone).strip()
@@ -1345,7 +1372,7 @@ def edit_driver(driver_id):
 
 @app.route('/admin/drivers/delete/<int:driver_id>', methods=['POST'])
 def delete_driver(driver_id):
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     driver = Driver.query.get_or_404(driver_id)
     db.session.delete(driver); db.session.commit()
     return jsonify({"success": True})
@@ -1353,7 +1380,7 @@ def delete_driver(driver_id):
 # ─── ADMIN: CARS ──────────────────────────────────────────────────────────────
 @app.route('/admin/cars/new', methods=['POST'])
 def new_car():
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     name = request.form.get('name', '').strip()
     if not name: return jsonify({"success": False, "error": "Car name is required (must match OneStepGPS)"})
     if Car.query.filter_by(name=name).first():
@@ -1371,7 +1398,7 @@ def new_car():
 
 @app.route('/admin/cars/edit/<int:car_id>', methods=['POST'])
 def edit_car(car_id):
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     car = Car.query.get_or_404(car_id)
     car.name  = request.form.get('name', car.name).strip()
     car.model = request.form.get('model', car.model).strip()
@@ -1385,7 +1412,7 @@ def edit_car(car_id):
 
 @app.route('/admin/cars/delete/<int:car_id>', methods=['POST'])
 def delete_car(car_id):
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     car = Car.query.get_or_404(car_id)
     db.session.delete(car); db.session.commit()
     return jsonify({"success": True})
@@ -1401,31 +1428,66 @@ def admin_schedule():
 
 @app.route('/admin/schedule/new', methods=['POST'])
 def new_shift():
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     driver_id = request.form.get('driver_id')
     car_id    = request.form.get('car_id')
     if not driver_id or not car_id:
         return jsonify({"success": False, "error": "Driver and car are required"})
-    mode = request.form.get('mode', 'weekly')  # 'weekly' or 'specific'
-    shift = Shift(
-        driver_id=int(driver_id),
-        car_id=int(car_id),
-        start_time=request.form.get('start_time', '18:00').strip(),
-        end_time=request.form.get('end_time', '05:30').strip(),
-    )
+    mode = request.form.get('mode', 'weekly')  # 'weekly' | 'specific' | 'range'
+    start_time = request.form.get('start_time', '18:00').strip()
+    end_time   = request.form.get('end_time', '05:30').strip()
+    created = 0
+
     if mode == 'specific':
-        shift.specific_date = request.form.get('specific_date', '').strip()
-        shift.day_of_week = None
-    else:
-        dow = request.form.get('day_of_week')
-        shift.day_of_week = int(dow) if dow not in (None, '') else None
-        shift.specific_date = None
-    db.session.add(shift); db.session.commit()
-    return jsonify({"success": True, "shift": shift.to_dict()})
+        # single specific date
+        d = request.form.get('specific_date', '').strip()
+        if not d: return jsonify({"success": False, "error": "Pick a date"})
+        db.session.add(Shift(driver_id=int(driver_id), car_id=int(car_id),
+                             specific_date=d, day_of_week=None,
+                             start_time=start_time, end_time=end_time))
+        created += 1
+
+    elif mode == 'range':
+        # a date range: create a specific-date shift for each day in [start_date, end_date]
+        sd = request.form.get('start_date', '').strip()
+        ed = request.form.get('end_date', '').strip()
+        try:
+            d0 = datetime.strptime(sd, '%Y-%m-%d').date()
+            d1 = datetime.strptime(ed, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({"success": False, "error": "Invalid date range"})
+        if d1 < d0:
+            return jsonify({"success": False, "error": "End date is before start date"})
+        if (d1 - d0).days > 60:
+            return jsonify({"success": False, "error": "Range too large (max 60 days)"})
+        cur = d0
+        while cur <= d1:
+            ds = f"{cur.month:02d}/{cur.day:02d}/{cur.year}"
+            db.session.add(Shift(driver_id=int(driver_id), car_id=int(car_id),
+                                 specific_date=ds, day_of_week=None,
+                                 start_time=start_time, end_time=end_time))
+            created += 1
+            cur += timedelta(days=1)
+
+    else:  # weekly — supports multiple days at once (e.g. Mon-Fri)
+        days = request.form.getlist('days_of_week')  # list of "0".."6"
+        if not days:
+            single = request.form.get('day_of_week')
+            days = [single] if single not in (None, '') else []
+        if not days:
+            return jsonify({"success": False, "error": "Pick at least one day"})
+        for dow in days:
+            db.session.add(Shift(driver_id=int(driver_id), car_id=int(car_id),
+                                 day_of_week=int(dow), specific_date=None,
+                                 start_time=start_time, end_time=end_time))
+            created += 1
+
+    db.session.commit()
+    return jsonify({"success": True, "created": created})
 
 @app.route('/admin/schedule/delete/<int:shift_id>', methods=['POST'])
 def delete_shift(shift_id):
-    if not is_master(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     shift = Shift.query.get_or_404(shift_id)
     db.session.delete(shift); db.session.commit()
     return jsonify({"success": True})
@@ -1449,11 +1511,15 @@ def driver_dashboard():
     driver_name = session.get("username")
 
     today = date.today()
-    today_str = today.strftime("%-m/%-d/%Y") if os.name != 'nt' else today.strftime("%#m/%#d/%Y")
+    today_np = f"{today.month}/{today.day}/{today.year}"
+    today_p  = f"{today.month:02d}/{today.day:02d}/{today.year}"
+    today_str = today_np
 
     # Get today's scheduled customers for this driver, ordered by pickup time
     all_customers = Customer.query.filter_by(motorista=driver_name).order_by(Customer.pickup_datetime).all()
-    my_customers  = [c for c in all_customers if today_str in (c.pickup_datetime or "")]
+    my_customers  = [c for c in all_customers
+                     if today_np in (c.pickup_datetime or "")
+                     or today_p in (c.pickup_datetime or "")]
 
     # Get driver availability status
     driver_profile = Driver.query.filter_by(name=driver_name).first()
@@ -1504,7 +1570,7 @@ def driver_dashboard():
         pickups.append({
             "id": c.id, "nome": c.nome, "endereco": c.endereco, "destination": c.destination,
             "package": c.package, "guests": c.guests, "details": c.details,
-            "phone": c.phone, "time": time_part, "status": c.status,
+            "time": time_part, "status": c.status,
             "dispatch_status": c.dispatch_status,
             "lat": p_lat, "lng": p_lng, "dist_mi": dist_mi,
             "car_string": c.car_string_val,
@@ -1821,6 +1887,109 @@ def driver_startcall(customer_id):
         "guests":          c.guests,
     })
     return jsonify({"success": True})
+
+@app.route('/driver/cars')
+def driver_cars():
+    """List available cars for the driver's car-switch picker, flagging which are
+    currently assigned to another driver (via today's shifts)."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"})
+    driver_name = session.get("username")
+    me = Driver.query.filter_by(name=driver_name).first()
+    today = date.today()
+    dow = today.weekday()  # 0=Mon
+    today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
+
+    cars = []
+    for car in Car.query.filter_by(active=True).all():
+        # who is assigned to this car today (by shift)?
+        assigned_to = None
+        shift = (Shift.query
+                 .filter_by(car_id=car.id, active=True)
+                 .filter((Shift.day_of_week == dow) | (Shift.specific_date == today_p))
+                 .first())
+        if shift:
+            drv = Driver.query.get(shift.driver_id)
+            if drv and drv.name != driver_name:
+                assigned_to = drv.name
+        cars.append({
+            "id": car.id, "name": car.name, "car_string": car.car_string(),
+            "assigned_to": assigned_to,
+            "is_mine": bool(shift and Driver.query.get(shift.driver_id) and Driver.query.get(shift.driver_id).name == driver_name),
+        })
+    return jsonify({"success": True, "cars": cars})
+
+@app.route('/driver/switch-car', methods=['POST'])
+def driver_switch_car():
+    """Driver switches to a different car. If it's currently assigned to another
+    driver today, the frontend confirms first (confirm=true)."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"})
+    driver_name = session.get("username")
+    me = Driver.query.filter_by(name=driver_name).first()
+    if not me:
+        return jsonify({"success": False, "error": "Driver profile not found"})
+    car_id = request.form.get('car_id')
+    confirm = request.form.get('confirm', 'false').lower() == 'true'
+    car = Car.query.get_or_404(int(car_id))
+
+    today = date.today()
+    dow = today.weekday()
+    today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
+
+    # Is the car assigned to someone else today?
+    existing = (Shift.query
+                .filter_by(car_id=car.id, active=True)
+                .filter((Shift.day_of_week == dow) | (Shift.specific_date == today_p))
+                .first())
+    other_driver = None
+    if existing:
+        drv = Driver.query.get(existing.driver_id)
+        if drv and drv.name != driver_name:
+            other_driver = drv.name
+
+    if other_driver and not confirm:
+        # Ask the frontend to confirm the takeover
+        return jsonify({"success": False, "needs_confirm": True,
+                        "assigned_to": other_driver,
+                        "car_name": car.car_string()})
+
+    # Perform the switch: create a specific-date shift for me today with this car.
+    # Deactivate the other driver's shift for this car today (if taking over).
+    if existing and other_driver and confirm:
+        existing.active = False
+
+    # Remove any of MY existing shifts for today so I only hold one car
+    my_today = (Shift.query
+                .filter_by(driver_id=me.id, active=True)
+                .filter((Shift.day_of_week == dow) | (Shift.specific_date == today_p))
+                .all())
+    old_start, old_end = '18:00', '05:30'
+    for sh in my_today:
+        old_start, old_end = sh.start_time, sh.end_time
+        sh.active = False
+
+    db.session.add(Shift(driver_id=me.id, car_id=car.id, specific_date=today_p,
+                         day_of_week=None, start_time=old_start, end_time=old_end, active=True))
+    db.session.commit()
+
+    # Reassign today's not-yet-picked-up customers of mine to the new car name/string
+    updated = 0
+    for c in Customer.query.filter_by(motorista=driver_name, status='scheduled').all():
+        if today_p in (c.pickup_datetime or "") or f"{today.month}/{today.day}/{today.year}" in (c.pickup_datetime or ""):
+            c.car_name = car.name
+            c.car_string_val = car.car_string()
+            updated += 1
+    db.session.commit()
+
+    fire_webhook({
+        "type":         "driver_car_switch",
+        "driver_name":  driver_name,
+        "new_car":      car.car_string(),
+        "took_over_from": other_driver or "",
+        "customers_updated": updated,
+    })
+    return jsonify({"success": True, "car": car.car_string(), "took_over_from": other_driver})
 
 @app.route('/here-photo/<int:customer_id>')
 def serve_here_photo(customer_id):
@@ -2357,14 +2526,16 @@ def distance_tracker_loop():
                     print(f"[CLEANUP] photo purge error: {e}", flush=True)
 
                 today = date.today()
-                today_str = today.strftime("%-m/%-d/%Y") if os.name != 'nt' else today.strftime("%#m/%#d/%Y")
+                today_np = f"{today.month}/{today.day}/{today.year}"
+                today_p  = f"{today.month:02d}/{today.day:02d}/{today.year}"
 
                 # Only check today's scheduled customers that still need transport tracking
                 scheduled = Customer.query.filter_by(
                     status='scheduled',
                     needs_transport=True
                 ).all()
-                scheduled = [c for c in scheduled if today_str in (c.pickup_datetime or "")
+                scheduled = [c for c in scheduled
+                             if (today_np in (c.pickup_datetime or "") or today_p in (c.pickup_datetime or ""))
                              and (not c.notified_5km or not c.notified_10km or not c.notified_15km)]
 
                 if not scheduled:

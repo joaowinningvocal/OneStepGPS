@@ -55,6 +55,12 @@
         td.name{color:var(--t);font-weight:600;}
         .badge{border-radius:12px;padding:2px 9px;font-size:.69rem;font-weight:700;}
         .b-weekly{background:rgba(59,130,246,.12);color:var(--b);border:1px solid rgba(59,130,246,.4);}
+        .dow-chips{display:flex;gap:7px;flex-wrap:wrap;}
+        .dchip{display:flex;align-items:center;gap:5px;padding:7px 12px;background:var(--s3);border:1px solid var(--bd);border-radius:9px;font-size:.8rem;cursor:pointer;user-select:none;}
+        .dchip input{accent-color:var(--acc);cursor:pointer;}
+        .dchip:has(input:checked){background:rgba(138,92,246,.15);border-color:var(--bhi);color:var(--acc);font-weight:600;}
+        .mini-btn{font-size:.7rem;font-weight:600;padding:5px 10px;background:var(--s2);border:1px solid var(--bd);border-radius:7px;color:var(--m2);cursor:pointer;}
+        .mini-btn:hover{color:var(--t);border-color:var(--bhi);}
         .b-specific{background:rgba(251,191,36,.12);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
         .b-on{background:rgba(34,197,94,.12);color:var(--g);border:1px solid rgba(34,197,94,.4);cursor:pointer;}
         .b-off{background:rgba(90,98,112,.15);color:var(--m);border:1px solid var(--bd);cursor:pointer;}
@@ -76,11 +82,11 @@
                 <a href="/admin/today"    class="pill">Today</a>
                 <a href="/admin/tracking" class="pill">Tracking</a>
                 <a href="/admin/guestlist" class="pill">Guest List</a>
-                {% if session.get('role') == 'master' %}<a href="/admin/packages" class="pill">Packages</a>{% endif %}
-                {% if session.get('role') == 'master' %}<a href="/admin/drivers"  class="pill">Drivers</a>{% endif %}
+                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages" class="pill">Packages</a>{% endif %}
+                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers"  class="pill">Drivers</a>{% endif %}
                 <a href="/admin/schedule" class="pill act">Schedule</a>
-                {% if session.get('role') in ['master','dispatch_manager'] %}<a href="/admin/users"    class="pill">Users</a>{% endif %}
-                {% if session.get('role') == 'master' %}<a href="/admin/clubs"    class="pill">Clubs</a>{% endif %}
+                {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users"    class="pill">Users</a>{% endif %}
+                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs"    class="pill">Clubs</a>{% endif %}
                 {% if session.get('role') == 'master' %}<a href="/admin/api"      class="pill">API</a>{% endif %}
             </div>
             <button class="hamburger" onclick="toggleMobileMenu()">☰</button>
@@ -91,11 +97,11 @@
         <a href="/admin/today">Today</a>
         <a href="/admin/tracking">Tracking</a>
         <a href="/admin/guestlist">Guest List</a>
-        {% if session.get('role') == 'master' %}<a href="/admin/packages">Packages</a>{% endif %}
-        {% if session.get('role') == 'master' %}<a href="/admin/drivers">Drivers</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages">Packages</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers">Drivers</a>{% endif %}
         <a href="/admin/schedule" class="act">Schedule</a>
-        {% if session.get('role') in ['master','dispatch_manager'] %}<a href="/admin/users">Users</a>{% endif %}
-        {% if session.get('role') == 'master' %}<a href="/admin/clubs">Clubs</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users">Users</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs">Clubs</a>{% endif %}
         {% if session.get('role') == 'master' %}<a href="/admin/api">API</a>{% endif %}
         <a href="/">← Dashboard</a>
     </div>
@@ -103,8 +109,9 @@
     <div class="card">
         <div class="ctitle">Add Shift (assign driver → car)</div>
         <div class="seg">
-            <button id="segWeekly" class="act" onclick="setMode('weekly')">Weekly</button>
+            <button id="segWeekly" class="act" onclick="setMode('weekly')">Weekly (days)</button>
             <button id="segSpecific" onclick="setMode('specific')">Specific Date</button>
+            <button id="segRange" onclick="setMode('range')">Date Range</button>
         </div>
         <div class="form-grid">
             <div class="f"><label>Driver</label>
@@ -119,22 +126,37 @@
                     {% for c in cars %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
                 </select>
             </div>
-            <div class="f" id="dowField"><label>Day of Week</label>
-                <select id="sDow" class="fs">
-                    <option value="0">Monday</option><option value="1">Tuesday</option>
-                    <option value="2">Wednesday</option><option value="3">Thursday</option>
-                    <option value="4">Friday</option><option value="5">Saturday</option>
-                    <option value="6">Sunday</option>
-                </select>
+            <div class="f" id="dowField" style="grid-column:1/-1;"><label>Days of Week (pick one or more)</label>
+                <div class="dow-chips">
+                    <label class="dchip"><input type="checkbox" value="0">Mon</label>
+                    <label class="dchip"><input type="checkbox" value="1">Tue</label>
+                    <label class="dchip"><input type="checkbox" value="2">Wed</label>
+                    <label class="dchip"><input type="checkbox" value="3">Thu</label>
+                    <label class="dchip"><input type="checkbox" value="4">Fri</label>
+                    <label class="dchip"><input type="checkbox" value="5">Sat</label>
+                    <label class="dchip"><input type="checkbox" value="6">Sun</label>
+                </div>
+                <div style="margin-top:6px;display:flex;gap:6px;">
+                    <button type="button" class="mini-btn" onclick="setDows([0,1,2,3,4])">Mon–Fri</button>
+                    <button type="button" class="mini-btn" onclick="setDows([5,6])">Weekend</button>
+                    <button type="button" class="mini-btn" onclick="setDows([0,1,2,3,4,5,6])">All</button>
+                    <button type="button" class="mini-btn" onclick="setDows([])">Clear</button>
+                </div>
             </div>
-            <div class="f" id="dateField" style="display:none;"><label>Date (MM/DD/YYYY)</label>
-                <input type="text" id="sDate" class="fc" placeholder="06/15/2026">
+            <div class="f" id="dateField" style="display:none;"><label>Date</label>
+                <input type="date" id="sDate" class="fc">
+            </div>
+            <div class="f" id="rangeStartField" style="display:none;"><label>Start Date</label>
+                <input type="date" id="sRangeStart" class="fc">
+            </div>
+            <div class="f" id="rangeEndField" style="display:none;"><label>End Date</label>
+                <input type="date" id="sRangeEnd" class="fc">
             </div>
             <div class="f"><label>Start Time (24h)</label><input type="text" id="sStart" class="fc" value="18:00" placeholder="18:00"></div>
             <div class="f"><label>End Time (24h)</label><input type="text" id="sEnd" class="fc" value="05:30" placeholder="05:30"></div>
         </div>
         <button class="btn-add" onclick="addShift()">+ Add Shift</button>
-        <p class="hint">Overnight windows are OK (e.g. 18:00 → 05:30). Specific-date shifts override weekly ones for that date.</p>
+        <p class="hint">Overnight windows are OK (e.g. 18:00 → 05:30). Pick multiple weekdays (Mon–Fri), a single date, or a date range. Specific dates override weekly ones.</p>
     </div>
 
     <div class="card">
@@ -181,8 +203,16 @@ function setMode(m){
     mode=m;
     document.getElementById('segWeekly').classList.toggle('act',m==='weekly');
     document.getElementById('segSpecific').classList.toggle('act',m==='specific');
+    document.getElementById('segRange').classList.toggle('act',m==='range');
     document.getElementById('dowField').style.display=(m==='weekly')?'block':'none';
     document.getElementById('dateField').style.display=(m==='specific')?'block':'none';
+    document.getElementById('rangeStartField').style.display=(m==='range')?'block':'none';
+    document.getElementById('rangeEndField').style.display=(m==='range')?'block':'none';
+}
+function setDows(arr){
+    document.querySelectorAll('#dowField input[type=checkbox]').forEach(cb=>{
+        cb.checked = arr.includes(parseInt(cb.value));
+    });
 }
 
 async function addShift(){
@@ -192,21 +222,26 @@ async function addShift(){
     fd.append('driver_id',driver);fd.append('car_id',car);fd.append('mode',mode);
     fd.append('start_time',document.getElementById('sStart').value.trim());
     fd.append('end_time',document.getElementById('sEnd').value.trim());
-    if(mode==='weekly'){fd.append('day_of_week',document.getElementById('sDow').value);}
-    else{const dt=document.getElementById('sDate').value.trim();if(!dt)return toast('Enter a date',false);fd.append('specific_date',dt);}
+    if(mode==='weekly'){
+        const days=[...document.querySelectorAll('#dowField input:checked')].map(c=>c.value);
+        if(!days.length)return toast('Pick at least one weekday',false);
+        days.forEach(d=>fd.append('days_of_week',d));
+    } else if(mode==='specific'){
+        const dt=document.getElementById('sDate').value;if(!dt)return toast('Pick a date',false);
+        // convert yyyy-mm-dd → mm/dd/yyyy
+        const [y,m,d]=dt.split('-');fd.append('specific_date',`${m}/${d}/${y}`);
+    } else if(mode==='range'){
+        const sd=document.getElementById('sRangeStart').value, ed=document.getElementById('sRangeEnd').value;
+        if(!sd||!ed)return toast('Pick start and end dates',false);
+        fd.append('start_date',sd);fd.append('end_date',ed);
+    }
     const d=await(await fetch('/admin/schedule/new',{method:'POST',body:fd})).json();
-    if(d.success){toast('Shift added!');location.reload();}else toast(d.error,false);
+    if(d.success){toast(`Added ${d.created||1} shift(s)!`);setTimeout(()=>location.reload(),700);}else toast(d.error,false);
 }
 async function delShift(id){if(!confirm('Delete this shift?'))return;const d=await(await fetch(`/admin/schedule/delete/${id}`,{method:'POST'})).json();if(d.success){document.getElementById('srow-'+id).remove();toast('Deleted');}else toast(d.error,false);}
 async function toggleShift(id,el){const d=await(await fetch(`/admin/schedule/toggle/${id}`,{method:'POST'})).json();if(d.success){el.className='badge '+(d.active?'b-on':'b-off');el.innerText=d.active?'● Active':'○ Off';}else toast(d.error,false);}
 
-// date mask
-document.getElementById('sDate').addEventListener('input',e=>{
-    let v=e.target.value.replace(/\D/g,'');
-    if(v.length>2)v=v.slice(0,2)+'/'+v.slice(2);
-    if(v.length>5)v=v.slice(0,5)+'/'+v.slice(5,9);
-    e.target.value=v;
-});
+setMode('weekly');
 </script>
 <!-- Bug Report / Chat Widget -->
 <style>

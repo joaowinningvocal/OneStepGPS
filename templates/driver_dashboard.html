@@ -115,6 +115,7 @@
         <button class="toggle-btn {{ 'toggle-busy' if driver_available else 'toggle-avail' }}" id="availBtn" onclick="toggleAvail()">
             {{ 'Set Busy' if driver_available else "I'm Available" }}
         </button>
+        <button class="toggle-btn" style="background:linear-gradient(135deg,#0ea5e9,#0369a1);margin-left:8px;" onclick="openCarSwitch()">🚗 Switch Car</button>
     </div>
 
     <div class="layout">
@@ -141,7 +142,6 @@
                         <div class="pk-row"><span class="ic">📍</span><span>{{ p.endereco or '—' }}</span></div>
                         {% if p.destination %}<div class="pk-row"><span class="ic">🏢</span><span>{{ p.destination }}</span></div>{% endif %}
                         <div class="pk-row"><span class="ic">🎟️</span><span>{{ p.package or '—' }} · {{ p.guests or 0 }} guests</span></div>
-                        {% if p.phone %}<div class="pk-row"><span class="ic">📞</span><a href="tel:{{ p.phone }}">{{ p.phone }}</a></div>{% endif %}
                         {% if p.details %}<div class="pk-row"><span class="ic">📝</span><span>{{ p.details }}</span></div>{% endif %}
 
                         <div class="pk-actions">
@@ -163,6 +163,20 @@
             {% endif %}
         </div>
         <div id="map"></div>
+    </div>
+</div>
+
+<!-- Car Switch Modal -->
+<div class="modal" id="carModal">
+    <div class="modal-card">
+        <h3>🚗 Switch Car</h3>
+        <p>Pick the car you'll be driving. If it's assigned to someone else today, you'll confirm the takeover.</p>
+        <div id="carList" style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;">
+            <div style="color:var(--m);text-align:center;padding:20px;">Loading cars…</div>
+        </div>
+        <div class="modal-btns">
+            <button class="mb mb-cancel" onclick="closeModal('carModal')">Close</button>
+        </div>
     </div>
 </div>
 
@@ -263,6 +277,44 @@ async function sendEnroute(id){
 async function startCall(id){
     const d=await(await fetch(`/driver/startcall/${id}`,{method:'POST'})).json();
     toast(d.success?'📞 Connecting your call...':(d.error||'Error'), d.success);
+}
+
+// ---- Switch Car ----
+async function openCarSwitch(){
+    document.getElementById('carModal').classList.add('open');
+    const list=document.getElementById('carList');
+    list.innerHTML='<div style="color:var(--m);text-align:center;padding:20px;">Loading cars…</div>';
+    try{
+        const d=await(await fetch('/driver/cars')).json();
+        if(!d.success){list.innerHTML=`<div style="color:var(--r);text-align:center;">${d.error||'Error'}</div>`;return;}
+        if(!d.cars.length){list.innerHTML='<div style="color:var(--m);text-align:center;">No cars available</div>';return;}
+        list.innerHTML=d.cars.map(c=>{
+            const taken = c.assigned_to ? `<div style="font-size:.72rem;color:var(--gold);margin-top:3px;">⚠️ Assigned to ${c.assigned_to}</div>` : '';
+            const mine = c.is_mine ? `<div style="font-size:.72rem;color:var(--g);margin-top:3px;">✅ Your current car</div>` : '';
+            return `<div onclick="switchCar(${c.id},'${(c.car_string||c.name).replace(/'/g,"\\'")}','${c.assigned_to||''}')" style="cursor:pointer;background:var(--s2);border:1px solid ${c.is_mine?'rgba(34,197,94,.4)':'var(--bd)'};border-radius:11px;padding:12px 14px;transition:.15s;" onmouseover="this.style.borderColor='var(--bhi)'" onmouseout="this.style.borderColor='${c.is_mine?'rgba(34,197,94,.4)':'var(--bd)'}'">
+                <div style="font-weight:700;font-size:.9rem;">${c.car_string||c.name}</div>${taken}${mine}
+            </div>`;
+        }).join('');
+    }catch(e){list.innerHTML='<div style="color:var(--r);text-align:center;">Could not load cars</div>';}
+}
+async function switchCar(carId, carName, assignedTo){
+    if(assignedTo){
+        if(!confirm(`⚠️ ${carName} is currently assigned to ${assignedTo}.\n\nAre you sure you want to take this car?`))return;
+    }
+    const fd=new FormData();fd.append('car_id',carId);fd.append('confirm','true');
+    const d=await(await fetch('/driver/switch-car',{method:'POST',body:fd})).json();
+    if(d.success){
+        closeModal('carModal');
+        toast(d.took_over_from?`🚗 Switched — took ${carName} from ${d.took_over_from}`:`🚗 Now driving ${carName}`);
+        setTimeout(()=>location.reload(),1200);
+    } else if(d.needs_confirm){
+        if(confirm(`⚠️ ${d.car_name} is assigned to ${d.assigned_to}. Take it anyway?`)){
+            const fd2=new FormData();fd2.append('car_id',carId);fd2.append('confirm','true');
+            const d2=await(await fetch('/driver/switch-car',{method:'POST',body:fd2})).json();
+            if(d2.success){closeModal('carModal');toast(`🚗 Switched to ${carName}`);setTimeout(()=>location.reload(),1200);}
+            else toast(d2.error||'Error',false);
+        }
+    } else toast(d.error||'Error',false);
 }
 
 // ---- Mark picked up ----
