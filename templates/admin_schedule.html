@@ -5,7 +5,7 @@
     <meta name="format-detection" content="telephone=no,date=no,address=no,email=no">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ClubLifter — Schedule</title>
+    <title>ClubLifter — Cars Schedule</title>
     <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
     <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
@@ -55,12 +55,15 @@
         td.name{color:var(--t);font-weight:600;}
         .badge{border-radius:12px;padding:2px 9px;font-size:.69rem;font-weight:700;}
         .b-weekly{background:rgba(59,130,246,.12);color:var(--b);border:1px solid rgba(59,130,246,.4);}
-        .dow-chips{display:flex;gap:7px;flex-wrap:wrap;}
-        .dchip{display:flex;align-items:center;gap:5px;padding:7px 12px;background:var(--s3);border:1px solid var(--bd);border-radius:9px;font-size:.8rem;cursor:pointer;user-select:none;}
-        .dchip input{accent-color:var(--acc);cursor:pointer;}
-        .dchip:has(input:checked){background:rgba(138,92,246,.15);border-color:var(--bhi);color:var(--acc);font-weight:600;}
-        .mini-btn{font-size:.7rem;font-weight:600;padding:5px 10px;background:var(--s2);border:1px solid var(--bd);border-radius:7px;color:var(--m2);cursor:pointer;}
-        .mini-btn:hover{color:var(--t);border-color:var(--bhi);}
+        .dow-chips{display:flex;gap:9px;flex-wrap:wrap;margin-top:4px;}
+        .dchip{position:relative;display:flex;align-items:center;justify-content:center;min-width:56px;padding:10px 16px;background:var(--s3);border:1.5px solid var(--bd);border-radius:11px;font-size:.82rem;font-weight:600;color:var(--m2);cursor:pointer;user-select:none;transition:all .15s ease;}
+        .dchip:hover{border-color:var(--bhi);color:var(--t);transform:translateY(-1px);}
+        .dchip input{position:absolute;opacity:0;width:0;height:0;pointer-events:none;}
+        .dchip:has(input:checked){background:linear-gradient(135deg,rgba(138,92,246,.25),rgba(109,40,217,.2));border-color:var(--acc);color:#fff;box-shadow:0 2px 10px rgba(138,92,246,.3);}
+        .dchip:has(input:checked)::before{content:'✓';margin-right:5px;font-size:.72rem;font-weight:800;}
+        .dow-presets{margin-top:10px;display:flex;gap:7px;flex-wrap:wrap;}
+        .mini-btn{font-size:.72rem;font-weight:600;padding:6px 13px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:var(--m2);cursor:pointer;transition:.15s;}
+        .mini-btn:hover{color:var(--acc);border-color:var(--bhi);background:rgba(138,92,246,.08);}
         .b-specific{background:rgba(251,191,36,.12);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
         .b-on{background:rgba(34,197,94,.12);color:var(--g);border:1px solid rgba(34,197,94,.4);cursor:pointer;}
         .b-off{background:rgba(90,98,112,.15);color:var(--m);border:1px solid var(--bd);cursor:pointer;}
@@ -84,7 +87,7 @@
                 <a href="/admin/guestlist" class="pill">Guest List</a>
                 {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages" class="pill">Packages</a>{% endif %}
                 {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers"  class="pill">Drivers</a>{% endif %}
-                <a href="/admin/schedule" class="pill act">Schedule</a>
+                <a href="/admin/schedule" class="pill act">Cars Schedule</a>
                 {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users"    class="pill">Users</a>{% endif %}
                 {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs"    class="pill">Clubs</a>{% endif %}
                 {% if session.get('role') == 'master' %}<a href="/admin/api"      class="pill">API</a>{% endif %}
@@ -99,7 +102,7 @@
         <a href="/admin/guestlist">Guest List</a>
         {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages">Packages</a>{% endif %}
         {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers">Drivers</a>{% endif %}
-        <a href="/admin/schedule" class="act">Schedule</a>
+        <a href="/admin/schedule" class="act">Cars Schedule</a>
         {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users">Users</a>{% endif %}
         {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs">Clubs</a>{% endif %}
         {% if session.get('role') == 'master' %}<a href="/admin/api">API</a>{% endif %}
@@ -136,7 +139,7 @@
                     <label class="dchip"><input type="checkbox" value="5">Sat</label>
                     <label class="dchip"><input type="checkbox" value="6">Sun</label>
                 </div>
-                <div style="margin-top:6px;display:flex;gap:6px;">
+                <div class="dow-presets">
                     <button type="button" class="mini-btn" onclick="setDows([0,1,2,3,4])">Mon–Fri</button>
                     <button type="button" class="mini-btn" onclick="setDows([5,6])">Weekend</button>
                     <button type="button" class="mini-btn" onclick="setDows([0,1,2,3,4,5,6])">All</button>
@@ -160,7 +163,7 @@
     </div>
 
     <div class="card">
-        <div class="ctitle">Current Schedule</div>
+        <div class="ctitle">Current Car Schedule</div>
         <div class="tbl-wrap">
             <table>
                 <thead><tr><th>Driver</th><th>Car</th><th>When</th><th>Time</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
