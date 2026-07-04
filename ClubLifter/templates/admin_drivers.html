@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+<head>
+    <meta name="google" content="notranslate">
+    <meta name="format-detection" content="telephone=no,date=no,address=no,email=no">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClubLifter — Drivers & Cars</title>
+    <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--s3:#0d1117;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--acc2:#6d28d9;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
+        /* Prevent browser (Opera GX / translate) auto-underline on detected text */
+        .bg,.b-dest,.b-transport,.b-walkin,.b-date,.b-time,td,span{text-decoration:none !important;}
+        [translate="no"]{-webkit-text-decoration:none;}
+
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;padding:14px;}
+        .wrap{max-width:1050px;margin:0 auto;}
+        .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;margin-bottom:18px;background:var(--s);border:1px solid var(--bd);border-radius:14px;gap:10px;flex-wrap:wrap;}
+        .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:var(--acc);}
+        .brand span{color:var(--t);}
+        .nav-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+        .pill{font-size:.72rem;font-weight:600;color:var(--m2);text-decoration:none;padding:5px 11px;border-radius:20px;border:1px solid var(--bd);transition:.2s;white-space:nowrap;}
+        .pill:hover,.pill.act{color:var(--acc);border-color:var(--bhi);background:rgba(138,92,246,.08);}
+        .btn-db{font-size:.72rem;font-weight:600;color:var(--m2);padding:5px 11px;border-radius:10px;border:1px solid var(--bd);background:none;cursor:pointer;text-decoration:none;transition:.2s;}
+        .btn-db:hover{color:var(--t);}
+        .hamburger{display:none;background:none;border:1px solid var(--bd);color:var(--t);border-radius:10px;width:40px;height:38px;cursor:pointer;font-size:1.2rem;align-items:center;justify-content:center;flex-shrink:0;}
+        .hamburger:hover{border-color:var(--acc);color:var(--acc);}
+        .mobile-menu{display:none;flex-direction:column;gap:4px;background:var(--s);border:1px solid var(--bd);border-radius:14px;padding:10px;margin-bottom:16px;}
+        .mobile-menu.open{display:flex;}
+        .mobile-menu a{font-size:.85rem;font-weight:600;color:var(--m2);text-decoration:none;padding:11px 14px;border-radius:10px;transition:.15s;}
+        .mobile-menu a:hover,.mobile-menu a.act{color:var(--acc);background:rgba(138,92,246,.1);}
+        .card{background:var(--s);border:1px solid var(--bd);border-radius:16px;padding:20px;margin-bottom:16px;}
+        .ctitle{font-family:'Syne',sans-serif;font-size:.75rem;font-weight:700;color:var(--m);text-transform:uppercase;letter-spacing:1.3px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--bd);}
+        .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+        .f label{display:block;font-size:.69rem;font-weight:600;color:var(--m);text-transform:uppercase;letter-spacing:.7px;margin-bottom:5px;}
+        .fc{width:100%;background:var(--s3);border:1px solid var(--bd);color:var(--t);border-radius:10px;padding:9px 13px;font-size:.85rem;font-family:'DM Sans',sans-serif;transition:.2s;}
+        .fc::placeholder{color:var(--m);}
+        .fc:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px rgba(138,92,246,.13);}
+        .fc[type=file]{padding:7px;font-size:.78rem;}
+        .hint{font-size:.7rem;color:var(--m);margin-top:6px;}
+        .btn-add{background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;color:#fff;font-family:'Syne',sans-serif;font-weight:700;font-size:.82rem;border-radius:10px;padding:10px 18px;cursor:pointer;white-space:nowrap;transition:.2s;width:100%;margin-top:10px;}
+        .btn-add:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(138,92,246,.4);}
+        .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+        table{width:100%;border-collapse:collapse;font-size:.83rem;min-width:480px;}
+        thead th{color:var(--m2);font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.7px;padding:9px 12px;border-bottom:1px solid var(--bd);}
+        tbody td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--m2);vertical-align:middle;}
+        tbody tr:last-child td{border-bottom:none;}
+        tbody tr:hover td{background:rgba(138,92,246,.04);}
+        td.name{color:var(--t);font-weight:600;}
+        .car-thumb{width:48px;height:48px;border-radius:8px;object-fit:cover;border:1px solid var(--bd);background:var(--s3);}
+        .car-thumb.ph{display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:var(--m);}
+        .btns{display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap;}
+        .btn-e{background:none;border:1px solid #ffc107;color:#ffc107;font-size:.71rem;font-weight:600;border-radius:8px;padding:5px 10px;cursor:pointer;transition:.2s;}
+        .btn-e:hover{background:#ffc107;color:#000;}
+        .btn-d{background:none;border:1px solid var(--r);color:var(--r);font-size:.71rem;font-weight:600;border-radius:8px;padding:5px 10px;cursor:pointer;transition:.2s;}
+        .btn-d:hover{background:var(--r);color:#fff;}
+        .empty{text-align:center;padding:24px;color:var(--m);font-size:.83rem;}
+        .modal-content{background:var(--s);border:1px solid var(--bd);color:var(--t);border-radius:16px;}
+        .modal-header,.modal-footer{border-color:var(--bd);}
+        .modal-title{font-family:'Syne',sans-serif;font-weight:700;color:var(--acc);}
+        .btn-close-white{filter:invert(1);}
+        .btn-save{background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;color:#fff;font-weight:700;border-radius:10px;padding:8px 20px;cursor:pointer;}
+        .modal-f{display:flex;flex-direction:column;gap:13px;}
+        #toast{position:fixed;bottom:16px;right:14px;left:14px;max-width:380px;margin:0 auto;z-index:9999;display:none;border-radius:11px;padding:12px 16px;font-weight:600;font-size:.85rem;box-shadow:0 8px 24px rgba(0,0,0,.5);}
+        /* Self-contained modal (no Bootstrap dependency) */
+        .cl-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9998;align-items:center;justify-content:center;padding:18px;}
+        .cl-modal.open{display:flex;}
+        .cl-modal-card{background:var(--s);border:1px solid var(--bhi);border-radius:18px;padding:22px;max-width:440px;width:100%;display:flex;flex-direction:column;gap:13px;}
+        .cl-modal-card h3{font-family:'Syne',sans-serif;font-size:1.05rem;color:var(--acc);margin-bottom:2px;}
+        .cl-modal-btns{display:flex;gap:9px;margin-top:6px;}
+        .mb{flex:1;font-family:'Syne',sans-serif;font-weight:700;font-size:.84rem;border:none;border-radius:11px;padding:11px;cursor:pointer;}
+        .mb-cancel{background:var(--s2);color:var(--m2);border:1px solid var(--bd);}
+        .mb-cancel:hover{color:var(--t);}
+        .mb-save{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;}
+        .mb-save:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(138,92,246,.4);}
+        @media(max-width:700px){.form-grid{grid-template-columns:1fr;}.pills-desk{display:none;}.hamburger{display:flex;}}
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="topbar">
+        <div class="brand">Club<span>Lifter</span></div>
+        <div class="nav-r">
+            <div class="pills-desk" style="display:flex;gap:7px;">
+                <a href="/admin/today"    class="pill">Today</a>
+                <a href="/admin/tracking" class="pill">Tracking</a>
+                <a href="/admin/guestlist" class="pill">Guest List</a>
+                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages" class="pill">Packages</a>{% endif %}
+                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers"  class="pill act">Drivers</a>{% endif %}
+                <a href="/admin/schedule" class="pill">Cars Schedule</a>
+                {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users"    class="pill">Users</a>{% endif %}
+                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs"    class="pill">Clubs</a>{% endif %}
+                {% if session.get('role') == 'master' %}<a href="/admin/api"      class="pill">API</a>{% endif %}
+            </div>
+            <button class="hamburger" onclick="toggleMobileMenu()">☰</button>
+            <a href="/" class="btn-db">← Dashboard</a>
+        </div>
+    </div>
+    <div class="mobile-menu" id="mobileMenu">
+        <a href="/admin/today">Today</a>
+        <a href="/admin/tracking">Tracking</a>
+        <a href="/admin/guestlist">Guest List</a>
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages">Packages</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers" class="act">Drivers</a>{% endif %}
+        <a href="/admin/schedule">Cars Schedule</a>
+        {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users">Users</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs">Clubs</a>{% endif %}
+        {% if session.get('role') == 'master' %}<a href="/admin/api">API</a>{% endif %}
+        <a href="/">← Dashboard</a>
+    </div>
+
+    <!-- ADD DRIVER (person) -->
+    <div class="card">
+        <div class="ctitle">Add New Driver (person)</div>
+        <div class="form-grid">
+            <div class="f">
+                <label>Driver Name</label>
+                <input type="text" id="dName" class="fc" placeholder="e.g. TJ">
+            </div>
+            <div class="f">
+                <label>Phone (E.164)</label>
+                <input type="text" id="dPhone" class="fc" placeholder="+17025551234">
+            </div>
+        </div>
+        <button class="btn-add" onclick="addDriver()">+ Add Driver</button>
+        <p class="hint">Drivers are people. Cars are added separately below, then assigned via the <a href="/admin/schedule" style="color:var(--acc)">Schedule</a>.</p>
+    </div>
+
+    <!-- DRIVERS TABLE -->
+    <div class="card">
+        <div class="ctitle">Drivers</div>
+        <div class="tbl-wrap">
+            <table>
+                <thead><tr><th>Name</th><th>Phone</th><th style="text-align:right">Actions</th></tr></thead>
+                <tbody>
+                    {% for d in drivers %}
+                    <tr id="drow-{{ d.id }}">
+                        <td class="name">{{ d.name }}</td>
+                        <td style="color:var(--acc);">{{ d.phone if d.phone else '—' }}</td>
+                        <td><div class="btns">
+                            <button class="btn-e" onclick="openDEdit({{ d.id }}, {{ d.name|tojson }}, {{ d.phone|tojson }})">Edit</button>
+                            <button class="btn-d" onclick="delDriver({{ d.id }})">Delete</button>
+                        </div></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if not drivers %}<div class="empty">No drivers yet.</div>{% endif %}
+        </div>
+    </div>
+
+    <!-- ADD CAR -->
+    <div class="card">
+        <div class="ctitle">Add New Car (vehicle)</div>
+        <div class="form-grid">
+            <div class="f">
+                <label>Car Name <span style="color:var(--r)">(must match OneStepGPS)</span></label>
+                <input type="text" id="cName" class="fc" placeholder="e.g. 2017 Cadillac Escalade ESV">
+                <div class="hint">⚠️ Must exactly match the device display name in OneStepGPS to get GPS.</div>
+            </div>
+            <div class="f"><label>Model</label><input type="text" id="cModel" class="fc" placeholder="e.g. Cadillac Escalade"></div>
+            <div class="f"><label>Color</label><input type="text" id="cColor" class="fc" placeholder="e.g. Black"></div>
+            <div class="f"><label>License Plate</label><input type="text" id="cPlate" class="fc" placeholder="e.g. NV-12345"></div>
+            <div class="f"><label>Car Photo</label><input type="file" id="cPhoto" class="fc" accept="image/*"></div>
+        </div>
+        <button class="btn-add" onclick="addCar()">+ Add Car</button>
+    </div>
+
+    <!-- CARS TABLE -->
+    <div class="card">
+        <div class="ctitle">Cars</div>
+        <div class="tbl-wrap">
+            <table>
+                <thead><tr><th>Photo</th><th>Name (GPS)</th><th>Vehicle</th><th>Plate</th><th style="text-align:right">Actions</th></tr></thead>
+                <tbody>
+                    {% for c in cars %}
+                    <tr id="crow-{{ c.id }}">
+                        <td>{% if c.photo %}<img src="/uploads/{{ c.photo }}" class="car-thumb">{% else %}<div class="car-thumb ph">🚘</div>{% endif %}</td>
+                        <td class="name">{{ c.name }}</td>
+                        <td style="font-size:.8rem;">{% if c.model or c.color %}{{ c.color }} {{ c.model }}{% else %}—{% endif %}</td>
+                        <td style="font-size:.8rem;">{{ c.plate or '—' }}</td>
+                        <td><div class="btns">
+                            <button class="btn-e" onclick="openCEdit({{ c.id }}, {{ c.name|tojson }}, {{ c.model|tojson }}, {{ c.color|tojson }}, {{ c.plate|tojson }})">Edit</button>
+                            <button class="btn-d" onclick="delCar({{ c.id }})">Delete</button>
+                        </div></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if not cars %}<div class="empty">No cars yet.</div>{% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Driver Edit Modal -->
+<div class="cl-modal" id="dEditModal">
+  <div class="cl-modal-card">
+    <h3>Edit Driver</h3>
+    <input type="hidden" id="deId">
+    <div class="f"><label>Name</label><input type="text" id="deName" class="fc"></div>
+    <div class="f"><label>Phone</label><input type="text" id="dePhone" class="fc"></div>
+    <div class="cl-modal-btns">
+        <button class="mb mb-cancel" onclick="closeCl('dEditModal')">Cancel</button>
+        <button class="mb mb-save" onclick="saveDEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Car Edit Modal -->
+<div class="cl-modal" id="cEditModal">
+  <div class="cl-modal-card">
+    <h3>Edit Car</h3>
+    <input type="hidden" id="ceId">
+    <div class="f"><label>Name (must match OneStepGPS)</label><input type="text" id="ceName" class="fc"></div>
+    <div class="f"><label>Model</label><input type="text" id="ceModel" class="fc"></div>
+    <div class="f"><label>Color</label><input type="text" id="ceColor" class="fc"></div>
+    <div class="f"><label>License Plate</label><input type="text" id="cePlate" class="fc"></div>
+    <div class="f"><label>Replace Photo (optional)</label><input type="file" id="cePhoto" class="fc" accept="image/*"></div>
+    <div class="cl-modal-btns">
+        <button class="mb mb-cancel" onclick="closeCl('cEditModal')">Cancel</button>
+        <button class="mb mb-save" onclick="saveCEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script>
+function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.classList.toggle('open');}
+function openCl(id){document.getElementById(id).classList.add('open');}
+function closeCl(id){document.getElementById(id).classList.remove('open');}
+function toast(m,ok=true){const t=document.getElementById('toast');t.style.display='block';t.style.background=ok?'#16a34a':'#dc2626';t.style.color='#fff';t.innerText=m;setTimeout(()=>t.style.display='none',3000);}
+
+// DRIVERS
+async function addDriver(){
+    const name=document.getElementById('dName').value.trim();
+    if(!name)return toast('Name required',false);
+    const fd=new FormData();fd.append('name',name);fd.append('phone',document.getElementById('dPhone').value.trim());
+    const d=await(await fetch('/admin/drivers/new',{method:'POST',body:fd})).json();
+    if(d.success){toast('Driver added!');setTimeout(()=>location.reload(),600);}else toast(d.error,false);
+}
+function openDEdit(id,name,phone){document.getElementById('deId').value=id;document.getElementById('deName').value=name;document.getElementById('dePhone').value=phone||'';openCl('dEditModal');}
+async function saveDEdit(){
+    const id=document.getElementById('deId').value,fd=new FormData();
+    fd.append('name',document.getElementById('deName').value);fd.append('phone',document.getElementById('dePhone').value);
+    const d=await(await fetch(`/admin/drivers/edit/${id}`,{method:'POST',body:fd})).json();
+    if(d.success){toast('Updated!');setTimeout(()=>location.reload(),600);}else toast(d.error,false);
+}
+async function delDriver(id){if(!confirm('Delete this driver?'))return;const d=await(await fetch(`/admin/drivers/delete/${id}`,{method:'POST'})).json();if(d.success){document.getElementById('drow-'+id).remove();toast('Deleted');}else toast(d.error,false);}
+
+// CARS
+async function addCar(){
+    const name=document.getElementById('cName').value.trim();
+    if(!name)return toast('Car name required',false);
+    const fd=new FormData();
+    fd.append('name',name);
+    fd.append('model',document.getElementById('cModel').value.trim());
+    fd.append('color',document.getElementById('cColor').value.trim());
+    fd.append('plate',document.getElementById('cPlate').value.trim());
+    const photo=document.getElementById('cPhoto').files[0];if(photo)fd.append('photo',photo);
+    const d=await(await fetch('/admin/cars/new',{method:'POST',body:fd})).json();
+    if(d.success){toast('Car added!');location.reload();}else toast(d.error,false);
+}
+function openCEdit(id,name,model,color,plate){document.getElementById('ceId').value=id;document.getElementById('ceName').value=name;document.getElementById('ceModel').value=model||'';document.getElementById('ceColor').value=color||'';document.getElementById('cePlate').value=plate||'';document.getElementById('cePhoto').value='';openCl('cEditModal');}
+async function saveCEdit(){
+    const id=document.getElementById('ceId').value,fd=new FormData();
+    fd.append('name',document.getElementById('ceName').value);
+    fd.append('model',document.getElementById('ceModel').value);
+    fd.append('color',document.getElementById('ceColor').value);
+    fd.append('plate',document.getElementById('cePlate').value);
+    const photo=document.getElementById('cePhoto').files[0];if(photo)fd.append('photo',photo);
+    const d=await(await fetch(`/admin/cars/edit/${id}`,{method:'POST',body:fd})).json();
+    if(d.success){toast('Updated!');location.reload();}else toast(d.error,false);
+}
+async function delCar(id){if(!confirm('Delete this car?'))return;const d=await(await fetch(`/admin/cars/delete/${id}`,{method:'POST'})).json();if(d.success){document.getElementById('crow-'+id).remove();toast('Deleted');}else toast(d.error,false);}
+
+// Close modal on backdrop click
+document.querySelectorAll('.cl-modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
+</script>
+<!-- Bug Report / Chat Widget -->
+<style>
+#bugFab{position:fixed;bottom:18px;left:18px;z-index:9997;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;cursor:pointer;box-shadow:0 6px 20px rgba(138,92,246,.5);display:flex;align-items:center;justify-content:center;font-size:1.4rem;transition:.2s;}
+#bugFab:hover{transform:scale(1.08);}
+#bugPanel{position:fixed;bottom:80px;left:18px;z-index:9997;width:320px;max-width:calc(100vw - 36px);background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:16px;box-shadow:0 16px 50px rgba(0,0,0,.6);padding:18px;display:none;}
+#bugPanel.open{display:block;}
+#bugPanel h4{font-family:'Syne',sans-serif;font-weight:800;font-size:1rem;color:#8a5cf6;margin:0 0 3px;}
+#bugPanel p{font-size:.76rem;color:#8892a0;margin:0 0 12px;}
+#bugPanel select,#bugPanel textarea{width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.1);color:#e8eaf0;border-radius:10px;padding:10px 12px;font-family:'DM Sans',sans-serif;font-size:.84rem;margin-bottom:10px;}
+#bugPanel textarea{min-height:90px;resize:vertical;}
+#bugPanel .bsend{width:100%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;color:#fff;border-radius:10px;padding:11px;font-weight:700;font-size:.85rem;cursor:pointer;font-family:'Syne',sans-serif;}
+#bugPanel .bclose{position:absolute;top:12px;right:14px;background:none;border:none;color:#5a6270;cursor:pointer;font-size:1.1rem;}
+</style>
+<button id="bugFab" onclick="toggleBug()" title="Report an issue">💬</button>
+<div id="bugPanel">
+    <button class="bclose" onclick="toggleBug()">✕</button>
+    <h4>💬 Report an Issue</h4>
+    <p>Found a bug or have feedback? Let us know.</p>
+    <select id="bugCat">
+        <option value="bug">🐛 Bug / Something broken</option>
+        <option value="feature">💡 Feature request</option>
+        <option value="question">❓ Question</option>
+        <option value="general">💬 General feedback</option>
+    </select>
+    <textarea id="bugDesc" placeholder="Describe what happened or what you need…"></textarea>
+    <button class="bsend" onclick="sendBug()">Send</button>
+</div>
+<script>
+function toggleBug(){document.getElementById('bugPanel').classList.toggle('open');}
+async function sendBug(){
+    const desc=document.getElementById('bugDesc').value.trim();
+    if(!desc){alert('Please describe the issue first.');return;}
+    const fd=new FormData();
+    fd.append('description',desc);
+    fd.append('category',document.getElementById('bugCat').value);
+    fd.append('page',window.location.pathname);
+    try{
+        const d=await(await fetch('/api/bug-report',{method:'POST',body:fd})).json();
+        if(d.success){document.getElementById('bugDesc').value='';toggleBug();
+            const t=document.getElementById('toast');
+            if(t){t.style.display='block';t.style.background='#16a34a';t.style.color='#fff';t.innerText='✅ Report sent — thank you!';setTimeout(()=>t.style.display='none',3000);}
+            else alert('Report sent — thank you!');
+        } else alert(d.error||'Could not send');
+    }catch(e){alert('Could not send report');}
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+<head>
+    <meta name="google" content="notranslate">
+    <meta name="format-detection" content="telephone=no,date=no,address=no,email=no">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClubLifter — Promoter Dashboard</title>
+    <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--b:#3b82f6;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
+        /* Prevent browser (Opera GX / translate) auto-underline on detected text */
+        .bg,.b-dest,.b-transport,.b-walkin,.b-date,.b-time,td,span{text-decoration:none !important;}
+        [translate="no"]{-webkit-text-decoration:none;}
+
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;padding:14px;}
+        .wrap{max-width:1200px;margin:0 auto;}
+        .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;margin-bottom:18px;background:var(--s);border:1px solid var(--bd);border-radius:14px;gap:10px;flex-wrap:wrap;}
+        .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:var(--acc);}
+        .brand span{color:var(--t);}
+        .nav-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+        .pill{font-size:.72rem;font-weight:600;color:var(--m2);text-decoration:none;padding:5px 11px;border-radius:20px;border:1px solid var(--bd);transition:.2s;}
+        .pill:hover,.pill.act{color:var(--acc);border-color:var(--bhi);background:rgba(138,92,246,.08);}
+        .club-pill{font-size:.7rem;font-weight:700;color:var(--gold);padding:5px 11px;border-radius:20px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.07);}
+        .btn-out{font-size:.72rem;font-weight:600;color:var(--m);padding:5px 11px;border-radius:20px;border:1px solid var(--bd);background:none;cursor:pointer;text-decoration:none;transition:.2s;}
+        .btn-out:hover{color:var(--r);border-color:rgba(239,68,68,.5);}
+
+        .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;}
+        .stat{background:var(--s);border:1px solid var(--bd);border-radius:14px;padding:20px;text-align:center;}
+        .stat-v{font-family:'Syne',sans-serif;font-size:1.9rem;font-weight:800;}
+        .stat-l{font-size:.76rem;color:var(--m2);margin-top:4px;}
+        .stat.earn .stat-v{color:var(--g);}
+        .stat.sales .stat-v{color:var(--acc);}
+        .stat.rate .stat-v{color:var(--gold);}
+
+        .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+        .card{background:var(--s);border:1px solid var(--bd);border-radius:16px;overflow:hidden;}
+        .card-hdr{padding:16px 20px 12px;border-bottom:1px solid var(--bd);}
+        .card-hdr h5{font-family:'Syne',sans-serif;font-weight:700;font-size:1rem;}
+        .card-body{padding:14px;}
+
+        /* Car availability */
+        .car{display:flex;align-items:center;gap:12px;background:var(--s2);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:9px;}
+        .car-photo{width:54px;height:54px;border-radius:9px;object-fit:cover;background:#0d1117;flex-shrink:0;border:1px solid var(--bd);}
+        .car-photo.placeholder{display:flex;align-items:center;justify-content:center;font-size:1.4rem;color:var(--m);}
+        .car-info{flex:1;min-width:0;}
+        .car-name{font-family:'Syne',sans-serif;font-weight:700;font-size:.9rem;}
+        .car-detail{font-size:.76rem;color:var(--m2);margin-top:2px;}
+        .badge-free{background:rgba(34,197,94,.1);color:var(--g);border:1px solid rgba(34,197,94,.4);border-radius:14px;padding:3px 11px;font-size:.7rem;font-weight:700;white-space:nowrap;}
+        .badge-busy{background:rgba(239,68,68,.1);color:var(--r);border:1px solid rgba(239,68,68,.4);border-radius:14px;padding:3px 11px;font-size:.7rem;font-weight:700;white-space:nowrap;}
+
+        /* History table */
+        .tbl-wrap{overflow-x:auto;}
+        table{width:100%;border-collapse:collapse;font-size:.82rem;min-width:340px;}
+        thead th{color:var(--m2);font-weight:600;font-size:.67rem;text-transform:uppercase;letter-spacing:.7px;padding:8px 11px;border-bottom:1px solid var(--bd);}
+        tbody td{padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--m2);}
+        tbody tr:last-child td{border-bottom:none;}
+        td.name{color:var(--t);font-weight:600;}
+        .b-pkg{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.4);border-radius:12px;padding:2px 8px;font-size:.69rem;font-weight:700;}
+
+        .empty{text-align:center;padding:36px;color:var(--m);font-size:.83rem;}
+        .btn-book{display:inline-block;margin-top:4px;background:linear-gradient(135deg,var(--acc),#6d28d9);color:#fff;text-decoration:none;font-family:'Syne',sans-serif;font-weight:700;font-size:.82rem;border-radius:11px;padding:10px 20px;transition:.2s;}
+        .btn-book:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(138,92,246,.4);}
+
+        @media(max-width:800px){
+            .stats{grid-template-columns:1fr;}
+            .grid{grid-template-columns:1fr;}
+        }
+    
+        /* HAMBURGER MENU */
+        .hamburger { display:none; background:none; border:1px solid var(--bd,rgba(255,255,255,.07)); color:var(--t,#e8eaf0); border-radius:10px; width:40px; height:38px; cursor:pointer; font-size:1.2rem; align-items:center; justify-content:center; flex-shrink:0; }
+        .hamburger:hover { border-color:var(--acc,#8a5cf6); color:var(--acc,#8a5cf6); }
+        .mobile-menu { display:none; flex-direction:column; gap:4px; background:var(--s,#0f1420); border:1px solid var(--bd,rgba(255,255,255,.07)); border-radius:14px; padding:10px; margin-bottom:16px; }
+        .mobile-menu.open { display:flex; }
+        .mobile-menu a { font-size:.85rem; font-weight:600; color:var(--m2,#8892a0); text-decoration:none; padding:11px 14px; border-radius:10px; transition:.15s; }
+        .mobile-menu a:hover, .mobile-menu a.act { color:var(--acc,#8a5cf6); background:rgba(138,92,246,.1); }
+        @media (max-width:760px) {
+            .pills-desk { display:none !important; }
+            .m-nav { display:none !important; }
+            .hamburger { display:flex !important; }
+        }
+
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="topbar">
+        <div class="brand">Club<span>Lifter</span></div>
+        <div class="nav-r">
+            <a href="/" class="pill">+ New Pickup</a>
+            <a href="/promoter/dashboard" class="pill act">My Dashboard</a>
+            {% for cn in club_names %}
+            <span class="club-pill">🏢 {{ cn }}</span>
+            {% endfor %}
+            <a href="/logout" class="btn-out">Logout</a>
+        </div>
+    </div>
+
+    <!-- STATS -->
+    <div class="stats">
+        <div class="stat earn"><div class="stat-v">${{ "%.2f"|format(total_commission) }}</div><div class="stat-l">💰 Total Earnings</div></div>
+        <div class="stat sales"><div class="stat-v">{{ total_sales }}</div><div class="stat-l">🎟️ Total Sales</div></div>
+        <div class="stat rate"><div class="stat-v">${{ "%.2f"|format(commission_rate) }}</div><div class="stat-l">📊 Per Sale</div></div>
+    </div>
+
+    <div style="margin-bottom:16px;">
+        <a href="/" class="btn-book">🚗 Book a Car for a Client</a>
+    </div>
+
+    <div class="grid">
+        <!-- CAR AVAILABILITY -->
+        <div class="card">
+            <div class="card-hdr"><h5>Car Availability <span style="font-weight:400;font-size:.78rem;color:var(--m2);">— this hour</span></h5></div>
+            <div class="card-body">
+                {% if car_status %}
+                    {% for c in car_status %}
+                    <div class="car">
+                        {% if c.car_photo %}
+                        <img src="/uploads/{{ c.car_photo }}" class="car-photo" alt="car">
+                        {% else %}
+                        <div class="car-photo placeholder">🚘</div>
+                        {% endif %}
+                        <div class="car-info">
+                            <div class="car-name">{{ c.name }}</div>
+                            <div class="car-detail">
+                                {% if c.car_model or c.car_color %}
+                                {{ c.car_color }} {{ c.car_model }}{% if c.car_plate %} · {{ c.car_plate }}{% endif %}
+                                {% else %}No car info{% endif %}
+                            </div>
+                        </div>
+                        {% if c.in_use %}
+                        <span class="badge-busy">● In Use</span>
+                        {% else %}
+                        <span class="badge-free">● Available</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <div class="empty">No drivers registered.</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- MY CLIENTS HISTORY -->
+        <div class="card">
+            <div class="card-hdr"><h5>My Booking History</h5></div>
+            <div class="card-body">
+                {% if customers %}
+                <div class="tbl-wrap">
+                    <table>
+                        <thead><tr><th>Client</th><th>Package</th><th>Destination</th><th>When</th></tr></thead>
+                        <tbody>
+                            {% for c in customers %}
+                            <tr>
+                                <td class="name">{{ c.nome }}</td>
+                                <td>{% if c.package %}<span class="b-pkg">{{ c.package }}</span>{% else %}—{% endif %}</td>
+                                <td style="font-size:.78rem;">{{ c.destination or '—' }}</td>
+                                <td style="font-size:.76rem;">{{ c.pickup_datetime or '—' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty">No bookings yet. Start by creating a pickup!</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.classList.toggle('open');}
+</script>
+<!-- Bug Report / Chat Widget -->
+<style>
+#bugFab{position:fixed;bottom:18px;left:18px;z-index:9997;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;cursor:pointer;box-shadow:0 6px 20px rgba(138,92,246,.5);display:flex;align-items:center;justify-content:center;font-size:1.4rem;transition:.2s;}
+#bugFab:hover{transform:scale(1.08);}
+#bugPanel{position:fixed;bottom:80px;left:18px;z-index:9997;width:320px;max-width:calc(100vw - 36px);background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:16px;box-shadow:0 16px 50px rgba(0,0,0,.6);padding:18px;display:none;}
+#bugPanel.open{display:block;}
+#bugPanel h4{font-family:'Syne',sans-serif;font-weight:800;font-size:1rem;color:#8a5cf6;margin:0 0 3px;}
+#bugPanel p{font-size:.76rem;color:#8892a0;margin:0 0 12px;}
+#bugPanel select,#bugPanel textarea{width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.1);color:#e8eaf0;border-radius:10px;padding:10px 12px;font-family:'DM Sans',sans-serif;font-size:.84rem;margin-bottom:10px;}
+#bugPanel textarea{min-height:90px;resize:vertical;}
+#bugPanel .bsend{width:100%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;color:#fff;border-radius:10px;padding:11px;font-weight:700;font-size:.85rem;cursor:pointer;font-family:'Syne',sans-serif;}
+#bugPanel .bclose{position:absolute;top:12px;right:14px;background:none;border:none;color:#5a6270;cursor:pointer;font-size:1.1rem;}
+</style>
+<button id="bugFab" onclick="toggleBug()" title="Report an issue">💬</button>
+<div id="bugPanel">
+    <button class="bclose" onclick="toggleBug()">✕</button>
+    <h4>💬 Report an Issue</h4>
+    <p>Found a bug or have feedback? Let us know.</p>
+    <select id="bugCat">
+        <option value="bug">🐛 Bug / Something broken</option>
+        <option value="feature">💡 Feature request</option>
+        <option value="question">❓ Question</option>
+        <option value="general">💬 General feedback</option>
+    </select>
+    <textarea id="bugDesc" placeholder="Describe what happened or what you need…"></textarea>
+    <button class="bsend" onclick="sendBug()">Send</button>
+</div>
+<script>
+function toggleBug(){document.getElementById('bugPanel').classList.toggle('open');}
+async function sendBug(){
+    const desc=document.getElementById('bugDesc').value.trim();
+    if(!desc){alert('Please describe the issue first.');return;}
+    const fd=new FormData();
+    fd.append('description',desc);
+    fd.append('category',document.getElementById('bugCat').value);
+    fd.append('page',window.location.pathname);
+    try{
+        const d=await(await fetch('/api/bug-report',{method:'POST',body:fd})).json();
+        if(d.success){document.getElementById('bugDesc').value='';toggleBug();
+            const t=document.getElementById('toast');
+            if(t){t.style.display='block';t.style.background='#16a34a';t.style.color='#fff';t.innerText='✅ Report sent — thank you!';setTimeout(()=>t.style.display='none',3000);}
+            else alert('Report sent — thank you!');
+        } else alert(d.error||'Could not send');
+    }catch(e){alert('Could not send report');}
+}
+</script>
+
+</body>
+</html>

@@ -193,7 +193,7 @@
         <div class="brand">Club<span>Lifter</span></div>
         <div class="topbar-r">
             <div class="pills-desk" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                {% if session.get('role') in ['master','club_owner','club_manager','dispatch','dispatch_manager'] %}
+                {% if session.get('role') == 'master' %}
                 <a href="/admin/today"    class="pill">Today</a>
                 <a href="/admin/tracking" class="pill">Tracking</a>
                 <a href="/admin/guestlist" class="pill">Guest List</a>
@@ -216,7 +216,7 @@
     </div>
 
     <!-- MOBILE NAV -->
-    {% if session.get('role') in ['master','club_owner','club_manager','dispatch','dispatch_manager'] %}
+    {% if session.get('role') == 'master' %}
     <div class="mobile-menu" id="mobileMenu">
         <a href="/admin/today">Today</a>
         <a href="/admin/tracking">Tracking</a>

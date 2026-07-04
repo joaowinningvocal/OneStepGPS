@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+<head>
+    <meta name="google" content="notranslate">
+    <meta name="format-detection" content="telephone=no,date=no,address=no,email=no">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClubLifter — Guest List</title>
+    <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--s3:#0d1117;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--b:#3b82f6;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
+        /* Prevent browser (Opera GX / translate) auto-underline on detected text */
+        .bg,.b-dest,.b-transport,.b-walkin,.b-date,.b-time,td,span{text-decoration:none !important;}
+        [translate="no"]{-webkit-text-decoration:none;}
+
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;padding:14px;}
+        .wrap{max-width:1300px;margin:0 auto;}
+        .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;margin-bottom:18px;background:var(--s);border:1px solid var(--bd);border-radius:14px;gap:10px;flex-wrap:wrap;}
+        .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:var(--acc);}
+        .brand span{color:var(--t);}
+        .nav-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+        .pill{font-size:.72rem;font-weight:600;color:var(--m2);text-decoration:none;padding:5px 11px;border-radius:20px;border:1px solid var(--bd);transition:.2s;white-space:nowrap;}
+        .pill:hover,.pill.act{color:var(--acc);border-color:var(--bhi);background:rgba(138,92,246,.08);}
+        .btn-back{font-size:.72rem;font-weight:600;color:var(--m2);padding:5px 11px;border-radius:10px;border:1px solid var(--bd);background:none;cursor:pointer;text-decoration:none;transition:.2s;}
+        .btn-back:hover{color:var(--t);}
+        .m-nav{display:none;gap:6px;overflow-x:auto;padding:0 2px 12px;scrollbar-width:none;}
+        .m-nav::-webkit-scrollbar{display:none;}
+        .m-nav a{font-size:.72rem;font-weight:600;color:var(--m2);text-decoration:none;padding:6px 13px;border-radius:20px;border:1px solid var(--bd);white-space:nowrap;flex-shrink:0;transition:.2s;}
+        .m-nav a.act{color:var(--acc);border-color:var(--bhi);}
+
+        /* STATS */
+        .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
+        .stat{background:var(--s);border:1px solid var(--bd);border-radius:14px;padding:16px;text-align:center;}
+        .stat-v{font-family:'Syne',sans-serif;font-size:1.7rem;font-weight:800;}
+        .stat-l{font-size:.74rem;color:var(--m2);margin-top:3px;}
+        .stat.total .stat-v{color:var(--acc);}
+        .stat.coming .stat-v{color:var(--b);}
+        .stat.arrived .stat-v{color:var(--g);}
+        .stat.left .stat-v{color:var(--m);}
+
+        /* FILTERS */
+        .filter-card{background:var(--s);border:1px solid var(--bd);border-radius:14px;padding:16px 18px;margin-bottom:14px;}
+        .filter-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;}
+        .filter-row label{font-size:.7rem;color:var(--m);text-transform:uppercase;letter-spacing:.7px;font-weight:600;margin-right:6px;}
+        .seg{display:inline-flex;background:var(--s2);padding:3px;border-radius:9px;border:1px solid var(--bd);}
+        .seg a{padding:6px 14px;border-radius:7px;font-size:.78rem;font-weight:600;color:var(--m2);text-decoration:none;transition:.2s;}
+        .seg a.act{background:rgba(138,92,246,.2);color:var(--acc);}
+        .fs,.fc{background:var(--s2);border:1px solid var(--bd);color:var(--t);border-radius:9px;padding:7px 12px;font-size:.82rem;font-family:'DM Sans',sans-serif;appearance:none;}
+        input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.6;cursor:pointer;}
+        input[type=date]{color-scheme:dark;}
+        .fs{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7'%3E%3Cpath fill='%238892a0' d='M5 7L0 0h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:30px;}
+        .fs option{background:var(--s2);}
+
+        /* TABLE */
+        .card{background:var(--s);border:1px solid var(--bd);border-radius:14px;overflow:hidden;}
+        .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+        table{width:100%;border-collapse:collapse;font-size:.83rem;min-width:900px;}
+        thead th{color:var(--m2);font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.7px;padding:11px 13px;border-bottom:1px solid var(--bd);white-space:nowrap;background:rgba(255,255,255,.02);}
+        tbody td{padding:10px 13px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--m2);vertical-align:middle;}
+        tbody tr:last-child td{border-bottom:none;}
+        tbody tr:hover td{background:rgba(138,92,246,.04);}
+        td.name{color:var(--t);font-weight:600;}
+
+        /* BADGES */
+        .bg{border-radius:14px;padding:2px 9px;font-size:.69rem;font-weight:700;white-space:nowrap;}
+        .b-transport{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.4);}
+        .b-walkin{background:rgba(251,191,36,.1);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
+        .b-dest{background:rgba(149,191,71,.1);color:#95bf47;border:1px solid rgba(149,191,71,.4);}
+        .b-time{background:rgba(59,130,246,.1);color:var(--b);border:1px solid rgba(59,130,246,.4);padding:3px 9px;border-radius:7px;}
+        .b-date{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.4);padding:3px 9px;border-radius:7px;font-weight:600;white-space:nowrap;}
+
+        /* STATUS BUTTONS */
+        .status-group{display:inline-flex;background:var(--s2);padding:2px;border-radius:8px;border:1px solid var(--bd);}
+        .stb{padding:5px 10px;border-radius:6px;font-size:.7rem;font-weight:600;border:none;background:none;color:var(--m2);cursor:pointer;transition:.15s;}
+        .stb:hover{color:var(--t);}
+        .stb.act-coming{background:rgba(59,130,246,.25);color:var(--b);}
+        .stb.act-arrived{background:rgba(34,197,94,.25);color:var(--g);}
+        .stb.act-left{background:rgba(90,98,112,.25);color:var(--m);}
+
+        /* Dispatch buttons */
+        .dispatch-group{display:inline-flex;background:var(--s2);padding:2px;border-radius:8px;border:1px solid var(--bd);gap:1px;}
+        .dsb{padding:5px 9px;border-radius:6px;font-size:.68rem;font-weight:600;border:none;background:none;color:var(--m2);cursor:pointer;transition:.15s;white-space:nowrap;}
+        .dsb:hover{color:var(--t);}
+        .dsb.act-sent{background:rgba(251,191,36,.22);color:var(--gold);}
+        .dsb.act-confirmed{background:rgba(59,130,246,.22);color:var(--b);}
+        .dsb.act-enroute{background:rgba(34,197,94,.25);color:var(--g);}
+
+        /* Name click + caret */
+        .name-click{cursor:pointer;user-select:none;}
+        .name-click:hover{color:var(--acc);}
+        .caret{display:inline-block;font-size:.7rem;color:var(--m);transition:.15s;}
+        .caret.open{transform:rotate(90deg);color:var(--acc);}
+
+        /* Expandable detail row */
+        .detail-row td{background:rgba(138,92,246,.04);padding:0;}
+        .detail-box{padding:16px 20px;border-left:3px solid var(--acc);margin:4px 8px 12px;background:var(--s2);border-radius:10px;}
+        .detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;}
+        .detail-item{display:flex;flex-direction:column;gap:3px;}
+        .dlabel{font-size:.66rem;font-weight:700;color:var(--m);text-transform:uppercase;letter-spacing:.5px;}
+        .dval{font-size:.85rem;color:var(--t);}
+        .eta-btn{background:rgba(138,92,246,.15);border:1px solid rgba(138,92,246,.4);color:var(--acc);border-radius:7px;padding:4px 11px;font-size:.76rem;font-weight:600;cursor:pointer;}
+        .eta-btn:hover{background:rgba(138,92,246,.3);}
+
+        .btn-del{background:none;border:1px solid rgba(239,68,68,.4);color:var(--r);font-size:.7rem;font-weight:600;border-radius:7px;padding:5px 9px;cursor:pointer;transition:.2s;}
+        .btn-del:hover{background:var(--r);color:#fff;}
+
+        .empty{text-align:center;padding:60px 20px;color:var(--m);}
+        .empty .ic{font-size:2.7rem;margin-bottom:10px;}
+
+        a.phone{color:var(--g);text-decoration:none;}
+        a.phone:hover{text-decoration:underline;}
+
+        #toast{position:fixed;bottom:20px;right:16px;left:16px;max-width:380px;margin:0 auto;z-index:9999;display:none;border-radius:11px;padding:12px 16px;font-weight:600;font-size:.85rem;box-shadow:0 8px 24px rgba(0,0,0,.5);}
+
+        @media(max-width:900px){
+            .stats{grid-template-columns:repeat(2,1fr);}
+            .pills-desk{display:none;}
+            .m-nav{display:flex;}
+        }
+        @media(max-width:600px){
+            .filter-row{flex-direction:column;align-items:stretch;}
+            .filter-row > div{width:100%;}
+            .seg{width:100%;justify-content:space-around;}
+            .seg a{flex:1;text-align:center;}
+        }
+    
+        /* HAMBURGER MENU */
+        .hamburger { display:none; background:none; border:1px solid var(--bd,rgba(255,255,255,.07)); color:var(--t,#e8eaf0); border-radius:10px; width:40px; height:38px; cursor:pointer; font-size:1.2rem; align-items:center; justify-content:center; flex-shrink:0; }
+        .hamburger:hover { border-color:var(--acc,#8a5cf6); color:var(--acc,#8a5cf6); }
+        .mobile-menu { display:none; flex-direction:column; gap:4px; background:var(--s,#0f1420); border:1px solid var(--bd,rgba(255,255,255,.07)); border-radius:14px; padding:10px; margin-bottom:16px; }
+        .mobile-menu.open { display:flex; }
+        .mobile-menu a { font-size:.85rem; font-weight:600; color:var(--m2,#8892a0); text-decoration:none; padding:11px 14px; border-radius:10px; transition:.15s; }
+        .mobile-menu a:hover, .mobile-menu a.act { color:var(--acc,#8a5cf6); background:rgba(138,92,246,.1); }
+        @media (max-width:760px) {
+            .pills-desk { display:none !important; }
+            .m-nav { display:none !important; }
+            .hamburger { display:flex !important; }
+        }
+
+    </style>
+</head>
+<body>
+<div class="wrap">
+
+    <div class="topbar">
+        <div class="brand">Club<span>Lifter</span></div>
+        <div class="nav-r">
+            <div class="pills-desk" style="display:flex;gap:7px;">
+                <a href="/admin/today"    class="pill">Today</a>
+                <a href="/admin/tracking" class="pill">Tracking</a>
+                <a href="/admin/guestlist" class="pill act">Guest List</a>
+                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages" class="pill">Packages</a>{% endif %}
+                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers"  class="pill">Drivers</a>{% endif %}
+                <a href="/admin/schedule" class="pill">Cars Schedule</a>
+                {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users"    class="pill">Users</a>{% endif %}
+                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs"    class="pill">Clubs</a>{% endif %}
+            {% if session.get('role') == 'master' %}<a href="/admin/api" class="pill">API</a>{% endif %}
+                </div>
+            <button class="hamburger" onclick="toggleMobileMenu()">☰</button>
+            <a href="/" class="btn-back">← Dashboard</a>
+        </div>
+    </div>
+
+    <div class="mobile-menu" id="mobileMenu">
+        <a href="/admin/today">Today</a>
+        <a href="/admin/tracking">Tracking</a>
+        <a href="/admin/guestlist" class="act">Guest List</a>
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages">Packages</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers">Drivers</a>{% endif %}
+        <a href="/admin/schedule">Cars Schedule</a>
+        {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users">Users</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs">Clubs</a>{% endif %}
+        {% if session.get('role') == 'master' %}<a href="/admin/api">API</a>{% endif %}
+        <a href="/">← Dashboard</a>
+    </div>
+
+    <!-- STATS -->
+    <div class="stats">
+        <div class="stat total"><div class="stat-v">{{ total }}</div><div class="stat-l">📋 Total Guests</div></div>
+        <div class="stat coming"><div class="stat-v">{{ coming }}</div><div class="stat-l">🚗 Coming</div></div>
+        <div class="stat arrived"><div class="stat-v">{{ arrived }}</div><div class="stat-l">🎉 Arrived</div></div>
+        <div class="stat left"><div class="stat-v">{{ left }}</div><div class="stat-l">👋 Left</div></div>
+    </div>
+
+    <!-- FILTERS -->
+    <div class="filter-card">
+        <div class="filter-row">
+            <div>
+                <label>Type</label>
+                <div class="seg">
+                    <a href="?type=all&club={{ filter_club }}&date={{ filter_date_iso }}{{ '&view=all' if view_all else '' }}"       class="{{ 'act' if filter_type=='all' else '' }}">All</a>
+                    <a href="?type=transport&club={{ filter_club }}&date={{ filter_date_iso }}{{ '&view=all' if view_all else '' }}" class="{{ 'act' if filter_type=='transport' else '' }}">🚗 Transport</a>
+                    <a href="?type=walkin&club={{ filter_club }}&date={{ filter_date_iso }}{{ '&view=all' if view_all else '' }}"    class="{{ 'act' if filter_type=='walkin' else '' }}">🚶 Walk-in</a>
+                </div>
+            </div>
+            <div>
+                <label>Club</label>
+                <select class="fs" onchange="window.location='?type={{ filter_type }}&club='+encodeURIComponent(this.value)+'&date={{ filter_date_iso }}{{ '&view=all' if view_all else '' }}'">
+                    <option value="all" {% if filter_club=='all' %}selected{% endif %}>All clubs</option>
+                    {% for c in clubs %}
+                    <option value="{{ c.name }}" {% if filter_club==c.name %}selected{% endif %}>{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>View</label>
+                <div class="seg">
+                    <a href="?type={{ filter_type }}&club={{ filter_club }}&date={{ filter_date_iso }}" class="{{ '' if view_all else 'act' }}">📅 By Date</a>
+                    <a href="?type={{ filter_type }}&club={{ filter_club }}&view=all" class="{{ 'act' if view_all else '' }}">🗂️ View All</a>
+                </div>
+            </div>
+            <div id="dateBox" style="{{ 'display:none;' if view_all else '' }}">
+                <label>Date</label>
+                <input type="date" class="fc" value="{{ filter_date_iso }}" id="dateFilter"
+                    onchange="window.location='?type={{ filter_type }}&club={{ filter_club }}&date='+this.value">
+            </div>
+        </div>
+        {% if view_all %}
+        <div style="font-size:.74rem;color:var(--m2);margin-top:10px;">🗂️ Showing all guests, most recent first.</div>
+        {% endif %}
+    </div>
+
+    <!-- TABLE -->
+    <div class="card">
+        {% if customers %}
+        <div class="tbl-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th><th>Time</th><th>Name</th><th>Phones</th><th>Type</th>
+                        <th>Destination</th><th>Dispatch</th><th>Status</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in customers %}
+                    <tr id="row-{{ c.id }}" class="main-row">
+                        <td><span class="b-date">{{ c.pickup_datetime.split(' ')[0] if c.pickup_datetime else '—' }}</span></td>
+                        <td><span class="b-time">{{ c.pickup_datetime.split(' ')[1] ~ ' ' ~ c.pickup_datetime.split(' ')[2] if c.pickup_datetime and c.pickup_datetime.split(' ')|length >= 3 else '—' }}</span></td>
+                        <td class="name name-click" onclick="toggleDetails({{ c.id }})">
+                            <span class="caret" id="caret-{{ c.id }}">▸</span> {{ c.nome }}
+                        </td>
+                        <td style="font-size:.78rem;">
+                            {% for p in c.get_phones() %}
+                            <a href="tel:{{ p }}" class="phone">{{ p }}</a>{% if not loop.last %}<br>{% endif %}
+                            {% else %}—{% endfor %}
+                        </td>
+                        <td>
+                            {% if c.needs_transport %}
+                            <span class="bg b-transport">🚗 Transport</span>
+                            {% else %}
+                            <span class="bg b-walkin">🚶 Walk-in</span>
+                            {% endif %}
+                        </td>
+                        <td>{% if c.destination %}<span class="bg b-dest">🏢 {{ c.destination }}</span>{% else %}—{% endif %}</td>
+                        <td>
+                            {% if c.needs_transport %}
+                            <div class="dispatch-group">
+                                <button class="dsb {{ 'act-sent' if c.dispatch_status=='sent' else '' }}"           onclick="setDispatch({{ c.id }}, 'sent', this)" title="Driver notified">📤 Sent</button>
+                                <button class="dsb {{ 'act-confirmed' if c.dispatch_status=='confirmed' else '' }}" onclick="setDispatch({{ c.id }}, 'confirmed', this)" title="Driver confirmed enroute">✅ Confirmed</button>
+                                <button class="dsb {{ 'act-enroute' if c.dispatch_status=='enroute' else '' }}"     onclick="setDispatch({{ c.id }}, 'enroute', this)" title="Client on the way to club">🚀 Enroute</button>
+                            </div>
+                            {% else %}<span style="color:var(--m);font-size:.74rem;">—</span>{% endif %}
+                        </td>
+                        <td>
+                            <div class="status-group">
+                                <button class="stb {{ 'act-coming' if c.club_status=='coming' else '' }}"     onclick="setStatus({{ c.id }}, 'coming', this)">Coming</button>
+                                <button class="stb {{ 'act-arrived' if c.club_status=='arrived' else '' }}"   onclick="setStatus({{ c.id }}, 'arrived', this)">Arrived</button>
+                                <button class="stb {{ 'act-left' if c.club_status=='left' else '' }}"         onclick="setStatus({{ c.id }}, 'left', this)">Left</button>
+                            </div>
+                        </td>
+                        <td><button class="btn-del" onclick="delGuest({{ c.id }})">✕</button></td>
+                    </tr>
+                    <!-- EXPANDABLE DETAIL ROW -->
+                    <tr id="details-{{ c.id }}" class="detail-row" style="display:none;">
+                        <td colspan="9">
+                            <div class="detail-box">
+                                <div class="detail-grid">
+                                    <div class="detail-item"><span class="dlabel">📍 Pickup Location</span><span class="dval">{{ c.endereco or '—' }}</span></div>
+                                    <div class="detail-item"><span class="dlabel">🏢 Destination</span><span class="dval">{{ c.destination or '—' }}</span></div>
+                                    <div class="detail-item"><span class="dlabel">🎟️ Package</span><span class="dval">{{ c.package or '—' }}</span></div>
+                                    <div class="detail-item"><span class="dlabel">👥 Guests</span><span class="dval">{{ c.guests or '—' }}</span></div>
+                                    <div class="detail-item"><span class="dlabel">🚘 Driver</span><span class="dval">{{ c.motorista or '—' }}{% if c.motorista_phone %} · {{ c.motorista_phone }}{% endif %}</span></div>
+                                    <div class="detail-item"><span class="dlabel">🚗 Car</span><span class="dval">{{ c.car_string_val or '—' }}</span></div>
+                                    <div class="detail-item"><span class="dlabel">📝 Notes</span><span class="dval">{{ c.details or '—' }}</span></div>
+                                    {% if c.needs_transport %}
+                                    <div class="detail-item"><span class="dlabel">⏱️ ETA to club</span><span class="dval" id="eta-{{ c.id }}"><button class="eta-btn" onclick="loadEta({{ c.id }})">Check ETA</button></span></div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty"><div class="ic">📭</div><div style="font-weight:600;margin-bottom:4px;">No guests for this filter</div><div style="font-size:.8rem;">Try adjusting the type, club, or date filters above.</div></div>
+        {% endif %}
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+function toast(m, ok=true){const t=document.getElementById('toast');t.style.display='block';t.style.background=ok?'#16a34a':'#dc2626';t.style.color='#fff';t.innerText=m;setTimeout(()=>t.style.display='none',2500);}
+
+async function setStatus(id, status, btn){
+    const fd=new FormData(); fd.append('club_status', status);
+    const d=await(await fetch(`/admin/guestlist/status/${id}`, {method:'POST',body:fd})).json();
+    if(d.success){
+        toast('Status updated to '+status);
+        // Update button styles in row
+        const row=document.getElementById('row-'+id);
+        row.querySelectorAll('.stb').forEach(b=>{b.className='stb';});
+        if(status==='coming')  btn.className='stb act-coming';
+        if(status==='arrived') btn.className='stb act-arrived';
+        if(status==='left')    btn.className='stb act-left';
+    } else toast(d.error||'Error', false);
+}
+
+async function delGuest(id){
+    if(!confirm('Remove this guest from the list?')) return;
+    const d=await(await fetch(`/admin/guestlist/delete/${id}`, {method:'POST'})).json();
+    if(d.success){
+        toast('Guest removed');
+        document.getElementById('row-'+id).remove();
+        const dr=document.getElementById('details-'+id); if(dr)dr.remove();
+    } else toast(d.error||'Error', false);
+}
+
+// Dispatch status (Sent → Confirmed → Enroute)
+async function setDispatch(id, status, btn){
+    const fd=new FormData(); fd.append('dispatch_status', status);
+    const d=await(await fetch(`/admin/guestlist/dispatch/${id}`, {method:'POST',body:fd})).json();
+    if(d.success){
+        const labels={sent:'Dispatch Sent',confirmed:'Driver Confirmed',enroute:'Client Enroute'};
+        toast('✔ '+(labels[status]||status));
+        const row=document.getElementById('row-'+id);
+        row.querySelectorAll('.dsb').forEach(b=>{b.classList.remove('act-sent','act-confirmed','act-enroute');});
+        btn.classList.add('act-'+status);
+    } else toast(d.error||'Error', false);
+}
+
+// Expand/collapse order details
+function toggleDetails(id){
+    const dr=document.getElementById('details-'+id);
+    const caret=document.getElementById('caret-'+id);
+    if(!dr)return;
+    const open = dr.style.display==='none';
+    dr.style.display = open ? 'table-row' : 'none';
+    if(caret) caret.classList.toggle('open', open);
+}
+
+// Live ETA (car GPS → club)
+async function loadEta(id){
+    const cell=document.getElementById('eta-'+id);
+    cell.innerHTML='<span style="color:var(--m2);font-size:.78rem;">⏳ Calculating…</span>';
+    try{
+        const d=await(await fetch(`/api/eta/${id}`)).json();
+        if(d.eta_min!=null){
+            cell.innerHTML=`<span style="color:var(--g);font-weight:700;">~${d.eta_min} min</span> <span style="color:var(--m2);font-size:.76rem;">(${d.distance_mi ?? d.distance_km} mi away)</span> <button class="eta-btn" style="margin-left:6px;" onclick="loadEta(${id})">↻</button>`;
+        } else {
+            cell.innerHTML=`<span style="color:var(--gold);font-size:.78rem;">${d.reason||'No ETA available'}</span> <button class="eta-btn" style="margin-left:6px;" onclick="loadEta(${id})">↻</button>`;
+        }
+    }catch(e){
+        cell.innerHTML='<span style="color:var(--r);font-size:.78rem;">Error</span>';
+    }
+}
+
+</script>
+<script>
+function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.classList.toggle('open');}
+</script>
+<!-- Bug Report / Chat Widget -->
+<style>
+#bugFab{position:fixed;bottom:18px;left:18px;z-index:9997;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;cursor:pointer;box-shadow:0 6px 20px rgba(138,92,246,.5);display:flex;align-items:center;justify-content:center;font-size:1.4rem;transition:.2s;}
+#bugFab:hover{transform:scale(1.08);}
+#bugPanel{position:fixed;bottom:80px;left:18px;z-index:9997;width:320px;max-width:calc(100vw - 36px);background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:16px;box-shadow:0 16px 50px rgba(0,0,0,.6);padding:18px;display:none;}
+#bugPanel.open{display:block;}
+#bugPanel h4{font-family:'Syne',sans-serif;font-weight:800;font-size:1rem;color:#8a5cf6;margin:0 0 3px;}
+#bugPanel p{font-size:.76rem;color:#8892a0;margin:0 0 12px;}
+#bugPanel select,#bugPanel textarea{width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.1);color:#e8eaf0;border-radius:10px;padding:10px 12px;font-family:'DM Sans',sans-serif;font-size:.84rem;margin-bottom:10px;}
+#bugPanel textarea{min-height:90px;resize:vertical;}
+#bugPanel .bsend{width:100%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;color:#fff;border-radius:10px;padding:11px;font-weight:700;font-size:.85rem;cursor:pointer;font-family:'Syne',sans-serif;}
+#bugPanel .bclose{position:absolute;top:12px;right:14px;background:none;border:none;color:#5a6270;cursor:pointer;font-size:1.1rem;}
+</style>
+<button id="bugFab" onclick="toggleBug()" title="Report an issue">💬</button>
+<div id="bugPanel">
+    <button class="bclose" onclick="toggleBug()">✕</button>
+    <h4>💬 Report an Issue</h4>
+    <p>Found a bug or have feedback? Let us know.</p>
+    <select id="bugCat">
+        <option value="bug">🐛 Bug / Something broken</option>
+        <option value="feature">💡 Feature request</option>
+        <option value="question">❓ Question</option>
+        <option value="general">💬 General feedback</option>
+    </select>
+    <textarea id="bugDesc" placeholder="Describe what happened or what you need…"></textarea>
+    <button class="bsend" onclick="sendBug()">Send</button>
+</div>
+<script>
+function toggleBug(){document.getElementById('bugPanel').classList.toggle('open');}
+async function sendBug(){
+    const desc=document.getElementById('bugDesc').value.trim();
+    if(!desc){alert('Please describe the issue first.');return;}
+    const fd=new FormData();
+    fd.append('description',desc);
+    fd.append('category',document.getElementById('bugCat').value);
+    fd.append('page',window.location.pathname);
+    try{
+        const d=await(await fetch('/api/bug-report',{method:'POST',body:fd})).json();
+        if(d.success){document.getElementById('bugDesc').value='';toggleBug();
+            const t=document.getElementById('toast');
+            if(t){t.style.display='block';t.style.background='#16a34a';t.style.color='#fff';t.innerText='✅ Report sent — thank you!';setTimeout(()=>t.style.display='none',3000);}
+            else alert('Report sent — thank you!');
+        } else alert(d.error||'Could not send');
+    }catch(e){alert('Could not send report');}
+}
+</script>
+
+</body>
+</html>
