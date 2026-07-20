@@ -35,6 +35,15 @@ MAKE_WEBHOOK = os.environ.get("MAKE_WEBHOOK_URL", "https://hook.us1.make.com/ur1
 # Public base URL of this app (for building absolute image URLs for Twilio MMS)
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://www.clublifter.com").rstrip("/")
 
+# ─── TWILIO (direct SMS/MMS, no Make.com in the middle) ───────────────────────
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
+TWILIO_AUTH_TOKEN  = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+# Use EITHER a plain sender number OR a Messaging Service SID (recommended)
+TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
+TWILIO_MESSAGING_SERVICE_SID = os.environ.get("TWILIO_MESSAGING_SERVICE_SID", "").strip()
+# Master switch — set SMS_ENABLED=false to mute all outgoing SMS (useful for testing)
+SMS_ENABLED = os.environ.get("SMS_ENABLED", "true").strip().lower() not in ("false", "0", "no")
+
 # ─── SHOPIFY ──────────────────────────────────────────────────────────────────
 SHOPIFY_STORE   = os.environ.get("SHOPIFY_STORE", "vip-packages.myshopify.com")
 SHOPIFY_TOKEN   = os.environ.get("SHOPIFY_TOKEN", "")
@@ -444,6 +453,71 @@ def fire_webhook(payload: dict):
         print(f"[WEBHOOK] response={r.text[:200]}", flush=True)
     except Exception as e:
         print(f"[WEBHOOK] FAILED: {e} url={MAKE_WEBHOOK}", flush=True)
+
+def twilio_configured():
+    return bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and (TWILIO_FROM_NUMBER or TWILIO_MESSAGING_SERVICE_SID))
+
+def send_sms(to, body, media_url=""):
+    """Send one SMS/MMS straight to Twilio (no Make.com).
+
+    Key detail: MediaUrl is only included when it's a real absolute URL. Sending an
+    empty MediaUrl is what triggers Twilio error 21620 ("Invalid media URL").
+    Never raises — messaging failures must not break a booking.
+    """
+    to = (to or "").strip()
+    body = (body or "").strip()
+    if not SMS_ENABLED:
+        print(f"[SMS] muted (SMS_ENABLED=false) to={to}", flush=True)
+        return {"ok": False, "skipped": "sms_disabled"}
+    if not to or not body:
+        print(f"[SMS] skipped: missing to/body (to={to!r})", flush=True)
+        return {"ok": False, "skipped": "missing_to_or_body"}
+    if not twilio_configured():
+        print("[SMS] skipped: Twilio env vars not configured", flush=True)
+        return {"ok": False, "skipped": "not_configured"}
+
+    data = {"To": to, "Body": body[:1550]}
+    if TWILIO_MESSAGING_SERVICE_SID:
+        data["MessagingServiceSid"] = TWILIO_MESSAGING_SERVICE_SID
+    else:
+        data["From"] = TWILIO_FROM_NUMBER
+
+    # Only attach media when it's a valid absolute http(s) URL
+    media_url = (media_url or "").strip()
+    if media_url.startswith("http://") or media_url.startswith("https://"):
+        data["MediaUrl"] = media_url
+
+    try:
+        r = requests.post(
+            f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json",
+            data=data,
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+            timeout=15,
+        )
+        ok = r.status_code in (200, 201)
+        if ok:
+            sid = ""
+            try: sid = r.json().get("sid", "")
+            except Exception: pass
+            print(f"[SMS] sent to={to} media={'yes' if 'MediaUrl' in data else 'no'} sid={sid}", flush=True)
+            return {"ok": True, "sid": sid}
+        print(f"[SMS] FAILED to={to} status={r.status_code} resp={r.text[:300]}", flush=True)
+        return {"ok": False, "status": r.status_code, "error": r.text[:300]}
+    except Exception as e:
+        print(f"[SMS] EXCEPTION to={to}: {e}", flush=True)
+        return {"ok": False, "error": str(e)}
+
+def send_sms_many(phones, body, media_url=""):
+    """Send the same message to a list of numbers (customer may have several)."""
+    results = []
+    seen = set()
+    for p in (phones or []):
+        p = (p or "").strip()
+        if not p or p in seen:
+            continue
+        seen.add(p)
+        results.append(send_sms(p, body, media_url))
+    return results
 
 def parse_pickup_datetime(dt_str):
     """
@@ -954,7 +1028,21 @@ def cadastrar_cep():
                 "shopify_order_url":    shopify_result.get("shopify_order_url"),
             })
 
-        # 9. FIRE "SCHEDULED" SMS WEBHOOK (text to customer's phone #1)
+            # --- Direct SMS to the DRIVER (new pickup assigned) ---
+            _drv_time = ""
+            if pickup_datetime and len(pickup_datetime.split(' ')) >= 3:
+                _p = pickup_datetime.split(' '); _drv_time = f"{_p[1]} {_p[2]}"
+            driver_sms = (
+                f"New ClubLifter pickup{' at ' + _drv_time if _drv_time else ''}\n"
+                f"Guest: {nome} ({guests} guest{'s' if (guests or 0) != 1 else ''})\n"
+                f"Pickup: {endereco_completo}\n"
+                f"Drop-off: {destination or 'N/A'}\n"
+                f"Distance: {distancia_arredondada} mi"
+                + (f"\nNotes: {details}" if details else "")
+            )
+            send_sms(motorista_phone, driver_sms)
+
+        # 9. SMS TO CUSTOMER (direct Twilio)
         car_full = " ".join(p for p in [car_color, car_model] if p).strip().upper()
         if car_plate:
             car_full = f"{car_full} ({car_plate})" if car_full else car_plate
@@ -989,6 +1077,8 @@ def cadastrar_cep():
                 "message":         sms_text,
                 "customer_id":     customer.id,
             })
+            # Direct SMS/MMS to the customer (photo attached only if one exists)
+            send_sms_many(all_phones or [client_phone], sms_text, car_photo_url)
 
         return jsonify({
             "success": True,
@@ -1076,6 +1166,31 @@ def last_client():
     if not c:
         return jsonify({"error": "No clients found"})
     return jsonify(c.to_dict())
+
+@app.route('/api/sms-test', methods=['GET', 'POST'])
+def sms_test():
+    """Check Twilio config and optionally send a test SMS.
+    GET  /api/sms-test            → shows config status (no SMS sent)
+    POST /api/sms-test  to=+1...  → sends a test message to that number
+    """
+    if not (session.get("logged") and is_master()):
+        return jsonify({"error": "Unauthorized"}), 401
+    status = {
+        "configured":            twilio_configured(),
+        "sms_enabled":           SMS_ENABLED,
+        "account_sid_set":       bool(TWILIO_ACCOUNT_SID),
+        "auth_token_set":        bool(TWILIO_AUTH_TOKEN),
+        "from_number":           TWILIO_FROM_NUMBER or None,
+        "messaging_service_sid": TWILIO_MESSAGING_SERVICE_SID or None,
+        "public_base_url":       PUBLIC_BASE_URL,
+    }
+    if request.method == 'GET':
+        return jsonify(status)
+    to = request.form.get('to', '').strip() or request.args.get('to', '').strip()
+    if not to:
+        return jsonify({"error": "Provide ?to=+1702...", "status": status}), 400
+    result = send_sms(to, "ClubLifter test message — your Twilio integration is working.")
+    return jsonify({"status": status, "result": result})
 
 @app.route('/api/debug/schema')
 def debug_schema():
@@ -1785,6 +1900,7 @@ def driver_enroute(customer_id):
     c.dispatch_status = "enroute"
     db.session.commit()
     car_str = c.car_string_val or "your ride"
+    enroute_msg = f"Hi {c.nome}! Your ClubLifter driver {c.motorista} is on the way in a {car_str}. See you soon!"
     fire_webhook({
         "type":            "enroute",
         "customer_id":     c.id,
@@ -1797,8 +1913,9 @@ def driver_enroute(customer_id):
         "pickup_address":  c.endereco,
         "destination":     c.destination,
         "pickup_datetime": c.pickup_datetime,
-        "message":         f"Hi {c.nome}! Your ClubLifter driver {c.motorista} is on the way in a {car_str}. See you soon!",
+        "message":         enroute_msg,
     })
+    send_sms_many(c.get_phones() or [c.phone], enroute_msg)
     return jsonify({"success": True})
 
 @app.route('/driver/imhere/<int:customer_id>', methods=['POST'])
@@ -1820,6 +1937,7 @@ def driver_imhere(customer_id):
         photo_url = f"{PUBLIC_BASE_URL}/here-photo/{c.id}"
 
     car_str = c.car_string_val or "your ride"
+    imhere_msg = f"Hi {c.nome}! Your ClubLifter driver {c.motorista} has arrived in a {car_str}. Come on out!"
     fire_webhook({
         "type":            "imhere",
         "customer_id":     c.id,
@@ -1832,8 +1950,9 @@ def driver_imhere(customer_id):
         "pickup_address":  c.endereco,
         "destination":     c.destination,
         "photo_url":       photo_url,
-        "message":         f"Hi {c.nome}! Your ClubLifter driver {c.motorista} has arrived in a {car_str}. Come on out!",
+        "message":         imhere_msg,
     })
+    send_sms_many(c.get_phones() or [c.phone], imhere_msg, photo_url)
     return jsonify({"success": True, "photo_url": photo_url})
 
 @app.route('/driver/customsg/<int:customer_id>', methods=['POST'])
@@ -1860,6 +1979,7 @@ def driver_customsg(customer_id):
         "custom_msg":      msg,
         "message":         msg,
     })
+    send_sms_many(c.get_phones() or [c.phone], msg)
     return jsonify({"success": True})
 
 @app.route('/driver/startcall/<int:customer_id>', methods=['POST'])
@@ -2173,6 +2293,9 @@ def api_v1_schedule():
         "pickup_datetime": pickup_datetime, "pickup_time": time_part,
         "destination": destination, "message": sms_text, "customer_id": customer.id,
     })
+    # Direct SMS to the customer for API-sourced bookings as well
+    _api_phones = [client_phone] + [p for p in (extra_phones or []) if p]
+    send_sms_many(_api_phones, sms_text, car_photo_url)
 
     return jsonify({
         "success": True,
@@ -2608,6 +2731,14 @@ def distance_tracker_loop():
                             "pickup_datetime":  c.pickup_datetime,
                             "customer_id":      c.id,
                         })
+                        # Direct SMS to the customer as the driver gets closer
+                        dist_msg = (
+                            f"Hi {c.nome}! Your ClubLifter driver {c.motorista} is about "
+                            f"{round(dist_mi, 1)} mi away"
+                            + (f" in a {car_str}" if car_str and car_str != "N/A" else "")
+                            + ". Please start heading out!"
+                        )
+                        send_sms_many(c.get_phones() or [c.phone], dist_msg, car_photo_url)
 
                     # Fire once per threshold, nearest first (9mi / 6mi / 3mi)
                     if dist_mi <= 3 and not c.notified_5km:
