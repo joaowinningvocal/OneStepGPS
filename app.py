@@ -749,7 +749,10 @@ def cadastrar_cep():
     geocode_address   = request.form.get('geocode_address', '').strip() or endereco_completo
     details           = request.form.get('details', '').strip()
     package           = request.form.get('package', '').strip()
-    guests            = int(request.form.get('guests', 0))
+    try:
+        guests = int(request.form.get('guests', 0) or 0)
+    except (ValueError, TypeError):
+        guests = 1
     pickup_datetime   = request.form.get('pickup_datetime', '').strip()
     destination       = request.form.get('destination', '').strip()
     needs_transport   = request.form.get('needs_transport', 'true').lower() == 'true'
@@ -1098,7 +1101,10 @@ def cadastrar_cep():
         })
 
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        import traceback
+        print(f"[SCHEDULE ERROR] {e}", flush=True)
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"{type(e).__name__}: {str(e)}"})
 
 # ─── ADMIN: TODAY'S SCHEDULE ──────────────────────────────────────────────────
 @app.route('/admin/today')
@@ -1457,6 +1463,41 @@ def serve_upload(filename):
 @app.route('/favicon.ico')
 def favicon():
     return send_from_directory(os.path.join(app.root_path, 'static', 'img'), 'favicon.ico')
+
+@app.route('/manifest.webmanifest')
+def pwa_manifest():
+    manifest = {
+        "name": "ClubLifter",
+        "short_name": "ClubLifter",
+        "description": "VIP transport & nightclub management",
+        "start_url": "/?source=pwa",
+        "scope": "/",
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": "#080b12",
+        "theme_color": "#080b12",
+        "icons": [
+            {"src": "/static/img/pwa-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/static/img/pwa-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "/static/img/pwa-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+        ],
+    }
+    return app.response_class(json.dumps(manifest), mimetype="application/manifest+json")
+
+@app.route('/service-worker.js')
+def service_worker():
+    # Minimal service worker — just enough to make the app installable.
+    # (No offline caching per scope; kept intentionally simple.)
+    sw = """
+const CACHE = 'clublifter-v1';
+self.addEventListener('install', e => { self.skipWaiting(); });
+self.addEventListener('activate', e => { e.waitUntil(self.clients.claim()); });
+self.addEventListener('fetch', e => { /* network passthrough */ });
+"""
+    resp = app.response_class(sw, mimetype="application/javascript")
+    resp.headers['Service-Worker-Allowed'] = '/'
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
 
 @app.route('/admin/drivers')
 def admin_drivers():

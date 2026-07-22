@@ -95,6 +95,14 @@
         }
 
     </style>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#080b12">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ClubLifter">
+    <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
+    <script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/service-worker.js').catch(()=>{}));}</script>
 </head>
 <body>
 <div class="wrap">
@@ -223,6 +231,62 @@ async function sendBug(){
         } else alert(d.error||'Could not send');
     }catch(e){alert('Could not send report');}
 }
+</script>
+
+<!-- PWA Install Banner (logged-in users only) -->
+<div id="pwaInstall" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9996;max-width:440px;width:calc(100% - 32px);background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:14px;padding:13px 15px;box-shadow:0 12px 40px rgba(0,0,0,.6);display:none;align-items:center;gap:12px;">
+    <img src="/static/img/pwa-192.png" style="width:38px;height:38px;border-radius:9px;flex-shrink:0;">
+    <div style="flex:1;min-width:0;">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:.9rem;color:#e8eaf0;">Install ClubLifter</div>
+        <div id="pwaSub" style="font-size:.74rem;color:#8892a0;">Add to your home screen for quick access.</div>
+    </div>
+    <button id="pwaBtn" style="background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;color:#fff;border-radius:10px;padding:9px 15px;font-weight:700;font-size:.8rem;cursor:pointer;white-space:nowrap;font-family:'Syne',sans-serif;">Install</button>
+    <button id="pwaClose" style="background:none;border:none;color:#5a6270;cursor:pointer;font-size:1.1rem;padding:2px 4px;">✕</button>
+</div>
+<script>
+(function(){
+    var banner=document.getElementById('pwaInstall');
+    var btn=document.getElementById('pwaBtn');
+    var sub=document.getElementById('pwaSub');
+    var closeBtn=document.getElementById('pwaClose');
+    var deferred=null;
+
+    // Already installed / running standalone → never show
+    var standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    if (standalone) return;
+    if (sessionStorage.getItem('pwaDismissed')) return;
+
+    function show(){ banner.style.display='flex'; }
+
+    // iOS detection (no automatic prompt available on iOS)
+    var isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+
+    if (isIOS){
+        // Show instructions instead of an install button (Apple has no auto prompt)
+        sub.innerHTML = 'Tap the Share icon, then “Add to Home Screen”.';
+        btn.style.display='none';
+        setTimeout(show, 1500);
+    } else {
+        // Android/Chrome: capture the real install prompt
+        window.addEventListener('beforeinstallprompt', function(e){
+            e.preventDefault();
+            deferred=e;
+            show();
+        });
+        btn.addEventListener('click', async function(){
+            if(!deferred) return;
+            deferred.prompt();
+            await deferred.userChoice;
+            deferred=null;
+            banner.style.display='none';
+        });
+    }
+
+    closeBtn.addEventListener('click', function(){
+        banner.style.display='none';
+        sessionStorage.setItem('pwaDismissed','1');
+    });
+})();
 </script>
 
 </body>
