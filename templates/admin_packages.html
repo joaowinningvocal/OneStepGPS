@@ -11,7 +11,6 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png">
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--s3:#0d1117;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--acc2:#6d28d9;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
         /* Prevent browser (Opera GX / translate) auto-underline on detected text */
@@ -55,6 +54,15 @@
         td.name{color:var(--t);font-weight:600;}
         .b-on{background:rgba(34,197,94,.1);color:var(--g);border:1px solid rgba(34,197,94,.35);border-radius:14px;padding:2px 10px;font-size:.7rem;font-weight:700;}
         .b-off{background:rgba(239,68,68,.1);color:var(--r);border:1px solid rgba(239,68,68,.35);border-radius:14px;padding:2px 10px;font-size:.7rem;font-weight:700;}
+                .cl-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9998;align-items:center;justify-content:center;padding:18px;}
+        .cl-modal.open{display:flex;}
+        .cl-modal-card{background:var(--s);border:1px solid var(--bhi);border-radius:18px;padding:22px;max-width:460px;width:100%;display:flex;flex-direction:column;gap:11px;max-height:90vh;overflow-y:auto;}
+        .cl-modal-card h3{font-family:'Syne',sans-serif;font-size:1.05rem;color:var(--acc);}
+        .cl-modal-btns{display:flex;gap:9px;margin-top:6px;}
+        .mb{flex:1;font-family:'Syne',sans-serif;font-weight:700;font-size:.84rem;border:none;border-radius:11px;padding:11px;cursor:pointer;}
+        .mb-cancel{background:var(--s2);color:var(--m2);border:1px solid var(--bd);}
+        .mb-save{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;}
+        .b-club{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.35);border-radius:12px;padding:2px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;}
         .b-shopify{background:rgba(149,191,71,.1);color:#95bf47;border:1px solid rgba(149,191,71,.35);border-radius:14px;padding:2px 10px;font-size:.7rem;font-weight:700;}
         .b-noshopify{background:rgba(90,98,112,.1);color:var(--m);border:1px solid rgba(90,98,112,.35);border-radius:14px;padding:2px 10px;font-size:.7rem;}
         .btns{display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap;}
@@ -149,6 +157,12 @@
                 <input type="text" id="newVariant" class="fc" placeholder="https://myvipzone.myshopify.com/products/....">
                 <div class="shopify-hint">Paste the full Shopify product or checkout URL</div>
             </div>
+            <div class="f"><label>Club</label>
+                <select id="newClub" class="fc">
+                    <option value="">All clubs</option>
+                    {% for cl in clubs %}<option value="{{ cl.id }}">{{ cl.name }}</option>{% endfor %}
+                </select>
+            </div>
             <div class="f" style="display:flex;align-items:flex-end;">
                 <button class="btn-add w-100" onclick="addPackage()">+ Add</button>
             </div>
@@ -163,6 +177,7 @@
                 <thead>
                     <tr>
                         <th>Name</th>
+                        <th>Club</th>
                         <th>Description</th>
                         <th>Price</th>
                         <th>Max Guests</th>
@@ -175,6 +190,7 @@
                     {% for p in packages %}
                     <tr id="row-{{ p.id }}">
                         <td class="name">{{ p.name }}</td>
+                        <td>{% if p.club_name() %}<span class="b-club">{{ p.club_name() }}</span>{% else %}<span style="color:var(--m);font-size:.75rem;">All clubs</span>{% endif %}</td>
                         <td style="color:var(--m2);font-size:.8rem;">{{ p.description or '—' }}</td>
                         <td style="color:var(--acc);font-weight:600;">${{ "%.2f"|format(p.price) }}</td>
                         <td>{{ p.max_guests or '—' }}</td>
@@ -187,7 +203,7 @@
                         </td>
                         <td><span class="{{ 'b-on' if p.active else 'b-off' }}">{{ 'Active' if p.active else 'Inactive' }}</span></td>
                         <td><div class="btns">
-                            <button class="btn-e" onclick="openEdit({{ p.id }}, '{{ p.name }}', '{{ p.description }}', {{ p.price }}, {{ p.max_guests }}, {{ p.active|lower }}, '{{ p.checkout_url or '' }}')">Edit</button>
+                            <button class="btn-e" data-pid="{{ p.id }}" data-pname="{{ p.name|e }}" data-pdesc="{{ p.description|e if p.description else '' }}" data-pprice="{{ p.price }}" data-pmax="{{ p.max_guests }}" data-pactive="{{ p.active|lower }}" data-purl="{{ p.checkout_url|e if p.checkout_url else '' }}" data-pclub="{{ p.club_id or '' }}" onclick="openEditEl(this)">Edit</button>
                             <button class="btn-d" onclick="delPackage({{ p.id }})">Delete</button>
                         </div></td>
                     </tr>
@@ -199,44 +215,35 @@
 </div>
 
 <!-- Edit Modal -->
-<div class="modal fade" id="editModal" tabindex="-1">
-    <div class="modal-dialog"><div class="modal-content">
-        <div class="modal-header">
-            <h5 class="modal-title">Edit Package</h5>
-            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+<div class="cl-modal" id="editModal">
+    <div class="cl-modal-card">
+        <h3>Edit Package</h3>
+        <input type="hidden" id="eId">
+        <div class="f"><label>Name</label><input type="text" id="eName" class="fc"></div>
+        <div class="f"><label>Club</label>
+            <select id="eClub" class="fc">
+                <option value="">All clubs</option>
+                {% for cl in clubs %}<option value="{{ cl.id }}">{{ cl.name }}</option>{% endfor %}
+            </select>
         </div>
-        <div class="modal-body modal-f">
-            <input type="hidden" id="eId">
-            <div class="f"><label>Name</label><input type="text" id="eName" class="fc"></div>
-            <div class="f"><label>Description</label><input type="text" id="eDesc" class="fc"></div>
-            <div class="f"><label>Price ($)</label><input type="number" id="ePrice" class="fc" min="0"></div>
-            <div class="f"><label>Max Guests</label><input type="number" id="eMaxGuests" class="fc" min="0"></div>
-            <div class="f">
-                <label>Checkout URL</label>
-                <input type="text" id="eVariant" class="fc" placeholder="https://myvipzone.myshopify.com/products/....">
-                <div class="shopify-hint">
-                    Find it in: Shopify Admin → Products → click product → click variant → copy ID from URL<br>
-                    URL looks like: <code style="color:var(--acc)">/variants/<strong>44123456789</strong></code>
-                </div>
-            </div>
-            <div class="f"><label>Status</label>
-                <select id="eActive" class="fs" style="background:var(--s3);">
-                    <option value="true">Active</option>
-                    <option value="false">Inactive</option>
-                </select>
-            </div>
+        <div class="f"><label>Description</label><input type="text" id="eDesc" class="fc"></div>
+        <div class="f"><label>Price ($)</label><input type="number" id="ePrice" class="fc" min="0"></div>
+        <div class="f"><label>Max Guests</label><input type="number" id="eMaxGuests" class="fc" min="0"></div>
+        <div class="f"><label>Checkout URL</label><input type="text" id="eVariant" class="fc" placeholder="https://app.cartvip.com/..."></div>
+        <div class="f"><label>Status</label>
+            <select id="eActive" class="fc"><option value="true">Active</option><option value="false">Inactive</option></select>
         </div>
-        <div class="modal-footer">
-            <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-            <button class="btn-save" onclick="saveEdit()">Save Changes</button>
+        <div class="cl-modal-btns">
+            <button class="mb mb-cancel" onclick="closeCl('editModal')">Cancel</button>
+            <button class="mb mb-save" onclick="saveEdit()">Save Changes</button>
         </div>
-    </div></div>
+    </div>
 </div>
 
 <div id="toast"></div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-const modal = new bootstrap.Modal(document.getElementById('editModal'));
+function openCl(id){document.getElementById(id).classList.add('open');}
+function closeCl(id){document.getElementById(id).classList.remove('open');}
 
 function toast(m, ok=true) {
     const t = document.getElementById('toast');
@@ -256,12 +263,18 @@ async function addPackage() {
     fd.append('price',              document.getElementById('newPrice').value || 0);
     fd.append('max_guests',         document.getElementById('newMaxGuests').value || 0);
     fd.append('checkout_url', document.getElementById('newVariant').value.trim());
+    fd.append('club_id', document.getElementById('newClub').value);
     const d = await (await fetch('/admin/packages/new', { method: 'POST', body: fd })).json();
     if (d.success) { toast('Package added!'); location.reload(); }
     else toast(d.error, false);
 }
 
-function openEdit(id, name, desc, price, maxGuests, active, variantId) {
+function openEditEl(el){
+    openEdit(el.getAttribute('data-pid'), el.getAttribute('data-pname'), el.getAttribute('data-pdesc'),
+             el.getAttribute('data-pprice'), el.getAttribute('data-pmax'), el.getAttribute('data-pactive'),
+             el.getAttribute('data-purl'), el.getAttribute('data-pclub'));
+}
+function openEdit(id, name, desc, price, maxGuests, active, variantId, clubId) {
     document.getElementById('eId').value        = id;
     document.getElementById('eName').value      = name;
     document.getElementById('eDesc').value      = desc;
@@ -269,7 +282,8 @@ function openEdit(id, name, desc, price, maxGuests, active, variantId) {
     document.getElementById('eMaxGuests').value = maxGuests;
     document.getElementById('eActive').value    = active.toString();
     document.getElementById('eVariant').value   = variantId;
-    modal.show();
+    document.getElementById('eClub').value      = clubId || '';
+    openCl('editModal');
 }
 
 async function saveEdit() {
@@ -281,8 +295,9 @@ async function saveEdit() {
     fd.append('max_guests',         document.getElementById('eMaxGuests').value);
     fd.append('active',             document.getElementById('eActive').value);
     fd.append('checkout_url', document.getElementById('eVariant').value.trim());
+    fd.append('club_id', document.getElementById('eClub').value);
     const d = await (await fetch(`/admin/packages/edit/${id}`, { method: 'POST', body: fd })).json();
-    if (d.success) { toast('Package updated!'); modal.hide(); location.reload(); }
+    if (d.success) { toast('Package updated!'); closeCl('editModal'); location.reload(); }
     else toast(d.error, false);
 }
 

@@ -231,12 +231,20 @@ class Package(db.Model):
     max_guests         = db.Column(db.Integer, default=0)
     active             = db.Column(db.Boolean, default=True)
     checkout_url = db.Column(db.String(500), default="")
+    club_id            = db.Column(db.Integer, db.ForeignKey('club.id'), nullable=True)  # null = all clubs
+
+    def club_name(self):
+        if not self.club_id:
+            return ""
+        c = Club.query.get(self.club_id)
+        return c.name if c else ""
 
     def to_dict(self):
         return {
             "id": self.id, "name": self.name, "description": self.description,
             "price": self.price, "max_guests": self.max_guests, "active": self.active,
-            "checkout_url": self.checkout_url
+            "checkout_url": self.checkout_url, "club_id": self.club_id,
+            "club_name": self.club_name()
         }
 
 class Driver(db.Model):
@@ -1521,16 +1529,24 @@ def delete_club(club_id):
 @app.route('/admin/packages')
 def admin_packages():
     if not session.get("logged") or not is_admin_level(): return redirect(url_for("login"))
-    return render_template('admin_packages.html', packages=Package.query.all())
+    return render_template('admin_packages.html',
+                           packages=Package.query.order_by(Package.club_id, Package.name).all(),
+                           clubs=Club.query.filter_by(active=True).order_by(Club.name).all())
 
 @app.route('/admin/packages/new', methods=['POST'])
 def new_package():
     if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     name = request.form.get('name', '').strip()
     if not name: return jsonify({"success": False, "error": "Name is required"})
+    try: _price = float(request.form.get('price') or 0)
+    except (ValueError, TypeError): _price = 0.0
+    try: _maxg = int(request.form.get('max_guests') or 0)
+    except (ValueError, TypeError): _maxg = 0
+    _club = request.form.get('club_id', '').strip()
     pkg = Package(name=name, description=request.form.get('description','').strip(),
-                  price=float(request.form.get('price',0)), max_guests=int(request.form.get('max_guests',0)),
-                  checkout_url=request.form.get('checkout_url','').strip())
+                  price=_price, max_guests=_maxg,
+                  checkout_url=request.form.get('checkout_url','').strip(),
+                  club_id=int(_club) if _club else None)
     db.session.add(pkg); db.session.commit()
     return jsonify({"success": True, "package": pkg.to_dict()})
 
@@ -1540,10 +1556,15 @@ def edit_package(pkg_id):
     pkg = Package.query.get_or_404(pkg_id)
     pkg.name               = request.form.get('name', pkg.name).strip()
     pkg.description        = request.form.get('description', pkg.description).strip()
-    pkg.price              = float(request.form.get('price', pkg.price))
-    pkg.max_guests         = int(request.form.get('max_guests', pkg.max_guests))
+    try: pkg.price = float(request.form.get('price') or pkg.price or 0)
+    except (ValueError, TypeError): pass
+    try: pkg.max_guests = int(request.form.get('max_guests') or pkg.max_guests or 0)
+    except (ValueError, TypeError): pass
     pkg.active             = request.form.get('active', 'true').lower() == 'true'
     pkg.checkout_url = request.form.get('checkout_url', pkg.checkout_url).strip()
+    if 'club_id' in request.form:
+        _c = request.form.get('club_id', '').strip()
+        pkg.club_id = int(_c) if _c else None
     db.session.commit()
     return jsonify({"success": True, "package": pkg.to_dict()})
 
@@ -3022,6 +3043,76 @@ def seed_data():
             Package(name="VIP",    description="All-inclusive VIP experience", price=599.0, max_guests=50),
         ])
     db.session.commit()
+    seed_venues()
+
+# ─── REAL VENUES + CARTVIP PACKAGES ───────────────────────────────────────────
+HUSTLER_ADDRESS = "6007 Dean Martin Dr, Las Vegas, NV 89118"
+
+VENUES = {
+    "Hustler Las Vegas": {
+        "address": HUSTLER_ADDRESS,
+        "packages": [
+            ("Free Ride and Entry Pass",     "https://app.cartvip.com/vegashustlerclub/package/free-ride-and-entry-pass-32/checkout"),
+            ("$20 Special",                  "https://app.cartvip.com/vegashustlerclub/package/20-special-1/checkout"),
+            ("Just the Two of Us",           "https://app.cartvip.com/vegashustlerclub/package/just-the-two-of-us-30/checkout"),
+            ("Hustler's Couch with A View",  "https://app.cartvip.com/vegashustlerclub/package/couch-with-a-view-25/checkout"),
+            ("Blowout Fest",                 "https://app.cartvip.com/vegashustlerclub/package/blowout-fest-26/checkout"),
+            ("What Happens in Vegas",        "https://app.cartvip.com/vegashustlerclub/package/what-happens-in-vegas-28/checkout"),
+            ("Guaranteed over the Top",      "https://app.cartvip.com/vegashustlerclub/package/over-the-top-29/checkout"),
+        ],
+    },
+    "Kings of Hustler": {
+        "address": HUSTLER_ADDRESS,   # same venue address
+        "packages": [
+            ("Free Ride and Free Entry",     "https://app.cartvip.com/kingsofhustler/package/free-ride-and-free-entry-40/checkout"),
+            ("Showstopper",                  "https://app.cartvip.com/kingsofhustler/package/showstopper-41/checkout"),
+            ("Bad Mom's Club",               "https://app.cartvip.com/kingsofhustler/package/bad-moms-club-33/checkout"),
+            ("Champagne with a King",        "https://app.cartvip.com/kingsofhustler/package/champagne-with-a-king-13/checkout"),
+            ("Rose All Day",                 "https://app.cartvip.com/kingsofhustler/package/rose-all-day-35/checkout"),
+            ("Screaming Orgasm",             "https://app.cartvip.com/kingsofhustler/package/screaming-orgasm-36/checkout"),
+            ("One Last Hoerahh",             "https://app.cartvip.com/kingsofhustler/package/one-last-hoerahh-37/checkout"),
+            ("Bride and Boujee",             "https://app.cartvip.com/kingsofhustler/package/bride-and-boujee-38/checkout"),
+            ("One King Forever!",            "https://app.cartvip.com/kingsofhustler/package/one-king-forever-39/checkout"),
+        ],
+    },
+}
+
+def seed_venues():
+    """Idempotently create/update the real clubs and their CartVIP packages.
+    Safe to run on every boot: it updates existing rows instead of duplicating."""
+    try:
+        for club_name, info in VENUES.items():
+            club = Club.query.filter_by(name=club_name).first()
+            if not club:
+                club = Club(name=club_name, address=info["address"], active=True)
+                db.session.add(club)
+                db.session.flush()
+                print(f"[SEED] club created: {club_name}", flush=True)
+            elif club.address != info["address"]:
+                club.address = info["address"]
+                print(f"[SEED] club address updated: {club_name}", flush=True)
+
+            for pkg_name, url in info["packages"]:
+                pkg = Package.query.filter_by(name=pkg_name, club_id=club.id).first()
+                if not pkg:
+                    # Adopt a legacy package with the same name that has no club yet
+                    pkg = Package.query.filter_by(name=pkg_name, club_id=None).first()
+                if pkg:
+                    changed = (pkg.checkout_url != url) or (pkg.club_id != club.id)
+                    pkg.checkout_url = url
+                    pkg.club_id = club.id
+                    pkg.active = True
+                    if changed:
+                        print(f"[SEED] package updated: {club_name} / {pkg_name}", flush=True)
+                else:
+                    db.session.add(Package(name=pkg_name, checkout_url=url, club_id=club.id,
+                                           active=True, price=0.0, max_guests=0,
+                                           description=f"{club_name} package"))
+                    print(f"[SEED] package created: {club_name} / {pkg_name}", flush=True)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"[SEED] venues seed failed: {e}", flush=True)
 
 with app.app_context():
     db.create_all()
@@ -3044,6 +3135,7 @@ with app.app_context():
         except Exception as e:
             print(f"[MIGRATION] FAILED {table}.{column}: {e}", flush=True)
 
+    safe_migrate("package", "club_id", "ALTER TABLE package ADD COLUMN club_id INTEGER DEFAULT NULL")
     safe_migrate("package", "checkout_url", "ALTER TABLE package ADD COLUMN checkout_url VARCHAR(500) DEFAULT ''")
 
     safe_migrate("customer", "destination",     "ALTER TABLE customer ADD COLUMN destination VARCHAR(100) DEFAULT ''")

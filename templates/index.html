@@ -306,10 +306,10 @@
 
                         <div class="f">
                             <label>Destination Club</label>
-                            <select name="destination" class="fs" required>
+                            <select name="destination" id="destSelect" class="fs" required onchange="filterPackages()">
                                 <option value="" disabled selected>Select destination…</option>
                                 {% for c in clubs %}
-                                <option value="{{ c.name }}">{{ c.name }}{% if c.address %} — {{ c.address }}{% endif %}</option>
+                                <option value="{{ c.name }}" data-clubid="{{ c.id }}">{{ c.name }}{% if c.address %} — {{ c.address }}{% endif %}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -325,7 +325,7 @@
                                 <select name="package" id="packageSelect" class="fs" required onchange="onPackageChange(this)">
                                     <option value="" disabled selected>Select a package…</option>
                                     {% for p in packages %}
-                                    <option value="{{ p.name }}" data-checkout="{{ p.checkout_url or '' }}">{{ p.name }}{% if p.price > 0 %} — ${{ "%.2f"|format(p.price) }}{% endif %}{% if p.max_guests %} (up to {{ p.max_guests }}){% endif %}</option>
+                                    <option value="{{ p.name }}" data-checkout="{{ p.checkout_url or '' }}" data-clubid="{{ p.club_id or '' }}">{{ p.name }}{% if p.price > 0 %} — ${{ "%.2f"|format(p.price) }}{% endif %}{% if p.max_guests %} (up to {{ p.max_guests }}){% endif %}</option>
                                     {% endfor %}
                                 </select>
                                 <button type="button" id="checkoutBtn" onclick="openCheckout()" title="Open checkout again"
@@ -583,6 +583,33 @@ function toggleTransport(needs) {
 }
 
 // ── PACKAGE CHECKOUT ─────────────────────────────────────────────────────────
+// Show only the packages belonging to the selected destination club
+// (packages with no club are treated as available everywhere)
+function filterPackages(){
+    const dest = document.getElementById('destSelect');
+    const pkg  = document.getElementById('packageSelect');
+    if(!dest || !pkg) return;
+    const sel = dest.options[dest.selectedIndex];
+    const clubId = sel ? (sel.getAttribute('data-clubid')||'') : '';
+    let visible = 0, currentStillValid = false;
+    Array.from(pkg.options).forEach(o=>{
+        if(!o.value){ return; }              // keep the placeholder
+        const pc = o.getAttribute('data-clubid')||'';
+        const show = (!pc || !clubId || pc === clubId);
+        o.hidden = !show;
+        o.disabled = !show;
+        if(show){ visible++; if(o.selected) currentStillValid = true; }
+    });
+    // Reset the selection if the chosen package doesn't belong to this club
+    if(!currentStillValid){
+        pkg.selectedIndex = 0;
+        const btn=document.getElementById('checkoutBtn'), note=document.getElementById('checkoutNote');
+        if(btn) btn.style.display='none';
+        if(note) note.style.display='none';
+    }
+}
+document.addEventListener('DOMContentLoaded', filterPackages);
+
 function onPackageChange(sel) {
     const opt = sel.options[sel.selectedIndex];
     currentCheckoutUrl = opt.getAttribute('data-checkout') || '';
