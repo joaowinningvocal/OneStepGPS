@@ -48,6 +48,8 @@ SMS_ENABLED = os.environ.get("SMS_ENABLED", "true").strip().lower() not in ("fal
 SHOPIFY_STORE   = os.environ.get("SHOPIFY_STORE", "vip-packages.myshopify.com")
 SHOPIFY_TOKEN   = os.environ.get("SHOPIFY_TOKEN", "")
 SHOPIFY_API_VER = "2026-04"
+# Shopify is off by default (no longer used). Set SHOPIFY_ENABLED=true to re-enable.
+SHOPIFY_ENABLED = os.environ.get("SHOPIFY_ENABLED", "false").strip().lower() in ("true", "1", "yes")
 def get_shopify_headers():
     return {
         "X-Shopify-Access-Token": os.environ.get("SHOPIFY_TOKEN", SHOPIFY_TOKEN),
@@ -82,7 +84,10 @@ def create_shopify_order(customer_name: str, customer_phone: str,
     """
     Create a Shopify order for the given customer and package.
     Returns the Shopify order dict or an error dict.
+    Disabled by default — set SHOPIFY_ENABLED=true to turn it back on.
     """
+    if not SHOPIFY_ENABLED:
+        return {"error": "Shopify disabled"}
     try:
         # checkout_url flow — no variant lookup needed
         pkg_obj    = Package.query.filter_by(name=package_name).first()
@@ -449,7 +454,7 @@ def require_api_key(f):
         return jsonify({"error": "Unauthorized — valid API key or admin login required"}), 401
     return wrapper
 
-def fire_webhook(payload: dict):
+def _fire_webhook_sync(payload: dict):
     try:
         r = requests.post(MAKE_WEBHOOK, json=payload, timeout=10)
         print(f"[WEBHOOK] type={payload.get('type') or payload.get('event')} status={r.status_code} url={MAKE_WEBHOOK}", flush=True)
@@ -457,8 +462,31 @@ def fire_webhook(payload: dict):
     except Exception as e:
         print(f"[WEBHOOK] FAILED: {e} url={MAKE_WEBHOOK}", flush=True)
 
+def fire_webhook(payload: dict):
+    """Fire-and-forget: runs in a background thread so the HTTP response isn't
+    delayed by Make/Twilio round-trips (which was causing client-side timeouts)."""
+    try:
+        threading.Thread(target=_fire_webhook_sync, args=(payload,), daemon=True).start()
+    except Exception as e:
+        print(f"[WEBHOOK] thread start failed: {e}", flush=True)
+        _fire_webhook_sync(payload)
+
 def twilio_configured():
     return bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and (TWILIO_FROM_NUMBER or TWILIO_MESSAGING_SERVICE_SID))
+
+def clean_phone(p):
+    """Strip invisible Unicode marks (LRE/RLE/PDF etc. that come from iPhone
+    copy-paste) and stray spaces/dashes, keeping a clean E.164-ish number."""
+    if not p:
+        return ""
+    s = str(p)
+    for ch in ('\u202a', '\u202b', '\u202c', '\u202d', '\u202e',
+               '\u200e', '\u200f', '\u2066', '\u2067', '\u2068', '\u2069', '\u00a0'):
+        s = s.replace(ch, '')
+    s = s.strip()
+    keep = '+' if s.startswith('+') else ''
+    digits = ''.join(ch for ch in s if ch.isdigit())
+    return keep + digits
 
 def send_sms(to, body, media_url=""):
     """Send one SMS/MMS straight to Twilio (no Make.com).
@@ -467,7 +495,7 @@ def send_sms(to, body, media_url=""):
     empty MediaUrl is what triggers Twilio error 21620 ("Invalid media URL").
     Never raises — messaging failures must not break a booking.
     """
-    to = (to or "").strip()
+    to = clean_phone(to)
     body = (body or "").strip()
     if not SMS_ENABLED:
         print(f"[SMS] muted (SMS_ENABLED=false) to={to}", flush=True)
@@ -510,17 +538,28 @@ def send_sms(to, body, media_url=""):
         print(f"[SMS] EXCEPTION to={to}: {e}", flush=True)
         return {"ok": False, "error": str(e)}
 
-def send_sms_many(phones, body, media_url=""):
-    """Send the same message to a list of numbers (customer may have several)."""
-    results = []
+def _send_many_sync(phones, body, media_url):
     seen = set()
     for p in (phones or []):
-        p = (p or "").strip()
+        p = clean_phone(p)
         if not p or p in seen:
             continue
         seen.add(p)
-        results.append(send_sms(p, body, media_url))
-    return results
+        send_sms(p, body, media_url)
+
+def send_sms_many(phones, body, media_url=""):
+    """Send to a list of numbers in the BACKGROUND so the web response returns
+    immediately (Twilio round-trips were causing client-side timeouts)."""
+    try:
+        threading.Thread(target=_send_many_sync, args=(list(phones or []), body, media_url), daemon=True).start()
+    except Exception as e:
+        print(f"[SMS] thread start failed: {e}", flush=True)
+        _send_many_sync(phones, body, media_url)
+    return {"queued": True}
+
+def send_sms_bg(to, body, media_url=""):
+    """Background single send."""
+    return send_sms_many([to], body, media_url)
 
 def parse_pickup_datetime(dt_str):
     """
@@ -830,7 +869,7 @@ def cadastrar_cep():
         encoded = urllib.parse.quote(geocode_address)
         geo_res = requests.get(
             f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1&addressdetails=1",
-            headers={'User-Agent': 'ClubLifter_LasVegas_App'}
+            headers={'User-Agent': 'ClubLifter_LasVegas_App'}, timeout=8
         ).json()
 
         # Fallback: if the clean address failed, try the full text
@@ -838,7 +877,7 @@ def cadastrar_cep():
             encoded2 = urllib.parse.quote(endereco_completo)
             geo_res = requests.get(
                 f"https://nominatim.openstreetmap.org/search?q={encoded2}&format=json&limit=1&addressdetails=1",
-                headers={'User-Agent': 'ClubLifter_LasVegas_App'}
+                headers={'User-Agent': 'ClubLifter_LasVegas_App'}, timeout=8
             ).json()
 
         if not geo_res:
@@ -851,7 +890,7 @@ def cadastrar_cep():
         headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
         res_v = requests.get(
             "https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
-            headers=headers_api
+            headers=headers_api, timeout=8
         ).json()
 
         lista = res_v if isinstance(res_v, list) else [res_v]
@@ -955,7 +994,7 @@ def cadastrar_cep():
                 "lat_lng": {"lat": lat_cli, "lng": lng_cli}
             }
         }
-        requests.post(URL_API, json=payload_gps, headers=headers_api)
+        requests.post(URL_API, json=payload_gps, headers=headers_api, timeout=8)
 
         # 6. SAVE TO DATABASE
         distancia_arredondada = round(menor_d, 2) if menor_d != float('inf') else 0
@@ -1048,7 +1087,7 @@ def cadastrar_cep():
                 f"Distance: {distancia_arredondada} mi"
                 + (f"\nNotes: {details}" if details else "")
             )
-            send_sms(motorista_phone, driver_sms)
+            send_sms_bg(motorista_phone, driver_sms)
 
         # 9. SMS TO CUSTOMER (direct Twilio)
         car_full = " ".join(p for p in [car_color, car_model] if p).strip().upper()
@@ -2541,30 +2580,65 @@ def api_live_drivers():
             # Match a registered car profile (if any)
             car = Car.query.filter_by(name=name).first()
 
-            # Find the current active pickup for this car: a scheduled customer
-            # assigned to this car, not yet picked up, soonest pickup first.
-            current = None
-            cust = (Customer.query
-                    .filter_by(car_name=name, needs_transport=True)
-                    .filter(Customer.status == 'scheduled')
-                    .order_by(Customer.pickup_datetime)
-                    .first())
-            if cust:
-                time_part = ""
-                if cust.pickup_datetime and len(cust.pickup_datetime.split(' ')) >= 3:
-                    p = cust.pickup_datetime.split(' '); time_part = f"{p[1]} {p[2]}"
-                current = {
-                    "customer_id":   cust.id,
-                    "customer_name": cust.nome,
-                    "pickup_address": cust.endereco,
-                    "destination":   cust.destination,
-                    "pickup_time":   time_part,
-                    "dispatch_status": cust.dispatch_status,
-                    "guests":        cust.guests,
+            # Today's full queue for this car (padded + non-padded date formats)
+            today = date.today()
+            today_np = f"{today.month}/{today.day}/{today.year}"
+            today_p  = f"{today.month:02d}/{today.day:02d}/{today.year}"
+
+            all_today = (Customer.query
+                         .filter_by(car_name=name, needs_transport=True)
+                         .order_by(Customer.pickup_datetime)
+                         .all())
+            all_today = [c for c in all_today
+                         if today_np in (c.pickup_datetime or "") or today_p in (c.pickup_datetime or "")]
+            # sort chronologically, priority first within the same time
+            all_today.sort(key=lambda c: (parse_pickup_datetime(c.pickup_datetime) or datetime.max))
+
+            def _t(c):
+                if c.pickup_datetime and len(c.pickup_datetime.split(' ')) >= 3:
+                    p = c.pickup_datetime.split(' '); return f"{p[1]} {p[2]}"
+                return ""
+
+            queue, current, driver_name = [], None, ""
+            done_count = 0
+            for c in all_today:
+                is_done = (c.status == 'picked_up')
+                if is_done:
+                    done_count += 1
+                item = {
+                    "customer_id":     c.id,
+                    "customer_name":   c.nome,
+                    "pickup_address":  c.endereco,
+                    "destination":     c.destination,
+                    "pickup_time":     _t(c),
+                    "dispatch_status": c.dispatch_status,
+                    "guests":          c.guests or 0,
+                    "status":          c.status,
+                    "priority":        bool(getattr(c, 'priority', False)),
+                    "is_current":      False,
                 }
+                queue.append(item)
+                if not driver_name and c.motorista:
+                    driver_name = c.motorista
+                # first not-yet-picked-up = the one they're heading to now
+                if current is None and not is_done:
+                    item["is_current"] = True
+                    current = item
+
+            # Fall back to today's shift to name the driver when there are no pickups
+            if not driver_name and car:
+                dow = today.weekday()
+                sh = (Shift.query.filter_by(car_id=car.id, active=True)
+                      .filter((Shift.day_of_week == dow) | (Shift.specific_date == today_p))
+                      .first())
+                if sh:
+                    d = Driver.query.get(sh.driver_id)
+                    if d:
+                        driver_name = d.name
 
             result.append({
                 "name": name,
+                "driver_name": driver_name,
                 "lat": float(v_lat),
                 "lng": float(v_lng),
                 "registered": bool(car),
@@ -2572,6 +2646,12 @@ def api_live_drivers():
                 "car": car.car_string() if car else "",
                 "phone": "",
                 "current_pickup": current,
+                "queue": queue,
+                "total_pickups": len(queue),
+                "remaining": len(queue) - done_count,
+                "completed": done_count,
+                "total_guests": sum(i["guests"] for i in queue),
+                "priority_count": sum(1 for i in queue if i["priority"] and i["status"] != 'picked_up'),
             })
         return jsonify({"drivers": result, "count": len(result)})
     except Exception as e:

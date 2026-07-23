@@ -52,6 +52,29 @@
         .cp-name{font-family:'Syne',sans-serif;font-weight:700;font-size:.84rem;color:var(--t);}
         .cp-addr{font-size:.74rem;color:var(--m2);margin-top:3px;line-height:1.35;}
         .cp-meta{font-size:.7rem;color:var(--m);margin-top:4px;}
+        /* Counters */
+        .counts{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;}
+        .cbox{font-size:.7rem;color:var(--m2);background:var(--s2);border:1px solid var(--bd);border-radius:7px;padding:4px 9px;}
+        .cbox b{color:var(--t);font-size:.78rem;}
+        .cbox.done{color:var(--g);} .cbox.done b{color:var(--g);}
+        .cbox.prio{color:var(--gold);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.08);}
+        .cbox.idle{color:var(--m);}
+        /* Queue */
+        .queue-wrap{margin-top:10px;border-top:1px solid var(--bd);padding-top:8px;}
+        .qtoggle{display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-size:.72rem;font-weight:700;color:var(--m2);text-transform:uppercase;letter-spacing:.4px;padding:3px 0;}
+        .qtoggle:hover{color:var(--t);}
+        .qcaret{transition:transform .2s;}
+        .queue-wrap.open .qcaret{transform:rotate(180deg);}
+        .qlist{display:none;margin-top:7px;flex-direction:column;gap:5px;}
+        .queue-wrap.open .qlist{display:flex;}
+        .qrow{display:flex;align-items:center;gap:8px;font-size:.76rem;padding:6px 8px;background:var(--s2);border:1px solid var(--bd);border-radius:7px;}
+        .qrow.q-now{border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.07);}
+        .qrow.q-done{opacity:.5;}
+        .qn{flex-shrink:0;width:18px;text-align:center;color:var(--m2);font-weight:700;font-size:.72rem;}
+        .q-now .qn{color:var(--g);}
+        .qname{flex:1;color:var(--t);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .qstar{color:var(--gold);margin-right:3px;}
+        .qmeta{flex-shrink:0;color:var(--m);font-size:.7rem;}
         .drv-badge{font-size:.65rem;font-weight:700;padding:1px 7px;border-radius:10px;margin-left:auto;}
         .b-reg{background:rgba(34,197,94,.12);color:var(--g);border:1px solid rgba(34,197,94,.4);}
         .b-unreg{background:rgba(251,191,36,.12);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
@@ -157,34 +180,67 @@ async function loadDrivers(fit=false){
         const bounds = [];
         data.drivers.forEach(d=>{
             const cp = d.current_pickup;
+            const who = d.driver_name ? `${d.driver_name}` : d.name;
             const popupPickup = cp
-                ? `<br><span style="color:#22c55e;">→ Going to: <b>${cp.customer_name}</b></span><br><span style="font-size:.85em;color:#8892a0;">📍 ${cp.pickup_address||'—'}${cp.pickup_time?' · '+cp.pickup_time:''}</span>`
-                : `<br><span style="color:#8892a0;font-size:.9em;">No active pickup</span>`;
-            // marker
+                ? `<br><span style="color:#22c55e;">→ Going to: <b>${cp.customer_name}</b></span><br><span style="font-size:.85em;color:#8892a0;">📍 ${cp.pickup_address||'—'}${cp.pickup_time?' · '+cp.pickup_time:''}</span><br><span style="font-size:.85em;color:#8892a0;">${d.remaining} of ${d.total_pickups} remaining today</span>`
+                : (d.total_pickups ? `<br><span style="color:#22c55e;font-size:.9em;">✅ All ${d.total_pickups} pickups done</span>`
+                                   : `<br><span style="color:#8892a0;font-size:.9em;">No pickups today</span>`);
             const mk = L.marker([d.lat,d.lng],{icon:carIcon(d.registered)}).addTo(map);
-            mk.bindPopup(`<b>${d.name}</b><br>${d.car||'<i>not registered</i>'}${popupPickup}`);
+            mk.bindPopup(`<b>${who}</b><br>${d.car||'<i>not registered</i>'}${popupPickup}`);
             markers.push(mk);
             bounds.push([d.lat,d.lng]);
 
-            // current pickup block for the sidebar
+            // Counters row
+            const counters = d.total_pickups
+                ? `<div class="counts">
+                     <span class="cbox"><b>${d.remaining}</b> left</span>
+                     <span class="cbox done"><b>${d.completed}</b> done</span>
+                     <span class="cbox"><b>${d.total_guests}</b> guests</span>
+                     ${d.priority_count?`<span class="cbox prio">★ ${d.priority_count}</span>`:''}
+                   </div>`
+                : `<div class="counts"><span class="cbox idle">No pickups today</span></div>`;
+
+            // Current pickup
             const cpBlock = cp
                 ? `<div class="cur-pickup">
-                       <div class="cp-label">→ Heading to</div>
-                       <div class="cp-name">${cp.customer_name}${cp.guests?` · ${cp.guests} guests`:''}</div>
+                       <div class="cp-label">→ Heading to now</div>
+                       <div class="cp-name">${cp.priority?'★ ':''}${cp.customer_name}${cp.guests?` · ${cp.guests} guests`:''}</div>
                        <div class="cp-addr">📍 ${cp.pickup_address||'—'}</div>
                        <div class="cp-meta">${cp.pickup_time?'🕐 '+cp.pickup_time+' · ':''}🏢 ${cp.destination||'—'}${cp.dispatch_status&&cp.dispatch_status!=='none'?' · '+cp.dispatch_status:''}</div>
                    </div>`
-                : `<div class="cur-pickup idle">💤 No active pickup</div>`;
+                : (d.total_pickups ? `<div class="cur-pickup idle">✅ All pickups completed</div>`
+                                   : `<div class="cur-pickup idle">💤 No pickups assigned</div>`);
 
-            // list card
+            // Full queue (collapsible)
+            let queueBlock = '';
+            if(d.total_pickups > 0){
+                const rows = d.queue.map((q,i)=>{
+                    const cls = q.status==='picked_up' ? 'q-done' : (q.is_current ? 'q-now' : '');
+                    const mark = q.status==='picked_up' ? '✅' : (q.is_current ? '▶' : (i+1));
+                    return `<div class="qrow ${cls}">
+                        <span class="qn">${mark}</span>
+                        <span class="qname">${q.priority?'<span class="qstar">★</span>':''}${q.customer_name}</span>
+                        <span class="qmeta">${q.pickup_time||'—'}${q.guests?' · '+q.guests+'g':''}</span>
+                    </div>`;
+                }).join('');
+                queueBlock = `<div class="queue-wrap">
+                    <div class="qtoggle" onclick="event.stopPropagation();this.parentNode.classList.toggle('open')">
+                        <span>Today's pickups (${d.total_pickups})</span><span class="qcaret">▾</span>
+                    </div>
+                    <div class="qlist">${rows}</div>
+                </div>`;
+            }
+
             const card = document.createElement('div');
             card.className='drv';
             card.innerHTML = `
-                <div class="drv-name"><span class="dot ${d.available===false?'off':'on'}"></span>${d.name}
+                <div class="drv-name"><span class="dot ${d.available===false?'off':'on'}"></span>${who}
                     <span class="drv-badge ${d.registered?'b-reg':'b-unreg'}">${d.registered?'Registered':'Unregistered'}</span>
                 </div>
-                <div class="drv-car">${d.car||'No car info'}</div>
-                ${cpBlock}`;
+                <div class="drv-car">${d.car||'No car info'}${d.driver_name&&d.driver_name!==d.name?` · ${d.name}`:''}</div>
+                ${counters}
+                ${cpBlock}
+                ${queueBlock}`;
             card.onclick = ()=>{ map.setView([d.lat,d.lng],14); mk.openPopup(); };
             list.appendChild(card);
         });
