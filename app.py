@@ -414,7 +414,7 @@ def is_dispatch_manager():
 
 # Which roles each account type is allowed to CREATE
 CREATABLE_ROLES = {
-    "master":           ["promoter", "driver", "dispatch", "dispatch_manager", "club_manager", "club_owner"],
+    "master":           ["promoter", "driver", "dispatch", "dispatch_manager", "club_manager", "club_owner", "master"],
     "club_owner":       ["promoter", "driver", "dispatch", "dispatch_manager", "club_manager"],
     "club_manager":     ["promoter", "driver", "dispatch", "dispatch_manager"],
     "dispatch_manager": ["dispatch"],
@@ -1269,9 +1269,9 @@ def admin_users():
     if not can_create_accounts():
         return redirect(url_for("login"))
     allowed = creatable_roles()
-    # Show accounts the viewer is allowed to manage
+    # Master sees every account (so masters can be promoted/demoted too)
     if is_master():
-        users = User.query.filter(User.role.in_(['promoter', 'driver', 'dispatch', 'dispatch_manager', 'club_manager', 'club_owner'])).all()
+        users = User.query.order_by(User.role, User.username).all()
     else:
         users = User.query.filter(User.role.in_(allowed)).all()
     clubs  = Club.query.filter_by(active=True).all()
@@ -1406,12 +1406,18 @@ def edit_user(user_id):
     email    = request.form.get('email', None)
     if email is not None:
         user.email = email.strip()
-    # Can change role only to a role you're allowed to create
-    if role in allowed or is_master():
-        if role in ('promoter', 'driver', 'dispatch', 'dispatch_manager', 'club_manager', 'club_owner'):
-            user.role = role
-            if role == 'driver' and not Driver.query.filter_by(name=user.username).first():
-                db.session.add(Driver(name=user.username, available=True))
+    # Safety: you can't change your own role (prevents locking yourself out)
+    if user.id == session.get("user_id") and role != user.role:
+        return jsonify({"success": False, "error": "You can't change your own role."})
+    # Can change role only to a role you're allowed to assign
+    if role in allowed and role != user.role:
+        # Never allow removing the last master account
+        if user.role == 'master' and role != 'master':
+            if User.query.filter_by(role='master').count() <= 1:
+                return jsonify({"success": False, "error": "Can't demote the last master account."})
+        user.role = role
+        if role == 'driver' and not Driver.query.filter_by(name=user.username).first():
+            db.session.add(Driver(name=user.username, available=True))
     if commission is not None:
         try:
             user.commission = float(commission or 0)

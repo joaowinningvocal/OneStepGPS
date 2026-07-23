@@ -11,7 +11,6 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png">
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--s3:#0d1117;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--acc2:#6d28d9;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
         /* Prevent browser (Opera GX / translate) auto-underline on detected text */
@@ -53,6 +52,22 @@
         tbody tr:last-child td{border-bottom:none;}
         tbody tr:hover td{background:rgba(138,92,246,.04);}
         td.name{color:var(--t);font-weight:600;}
+        .rb{border-radius:14px;padding:2px 10px;font-size:.7rem;font-weight:700;white-space:nowrap;}
+        .rb-promoter{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.35);}
+        .rb-driver{background:rgba(34,197,94,.1);color:var(--g);border:1px solid rgba(34,197,94,.35);}
+        .rb-dispatch{background:rgba(59,130,246,.1);color:#3b82f6;border:1px solid rgba(59,130,246,.35);}
+        .rb-dispatch_manager{background:rgba(14,165,233,.12);color:#0ea5e9;border:1px solid rgba(14,165,233,.4);}
+        .rb-club_manager{background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.35);}
+        .rb-club_owner{background:rgba(249,115,22,.12);color:#f97316;border:1px solid rgba(249,115,22,.4);}
+        .rb-master{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.4);}
+        .cl-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9998;align-items:center;justify-content:center;padding:18px;}
+        .cl-modal.open{display:flex;}
+        .cl-modal-card{background:var(--s);border:1px solid var(--bhi);border-radius:18px;padding:22px;max-width:440px;width:100%;display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow-y:auto;}
+        .cl-modal-card h3{font-family:'Syne',sans-serif;font-size:1.05rem;color:var(--acc);}
+        .cl-modal-btns{display:flex;gap:9px;margin-top:6px;}
+        .mb{flex:1;font-family:'Syne',sans-serif;font-weight:700;font-size:.84rem;border:none;border-radius:11px;padding:11px;cursor:pointer;}
+        .mb-cancel{background:var(--s2);color:var(--m2);border:1px solid var(--bd);}
+        .mb-save{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;}
         .b-promoter{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.35);border-radius:14px;padding:2px 10px;font-size:.7rem;font-weight:700;}
         .b-driver{background:rgba(34,197,94,.1);color:var(--g);border:1px solid rgba(34,197,94,.35);border-radius:14px;padding:2px 10px;font-size:.7rem;font-weight:700;}
         .b-club{background:rgba(251,191,36,.1);color:var(--gold);border:1px solid rgba(251,191,36,.35);border-radius:14px;padding:2px 10px;font-size:.7rem;font-weight:700;}
@@ -172,10 +187,10 @@
             <table>
                 <thead><tr><th>Username</th><th>Role</th><th>Clubs</th><th>Commission</th><th style="text-align:right">Actions</th></tr></thead>
                 <tbody id="usersTable">
-                    {% for u in users %}
+                    {% set role_labels_row = {'promoter':'Promoter','driver':'Driver','dispatch':'Dispatch','dispatch_manager':'Dispatch Mgr','club_manager':'Club Manager','club_owner':'Club Owner','master':'Master'} %}{% for u in users %}
                     <tr id="row-{{ u.id }}">
                         <td class="name">{{ u.username }}</td>
-                        <td><span class="{{ 'b-driver' if u.role=='driver' else 'b-promoter' }}">{{ u.role|capitalize }}</span></td>
+                        <td><span class="rb rb-{{ u.role }}">{{ role_labels_row.get(u.role, u.role) }}</span></td>
                         <td>
                             {% if u.get_club_names() %}
                                 {% for cn in u.get_club_names() %}<span class="b-club">🏢 {{ cn }}</span> {% endfor %}
@@ -183,8 +198,8 @@
                         </td>
                         <td style="color:var(--g);font-weight:600;">{% if u.commission %}${{ "%.2f"|format(u.commission) }}{% else %}—{% endif %}</td>
                         <td><div class="btns">
-                            <button class="btn-e" onclick='openEdit({{ u.id }}, {{ u.username|tojson }}, {{ u.role|tojson }}, {{ u.clubs|map(attribute="id")|list|tojson }}, {{ u.commission or 0 }})'>Edit</button>
-                            <button class="btn-e" onclick="openReset({{ u.id }},'{{ u.username }}')">Reset PWD</button>
+                            <button class="btn-e" data-uid="{{ u.id }}" data-uname="{{ u.username|e }}" data-urole="{{ u.role|e }}" data-uclubs="{{ u.clubs|map(attribute='id')|list|tojson|forceescape }}" data-ucomm="{{ u.commission or 0 }}" onclick="openEditEl(this)">Edit</button>
+                            <button class="btn-e" data-rid="{{ u.id }}" data-rname="{{ u.username|e }}" onclick="openResetEl(this)">Reset PWD</button>
                             <button class="btn-d" onclick="delUser({{ u.id }})">Delete</button>
                         </div></td>
                     </tr>
@@ -197,38 +212,46 @@
 </div>
 
 <!-- Edit Modal -->
-<div class="modal fade" id="editModal" tabindex="-1">
-    <div class="modal-dialog"><div class="modal-content">
-        <div class="modal-header"><h5 class="modal-title">Edit Account</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
-        <div class="modal-body modal-f">
-            <input type="hidden" id="eId">
-            <p style="font-size:.82rem;color:var(--m2);">Editing: <span id="eUser" style="color:var(--t);font-weight:600;"></span></p>
-            <div class="f"><label>Role</label><select id="eRole" class="fs" style="background:var(--s3);"><option value="promoter">Promoter</option><option value="driver">Driver</option></select></div>
-            <div class="f"><label>Commission per Sale ($)</label><input type="number" id="eCommission" class="fc" min="0" step="0.01" placeholder="0.00"></div>
-            <div class="f"><label>Assign Clubs (hold Ctrl/Cmd for multiple)</label><select id="eClubs" class="fs" multiple size="4" style="background:var(--s3);height:auto;">{% for c in clubs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div>
+<div class="cl-modal" id="editModal">
+    <div class="cl-modal-card">
+        <h3>Edit Account</h3>
+        <input type="hidden" id="eId">
+        <p style="font-size:.82rem;color:var(--m2);">Editing: <span id="eUser" style="color:var(--t);font-weight:600;"></span></p>
+        <div class="f"><label>Role</label>
+            <select id="eRole" class="fs" style="background:var(--s3);">
+                {% set role_labels = {'promoter':'Promoter','driver':'Driver','dispatch':'Dispatch','dispatch_manager':'Dispatch Manager','club_manager':'Club Manager','club_owner':'Club Owner','master':'Master (full access)'} %}
+                {% for r in creatable_roles %}
+                <option value="{{ r }}">{{ role_labels.get(r, r) }}</option>
+                {% endfor %}
+            </select>
         </div>
-        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn-save" onclick="saveEdit()">Save</button></div>
-    </div></div>
+        <div class="f"><label>Commission per Sale ($)</label><input type="number" id="eCommission" class="fc" min="0" step="0.01" placeholder="0.00"></div>
+        <div class="f"><label>Assign Clubs (hold Ctrl/Cmd for multiple)</label><select id="eClubs" class="fs" multiple size="4" style="background:var(--s3);height:auto;">{% for c in clubs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div>
+        <div class="cl-modal-btns">
+            <button class="mb mb-cancel" onclick="closeCl('editModal')">Cancel</button>
+            <button class="mb mb-save" onclick="saveEdit()">Save</button>
+        </div>
+    </div>
 </div>
 
 <!-- Reset Modal -->
-<div class="modal fade" id="resetModal" tabindex="-1">
-    <div class="modal-dialog"><div class="modal-content">
-        <div class="modal-header"><h5 class="modal-title">Reset Password</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
-        <div class="modal-body modal-f">
-            <input type="hidden" id="rId">
-            <p style="font-size:.82rem;color:var(--m2);">New password for: <span id="rUser" style="color:var(--t);font-weight:600;"></span></p>
-            <div class="f"><label>New Password</label><input type="password" id="rPass" class="fc" placeholder="Enter new password"></div>
+<div class="cl-modal" id="resetModal">
+    <div class="cl-modal-card">
+        <h3>Reset Password</h3>
+        <input type="hidden" id="rId">
+        <p style="font-size:.82rem;color:var(--m2);">New password for: <span id="rUser" style="color:var(--t);font-weight:600;"></span></p>
+        <div class="f"><label>New Password</label><input type="password" id="rPass" class="fc" placeholder="Enter new password"></div>
+        <div class="cl-modal-btns">
+            <button class="mb mb-cancel" onclick="closeCl('resetModal')">Cancel</button>
+            <button class="mb mb-save" onclick="saveReset()">Save</button>
         </div>
-        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn-save" onclick="saveReset()">Save</button></div>
-    </div></div>
+    </div>
 </div>
 
 <div id="toast"></div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-const eM=new bootstrap.Modal(document.getElementById('editModal'));
-const rM=new bootstrap.Modal(document.getElementById('resetModal'));
+function openCl(id){document.getElementById(id).classList.add('open');}
+function closeCl(id){document.getElementById(id).classList.remove('open');}
 function toast(m,ok=true){const t=document.getElementById('toast');t.style.display='block';t.style.background=ok?'#16a34a':'#dc2626';t.style.color='#fff';t.innerText=m;setTimeout(()=>t.style.display='none',3000);}
 async function addUser(){const u=document.getElementById('nUser').value.trim(),p=document.getElementById('nPass').value.trim(),r=document.getElementById('nRole').value,comm=document.getElementById('nCommission').value||0,em=document.getElementById('nEmail').value.trim();if(!u||!p)return toast('Username and password required (or use Invite)',false);const fd=new FormData();fd.append('username',u);fd.append('password',p);fd.append('role',r);fd.append('email',em);fd.append('commission',comm);Array.from(document.getElementById('nClubs').selectedOptions).forEach(o=>fd.append('club_ids',o.value));const d=await(await fetch('/admin/users/new',{method:'POST',body:fd})).json();if(d.success){toast('Account created!');setTimeout(()=>location.reload(),600);}else toast(d.error,false);}
 async function inviteUser(){const u=document.getElementById('nUser').value.trim(),r=document.getElementById('nRole').value,em=document.getElementById('nEmail').value.trim();if(!u)return toast('Username required',false);if(!em)return toast('Email required for invite',false);const fd=new FormData();fd.append('username',u);fd.append('role',r);fd.append('email',em);Array.from(document.getElementById('nClubs').selectedOptions).forEach(o=>fd.append('club_ids',o.value));const d=await(await fetch('/admin/users/invite',{method:'POST',body:fd})).json();if(d.success){toast('✉️ Invite sent — setup link generated!');setTimeout(()=>location.reload(),900);}else toast(d.error,false);}
@@ -241,10 +264,15 @@ function toggleRoleFields(){
     if(clf) clf.style.display = showExtra ? '' : 'none';
 }
 document.addEventListener('DOMContentLoaded', toggleRoleFields);
-function openEdit(id,u,r,clubIds,comm){document.getElementById('eId').value=id;document.getElementById('eUser').innerText=u;document.getElementById('eRole').value=r;document.getElementById('eCommission').value=comm||0;const sel=document.getElementById('eClubs');Array.from(sel.options).forEach(o=>{o.selected=(clubIds||[]).includes(parseInt(o.value));});eM.show();}
-async function saveEdit(){const id=document.getElementById('eId').value,fd=new FormData();fd.append('role',document.getElementById('eRole').value);fd.append('commission',document.getElementById('eCommission').value||0);Array.from(document.getElementById('eClubs').selectedOptions).forEach(o=>fd.append('club_ids',o.value));const d=await(await fetch(`/admin/users/edit/${id}`,{method:'POST',body:fd})).json();if(d.success){toast('Updated!');eM.hide();location.reload();}else toast(d.error,false);}
-function openReset(id,u){document.getElementById('rId').value=id;document.getElementById('rUser').innerText=u;document.getElementById('rPass').value='';rM.show();}
-async function saveReset(){const id=document.getElementById('rId').value,p=document.getElementById('rPass').value.trim();if(!p)return toast('Password cannot be empty',false);const fd=new FormData();fd.append('password',p);const d=await(await fetch(`/admin/users/reset/${id}`,{method:'POST',body:fd})).json();if(d.success){toast('Password updated!');rM.hide();}else toast(d.error,false);}
+function openEditEl(el){
+    let clubs=[]; try{clubs=JSON.parse(el.getAttribute('data-uclubs')||'[]');}catch(e){}
+    openEdit(el.getAttribute('data-uid'), el.getAttribute('data-uname'), el.getAttribute('data-urole'), clubs, el.getAttribute('data-ucomm'));
+}
+function openEdit(id,u,r,clubIds,comm){document.getElementById('eId').value=id;document.getElementById('eUser').innerText=u;document.getElementById('eRole').value=r;document.getElementById('eCommission').value=comm||0;const sel=document.getElementById('eClubs');Array.from(sel.options).forEach(o=>{o.selected=(clubIds||[]).includes(parseInt(o.value));});openCl('editModal');}
+async function saveEdit(){const id=document.getElementById('eId').value,fd=new FormData();fd.append('role',document.getElementById('eRole').value);fd.append('commission',document.getElementById('eCommission').value||0);Array.from(document.getElementById('eClubs').selectedOptions).forEach(o=>fd.append('club_ids',o.value));const d=await(await fetch(`/admin/users/edit/${id}`,{method:'POST',body:fd})).json();if(d.success){toast('Updated!');closeCl('editModal');location.reload();}else toast(d.error,false);}
+function openResetEl(el){ openReset(el.getAttribute('data-rid'), el.getAttribute('data-rname')); }
+function openReset(id,u){document.getElementById('rId').value=id;document.getElementById('rUser').innerText=u;document.getElementById('rPass').value='';openCl('resetModal');}
+async function saveReset(){const id=document.getElementById('rId').value,p=document.getElementById('rPass').value.trim();if(!p)return toast('Password cannot be empty',false);const fd=new FormData();fd.append('password',p);const d=await(await fetch(`/admin/users/reset/${id}`,{method:'POST',body:fd})).json();if(d.success){toast('Password updated!');closeCl('resetModal');}else toast(d.error,false);}
 async function delUser(id){if(!confirm('Delete this account?'))return;const d=await(await fetch(`/admin/users/delete/${id}`,{method:'POST'})).json();if(d.success){toast('Deleted!');document.getElementById(`row-${id}`).remove();}else toast(d.error,false);}
 </script>
 <script>
