@@ -71,6 +71,11 @@
         .b-transport{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.4);}
         .b-walkin{background:rgba(251,191,36,.1);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
         .b-dest{background:rgba(149,191,71,.1);color:#95bf47;border:1px solid rgba(149,191,71,.4);}
+        .prio-star{background:none;border:none;color:#3a4252;font-size:1.05rem;cursor:pointer;padding:0 4px;transition:.15s;vertical-align:middle;}
+        .prio-star:hover{color:#fbbf24;transform:scale(1.15);}
+        .prio-star.on{color:#fbbf24;text-shadow:0 0 8px rgba(251,191,36,.5);}
+        .prio-row{background:rgba(251,191,36,.05);}
+        .prio-row td:first-child{border-left:3px solid #fbbf24;}
         .b-time{background:rgba(59,130,246,.1);color:var(--b);border:1px solid rgba(59,130,246,.4);padding:3px 9px;border-radius:7px;}
         .b-date{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.4);padding:3px 9px;border-radius:7px;font-weight:600;white-space:nowrap;}
 
@@ -246,11 +251,12 @@
                 </thead>
                 <tbody>
                     {% for c in customers %}
-                    <tr id="row-{{ c.id }}" class="main-row">
+                    <tr id="row-{{ c.id }}" class="main-row{{ ' prio-row' if c.priority else '' }}">
                         <td><span class="b-date">{{ c.pickup_datetime.split(' ')[0] if c.pickup_datetime else '—' }}</span></td>
                         <td><span class="b-time">{{ c.pickup_datetime.split(' ')[1] ~ ' ' ~ c.pickup_datetime.split(' ')[2] if c.pickup_datetime and c.pickup_datetime.split(' ')|length >= 3 else '—' }}</span></td>
-                        <td class="name name-click" onclick="toggleDetails({{ c.id }})">
-                            <span class="caret" id="caret-{{ c.id }}">▸</span> {{ c.nome }}
+                        <td class="name name-click">
+                            <button class="prio-star {{ 'on' if c.priority else '' }}" id="prio-{{ c.id }}" onclick="event.stopPropagation();togglePriority({{ c.id }})" title="Mark as priority">★</button>
+                            <span onclick="toggleDetails({{ c.id }})" style="cursor:pointer;"><span class="caret" id="caret-{{ c.id }}">▸</span> {{ c.nome }}</span>
                         </td>
                         <td style="font-size:.78rem;">
                             {% for p in c.get_phones() %}
@@ -339,6 +345,16 @@ async function delGuest(id){
         document.getElementById('row-'+id).remove();
         const dr=document.getElementById('details-'+id); if(dr)dr.remove();
     } else toast(d.error||'Error', false);
+}
+
+// Priority flag
+async function togglePriority(id){
+    const d=await(await fetch(`/admin/guestlist/priority/${id}`,{method:'POST'})).json();
+    if(d.success){
+        const star=document.getElementById('prio-'+id), row=document.getElementById('row-'+id);
+        star.classList.toggle('on', d.priority);
+        row.classList.toggle('prio-row', d.priority);
+    } else { toast(d.error||'Error', false); }
 }
 
 // Dispatch status (Sent → Confirmed → Enroute)

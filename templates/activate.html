@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="google" content="notranslate">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClubLifter — Set Your Password</title>
+    <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        :root{--bg:#080b12;--s:#0f1420;--s3:#0d1117;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--acc2:#6d28d9;--g:#22c55e;--r:#ef4444;--t:#e8eaf0;--m2:#8892a0;}
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+        .card{background:var(--s);border:1px solid var(--bd);border-radius:20px;padding:36px 30px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.5);}
+        .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.5rem;color:var(--acc);text-align:center;margin-bottom:6px;}
+        .brand span{color:var(--t);}
+        h2{font-family:'Syne',sans-serif;font-size:1.1rem;margin:18px 0 4px;text-align:center;}
+        p.sub{font-size:.85rem;color:var(--m2);text-align:center;margin-bottom:22px;}
+        label{display:block;font-size:.72rem;font-weight:700;color:var(--m2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;margin-top:14px;}
+        input{width:100%;background:var(--s3);border:1px solid var(--bd);color:var(--t);border-radius:11px;padding:13px 15px;font-size:.95rem;font-family:'DM Sans',sans-serif;}
+        input:focus{outline:none;border-color:var(--bhi);}
+        button{width:100%;margin-top:22px;background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;color:#fff;border-radius:12px;padding:14px;font-weight:700;font-size:.95rem;cursor:pointer;font-family:'Syne',sans-serif;}
+        button:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(138,92,246,.4);}
+        button:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+        .msg{margin-top:16px;text-align:center;font-size:.85rem;font-weight:600;min-height:20px;}
+        .invalid{text-align:center;color:var(--r);padding:20px 0;}
+        .hint{font-size:.72rem;color:var(--m2);margin-top:6px;}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="brand">Club<span>Lifter</span></div>
+        {% if not valid %}
+            <div class="invalid">
+                <h2>⚠️ Invalid or expired link</h2>
+                <p class="sub">This activation link is no longer valid. It may have already been used. Please ask your manager for a new one.</p>
+            </div>
+        {% else %}
+            <h2>Set your password</h2>
+            <p class="sub">Welcome, <b style="color:var(--t)">{{ username }}</b>! Create a password to activate your account.</p>
+
+            <label>New Password</label>
+            <input type="password" id="pw1" placeholder="At least 6 characters" autocomplete="new-password">
+            <div class="hint">Use at least 6 characters.</div>
+
+            <label>Confirm Password</label>
+            <input type="password" id="pw2" placeholder="Type it again" autocomplete="new-password">
+
+            <button id="btn" onclick="submitPw()">Activate Account</button>
+            <div class="msg" id="msg"></div>
+        {% endif %}
+    </div>
+
+    <script>
+    async function submitPw(){
+        const p1=document.getElementById('pw1').value, p2=document.getElementById('pw2').value;
+        const msg=document.getElementById('msg'), btn=document.getElementById('btn');
+        if(p1.length<6){msg.style.color='#ef4444';msg.innerText='Password must be at least 6 characters.';return;}
+        if(p1!==p2){msg.style.color='#ef4444';msg.innerText='Passwords do not match.';return;}
+        btn.disabled=true; msg.style.color='#8892a0'; msg.innerText='Activating…';
+        const fd=new FormData(); fd.append('password',p1);
+        try{
+            const d=await(await fetch(window.location.pathname,{method:'POST',body:fd})).json();
+            if(d.success){
+                msg.style.color='#22c55e';
+                msg.innerHTML='✅ Password set! Redirecting to login…';
+                setTimeout(()=>window.location.href='/login',1800);
+            } else {
+                btn.disabled=false; msg.style.color='#ef4444'; msg.innerText=d.error||'Something went wrong.';
+            }
+        }catch(e){ btn.disabled=false; msg.style.color='#ef4444'; msg.innerText='Connection error. Try again.'; }
+    }
+    document.addEventListener('keydown',e=>{if(e.key==='Enter'){const b=document.getElementById('btn');if(b)submitPw();}});
+    </script>
+</body>
+</html>

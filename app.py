@@ -157,6 +157,8 @@ class User(db.Model):
     password_hash = db.Column(db.String(200), nullable=False)
     role          = db.Column(db.String(20), default="promoter")
     email         = db.Column(db.String(200), default="")
+    activation_token = db.Column(db.String(64), default="")   # for set-your-own-password links
+    is_active     = db.Column(db.Boolean, default=True)       # False until password is set via link
     # Legacy single club (kept for backward compat)
     club_id       = db.Column(db.Integer, db.ForeignKey('club.id'), nullable=True)
     club          = db.relationship('Club', foreign_keys=[club_id])
@@ -332,6 +334,7 @@ class Customer(db.Model):
     dispatch_status = db.Column(db.String(20), default="none")         # none | sent | confirmed | enroute
     here_photo      = db.Column(db.Text, default="")                   # base64 image from driver "I'm here"
     here_photo_at   = db.Column(db.DateTime, nullable=True)            # when photo was uploaded (for 24h cleanup)
+    priority        = db.Column(db.Boolean, default=False)             # club managers can flag priority pickups
     promoter        = db.Column(db.String(80), default="")             # NEW: which promoter created this
     # Pickup status: 'scheduled', 'picked_up'
     status          = db.Column(db.String(20), default="scheduled")
@@ -627,6 +630,8 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
         user = User.query.filter_by(username=username).first()
+        if user and getattr(user, 'is_active', True) is False:
+            return render_template('login.html', error="This account hasn't been activated yet. Please use the setup link that was emailed to you.")
         if user and user.check_password(password):
             # Successful login — clear their attempt history
             _login_attempts.pop(ip, None)
@@ -1281,6 +1286,72 @@ def new_user():
 
     return jsonify({"success": True, "user": user.to_dict()})
 
+@app.route('/admin/users/invite', methods=['POST'])
+def invite_user():
+    """Create an account WITHOUT a password. The user sets their own password via a
+    one-time activation link. The link (not a password) is sent in the acc_created webhook."""
+    import secrets as _s
+    if not can_create_accounts():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    username = request.form.get('username', '').strip()
+    email    = request.form.get('email', '').strip()
+    role     = request.form.get('role', 'promoter').strip()
+    club_ids = request.form.getlist('club_ids')
+    if not username:
+        return jsonify({"success": False, "error": "Username is required"})
+    if User.query.filter_by(username=username).first():
+        return jsonify({"success": False, "error": "Username already exists"})
+    allowed = creatable_roles()
+    if role not in allowed:
+        return jsonify({"success": False, "error": f"You are not allowed to create '{role}' accounts"})
+
+    token = _s.token_urlsafe(32)
+    user = User(username=username, role=role, email=email,
+                activation_token=token, is_active=False)
+    # Set an unusable random password until they choose one
+    user.set_password(_s.token_hex(24))
+    if club_ids:
+        user.clubs = Club.query.filter(Club.id.in_([int(c) for c in club_ids])).all()
+        user.club_id = int(club_ids[0])
+    db.session.add(user)
+    db.session.commit()
+
+    if role == 'driver' and not Driver.query.filter_by(name=username).first():
+        db.session.add(Driver(name=username, phone=request.form.get('phone', '').strip(), available=True))
+        db.session.commit()
+
+    activation_link = f"{PUBLIC_BASE_URL}/activate/{token}"
+    fire_webhook({
+        "type":            "acc_created",
+        "username":        username,
+        "email":           email,
+        "role":            role,
+        "activation_link": activation_link,   # send THIS instead of a password
+        "created_by":      session.get("username", ""),
+    })
+    return jsonify({"success": True, "user": user.to_dict(), "activation_link": activation_link})
+
+@app.route('/activate/<token>', methods=['GET'])
+def activate_page(token):
+    user = User.query.filter_by(activation_token=token).first()
+    if not user:
+        return render_template('activate.html', valid=False, username="")
+    return render_template('activate.html', valid=True, username=user.username, token=token)
+
+@app.route('/activate/<token>', methods=['POST'])
+def activate_submit(token):
+    user = User.query.filter_by(activation_token=token).first()
+    if not user:
+        return jsonify({"success": False, "error": "This link is invalid or has already been used."})
+    password = request.form.get('password', '').strip()
+    if len(password) < 6:
+        return jsonify({"success": False, "error": "Password must be at least 6 characters."})
+    user.set_password(password)
+    user.is_active = True
+    user.activation_token = ""   # one-time use
+    db.session.commit()
+    return jsonify({"success": True})
+
 @app.route('/admin/users/edit/<int:user_id>', methods=['POST'])
 def edit_user(user_id):
     if not can_create_accounts():
@@ -1463,6 +1534,12 @@ def serve_upload(filename):
 @app.route('/favicon.ico')
 def favicon():
     return send_from_directory(os.path.join(app.root_path, 'static', 'img'), 'favicon.ico')
+
+@app.route('/about')
+@app.route('/welcome')
+def landing():
+    # Public landing / about page (no login required)
+    return render_template('landing.html')
 
 @app.route('/manifest.webmanifest')
 def pwa_manifest():
@@ -2588,6 +2665,27 @@ def delete_guest(customer_id):
     db.session.commit()
     return jsonify({"success": True})
 
+@app.route('/admin/guestlist/priority/<int:customer_id>', methods=['POST'])
+def toggle_priority(customer_id):
+    """Club managers (and admin-level/dispatch) flag/unflag a pickup as priority."""
+    if not (is_admin_level() or can_dispatch()):
+        return jsonify({"success": False, "error": "Unauthorized"})
+    c = Customer.query.get_or_404(customer_id)
+    c.priority = not c.priority
+    db.session.commit()
+    if c.priority:
+        fire_webhook({
+            "type":            "priority_flagged",
+            "customer_id":     c.id,
+            "customer_name":   c.nome,
+            "pickup_address":  c.endereco,
+            "destination":     c.destination,
+            "pickup_datetime": c.pickup_datetime,
+            "driver_name":     c.motorista,
+            "flagged_by":      session.get("username", ""),
+        })
+    return jsonify({"success": True, "priority": c.priority})
+
 @app.route('/admin/guestlist/dispatch/<int:customer_id>', methods=['POST'])
 def update_dispatch_status(customer_id):
     if not can_dispatch():
@@ -2748,18 +2846,20 @@ def distance_tracker_loop():
                         continue
 
                     dist_mi = calcular_distancia(c_lat, c_lng, d_lat, d_lng)
-                    print(f"[TRACKER] {c.nome}: driver {c.motorista} is {dist_mi:.2f} mi away", flush=True)
+                    dist_km = dist_mi * 1.60934
+                    print(f"[TRACKER] {c.nome}: driver {c.motorista} is {dist_km:.2f} km ({dist_mi:.2f} mi) away", flush=True)
 
                     # Look up the driver's car string
                     drv = Driver.query.filter_by(name=c.motorista).first()
                     car_str = c.car_string_val or (Car.query.filter_by(name=c.car_name).first().car_string() if c.car_name and Car.query.filter_by(name=c.car_name).first() else "N/A")
                     car_photo_url = f"{PUBLIC_BASE_URL}/uploads/{c.car_photo}" if c.car_photo else ""
 
-                    def fire_distance(threshold_label):
+                    def fire_distance(threshold_label, sms_body):
                         fire_webhook({
                             "type":             "distance",
-                            "current_distance": round(dist_mi, 1),
-                            "distance_mi":      round(dist_mi, 1),
+                            "current_distance": round(dist_mi, 2),
+                            "distance_mi":      round(dist_mi, 2),
+                            "distance_km":      round(dist_km, 2),
                             "distance_unit":    "mi",
                             "driver_name":      c.motorista,
                             "driver_car":       car_str,
@@ -2772,31 +2872,39 @@ def distance_tracker_loop():
                             "pickup_datetime":  c.pickup_datetime,
                             "customer_id":      c.id,
                         })
-                        # Direct SMS to the customer as the driver gets closer
-                        dist_msg = (
-                            f"Hi {c.nome}! Your ClubLifter driver {c.motorista} is about "
-                            f"{round(dist_mi, 1)} mi away"
-                            + (f" in a {car_str}" if car_str and car_str != "N/A" else "")
-                            + ". Please start heading out!"
-                        )
-                        send_sms_many(c.get_phones() or [c.phone], dist_msg, car_photo_url)
+                        send_sms_many(c.get_phones() or [c.phone], sms_body, car_photo_url)
 
-                    # Fire once per threshold, nearest first (9mi / 6mi / 3mi)
-                    if dist_mi <= 3 and not c.notified_5km:
+                    # Thresholds: 1 km → 500 m → arrived
+                    # (reusing notified_15km=1km, notified_10km=500m, notified_5km=arrived)
+                    ARRIVED_MI = 0.035   # ~55 m — treat as "arrived"
+                    HALF_KM_MI = 0.311   # 500 m
+                    ONE_KM_MI  = 0.621   # 1 km
+
+                    if dist_mi <= ARRIVED_MI and not c.notified_5km:
                         c.notified_5km = True
                         c.notified_10km = True
                         c.notified_15km = True
+                        c.club_status = "arrived"
                         db.session.commit()
-                        fire_distance("3mi")
-                    elif dist_mi <= 6 and not c.notified_10km:
+                        fire_distance("arrived",
+                            f"Hi {c.nome}! Your ClubLifter driver {c.motorista} has arrived"
+                            + (f" in a {car_str}" if car_str and car_str != "N/A" else "")
+                            + ". Please head out to meet your driver now!")
+                    elif dist_mi <= HALF_KM_MI and not c.notified_10km:
                         c.notified_10km = True
                         c.notified_15km = True
                         db.session.commit()
-                        fire_distance("6mi")
-                    elif dist_mi <= 9 and not c.notified_15km:
+                        fire_distance("500m",
+                            f"Hi {c.nome}! Your ClubLifter driver {c.motorista} is about 500 meters away"
+                            + (f" in a {car_str}" if car_str and car_str != "N/A" else "")
+                            + ". Please start heading out!")
+                    elif dist_mi <= ONE_KM_MI and not c.notified_15km:
                         c.notified_15km = True
                         db.session.commit()
-                        fire_distance("9mi")
+                        fire_distance("1km",
+                            f"Hi {c.nome}! Your ClubLifter driver {c.motorista} is about 1 km away"
+                            + (f" in a {car_str}" if car_str and car_str != "N/A" else "")
+                            + ". Get ready!")
         except Exception as e:
             print(f"[TRACKER] Loop error: {e}", flush=True)
 
@@ -2864,6 +2972,7 @@ with app.app_context():
     safe_migrate("customer", "dispatch_status", "ALTER TABLE customer ADD COLUMN dispatch_status VARCHAR(20) DEFAULT 'none'")
     safe_migrate("customer", "here_photo",      "ALTER TABLE customer ADD COLUMN here_photo TEXT DEFAULT ''")
     safe_migrate("customer", "here_photo_at",   "ALTER TABLE customer ADD COLUMN here_photo_at DATETIME")
+    safe_migrate("customer", "priority",        "ALTER TABLE customer ADD COLUMN priority BOOLEAN DEFAULT 0")
     safe_migrate("customer", "car_name",        "ALTER TABLE customer ADD COLUMN car_name VARCHAR(100) DEFAULT ''")
     safe_migrate("customer", "car_string_val",  "ALTER TABLE customer ADD COLUMN car_string_val VARCHAR(200) DEFAULT ''")
     safe_migrate("customer", "car_photo",       "ALTER TABLE customer ADD COLUMN car_photo VARCHAR(255) DEFAULT ''")
@@ -2877,6 +2986,8 @@ with app.app_context():
     safe_migrate("user", "club_id",    'ALTER TABLE "user" ADD COLUMN club_id INTEGER DEFAULT NULL')
     safe_migrate("user", "commission", 'ALTER TABLE "user" ADD COLUMN commission FLOAT DEFAULT 0')
     safe_migrate("user", "email",      'ALTER TABLE "user" ADD COLUMN email VARCHAR(200) DEFAULT \'\'')
+    safe_migrate("user", "activation_token", 'ALTER TABLE "user" ADD COLUMN activation_token VARCHAR(64) DEFAULT \'\'')
+    safe_migrate("user", "is_active",  'ALTER TABLE "user" ADD COLUMN is_active BOOLEAN DEFAULT 1')
 
     # ── BACKFILL: create Car records from old Driver car data (one-time) ───────
     if Car.query.count() == 0:
