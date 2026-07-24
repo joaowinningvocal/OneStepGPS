@@ -3051,35 +3051,53 @@ HUSTLER_ADDRESS = "6007 Dean Martin Dr, Las Vegas, NV 89118"
 VENUES = {
     "Hustler Las Vegas": {
         "address": HUSTLER_ADDRESS,
+        # (name, checkout_url, price, max_guests, description)
         "packages": [
-            ("Free Ride and Entry Pass",     "https://app.cartvip.com/vegashustlerclub/package/free-ride-and-entry-pass-32/checkout"),
-            ("$20 Special",                  "https://app.cartvip.com/vegashustlerclub/package/20-special-1/checkout"),
-            ("Just the Two of Us",           "https://app.cartvip.com/vegashustlerclub/package/just-the-two-of-us-30/checkout"),
-            ("Hustler's Couch with A View",  "https://app.cartvip.com/vegashustlerclub/package/couch-with-a-view-25/checkout"),
-            ("Blowout Fest",                 "https://app.cartvip.com/vegashustlerclub/package/blowout-fest-26/checkout"),
-            ("What Happens in Vegas",        "https://app.cartvip.com/vegashustlerclub/package/what-happens-in-vegas-28/checkout"),
-            ("Guaranteed over the Top",      "https://app.cartvip.com/vegashustlerclub/package/over-the-top-29/checkout"),
+            ("Free Ride and Entry Pass", "https://app.cartvip.com/vegashustlerclub/package/free-ride-and-entry-pass-32/checkout",
+             0.0, 1, "Free VIP transportation and entry pass."),
+            ("$20 Special", "https://app.cartvip.com/vegashustlerclub/package/20-special-1/checkout",
+             20.0, 1, "$20 entry special."),
+            ("Just the Two of Us", "https://app.cartvip.com/vegashustlerclub/package/just-the-two-of-us-30/checkout",
+             150.0, 2, "Front-of-the-line access • Admission for 2 • VIP seating • Hustler Brut Champagne • VIP transportation"),
+            ("Couch with a View", "https://app.cartvip.com/vegashustlerclub/package/couch-with-a-view-25/checkout",
+             250.0, 4, "VIP skip-the-line access • VIP section • 1 premium bottle • 1 round of shots • VIP transportation"),
+            ("Blowout Fest", "https://app.cartvip.com/vegashustlerclub/package/blowout-fest-26/checkout",
+             450.0, 10, "VIP skip-the-line • VIP section • 2 premium bottles • Party with the DJ & Go-Go's • Personal stage dance for the guest of honor • 1 round of shots • VIP transportation"),
+            ("What Happens In Vegas", "https://app.cartvip.com/vegashustlerclub/package/what-happens-in-vegas-28/checkout",
+             800.0, 15, "Front-of-the-line with VIP entry • Best VIP section • 3 premium bottles • Personal stage dance • Hustler collection gift • Round of shooters • 2 confetti cannons • VIP transportation"),
+            ("Guaranteed Over The Top Experience", "https://app.cartvip.com/vegashustlerclub/package/over-the-top-29/checkout",
+             1200.0, 20, "VIP entry • Private VIP host & server • Owners' stage-side seating • 4 premium bottles • Hustler champagne • 2 stage dance parties • 4 confetti cannons • Round of specialty shots • VIP transportation"),
         ],
     },
     "Kings of Hustler": {
         "address": HUSTLER_ADDRESS,   # same venue address
         "packages": [
-            ("Free Ride and Free Entry",     "https://app.cartvip.com/kingsofhustler/package/free-ride-and-free-entry-40/checkout"),
-            ("Showstopper",                  "https://app.cartvip.com/kingsofhustler/package/showstopper-41/checkout"),
-            ("Bad Mom's Club",               "https://app.cartvip.com/kingsofhustler/package/bad-moms-club-33/checkout"),
-            ("Champagne with a King",        "https://app.cartvip.com/kingsofhustler/package/champagne-with-a-king-13/checkout"),
-            ("Rose All Day",                 "https://app.cartvip.com/kingsofhustler/package/rose-all-day-35/checkout"),
-            ("Screaming Orgasm",             "https://app.cartvip.com/kingsofhustler/package/screaming-orgasm-36/checkout"),
-            ("One Last Hoerahh",             "https://app.cartvip.com/kingsofhustler/package/one-last-hoerahh-37/checkout"),
-            ("Bride and Boujee",             "https://app.cartvip.com/kingsofhustler/package/bride-and-boujee-38/checkout"),
-            ("One King Forever!",            "https://app.cartvip.com/kingsofhustler/package/one-king-forever-39/checkout"),
+            ("Free Ride and Free Entry", "https://app.cartvip.com/kingsofhustler/package/free-ride-and-free-entry-40/checkout",
+             0.0, 1, "Free VIP transportation and free entry."),
+            ("Showstopper", "https://app.cartvip.com/kingsofhustler/package/showstopper-41/checkout",
+             50.0, 1, "Admission & entertainment fee • Front-of-the-line, no cover • VIP entry • VIP transportation"),
+            ("Bad Mom's Club", "https://app.cartvip.com/kingsofhustler/package/bad-moms-club-33/checkout",
+             300.0, 4, "Admission & entertainment fee • Front-of-the-line, no cover • VIP entry & reserved seating • 1 premium bottle of champagne • VIP transportation"),
+            ("Champagne with a King", "https://app.cartvip.com/kingsofhustler/package/champagne-with-a-king-13/checkout",
+             400.0, 4, "Admission & entertainment fee • Front-of-the-line, no cover • VIP entry & reserved seating • $80 in Hunk Bucks • 1 premium bottle of champagne • VIP transportation"),
+            ("Rosè All Day", "https://app.cartvip.com/kingsofhustler/package/rose-all-day-35/checkout",
+             700.0, 6, "Front-of-the-line, no cover • VIP entry & reserved seating • 1 premium bottle with mixers • 1 bottle of champagne • Stage show for the guest of honor • $100 in Hunk Bucks • VIP transportation"),
+            ("Screaming Orgasm", "https://app.cartvip.com/kingsofhustler/package/screaming-orgasm-36/checkout",
+             900.0, 8, "Front-of-the-line, no cover • VIP entry & reserved seating • 2 premium bottles with mixers • Stage show for the guest of honor • $100 in Hunk Bucks • VIP transportation"),
+            ("One Last Hoerahh", "https://app.cartvip.com/kingsofhustler/package/one-last-hoerahh-37/checkout",
+             1400.0, 12, "Front-of-the-line, no cover • VIP entry & reserved seating • 2 premium bottles with mixers • 1 premium champagne • Stage show for the guest of honor • $200 in Hunk Bucks • VIP transportation"),
+            ("Bride and Boujee", "https://app.cartvip.com/kingsofhustler/package/bride-and-boujee-38/checkout",
+             1800.0, 15, "Front-of-the-line, no cover • VIP entry & reserved seating • 2 premium bottles with mixers • 2 premium champagnes • Stage show for the guest of honor • $300 in Hunk Bucks • VIP transportation"),
+            ("One King Forever!", "https://app.cartvip.com/kingsofhustler/package/one-king-forever-39/checkout",
+             2000.0, 20, "VIP table • 3 premium bottles with mixers • 1 premium champagne • Stage show for the guest of honor • $400 in Hunk Bucks • VIP entry & transportation"),
         ],
     },
 }
 
 def seed_venues():
     """Idempotently create/update the real clubs and their CartVIP packages.
-    Safe to run on every boot: it updates existing rows instead of duplicating."""
+    Matches existing rows by checkout_url (stable) so names can be corrected
+    without creating duplicates. Runs safely on every boot."""
     try:
         for club_name, info in VENUES.items():
             club = Club.query.filter_by(name=club_name).first()
@@ -3092,22 +3110,27 @@ def seed_venues():
                 club.address = info["address"]
                 print(f"[SEED] club address updated: {club_name}", flush=True)
 
-            for pkg_name, url in info["packages"]:
-                pkg = Package.query.filter_by(name=pkg_name, club_id=club.id).first()
+            for pkg_name, url, price, max_guests, desc in info["packages"]:
+                # Match by checkout_url first (stable), then by name as a fallback
+                pkg = Package.query.filter_by(checkout_url=url).first()
                 if not pkg:
-                    # Adopt a legacy package with the same name that has no club yet
-                    pkg = Package.query.filter_by(name=pkg_name, club_id=None).first()
+                    pkg = Package.query.filter_by(name=pkg_name).first()
                 if pkg:
-                    changed = (pkg.checkout_url != url) or (pkg.club_id != club.id)
+                    pkg.name = pkg_name
                     pkg.checkout_url = url
                     pkg.club_id = club.id
                     pkg.active = True
-                    if changed:
-                        print(f"[SEED] package updated: {club_name} / {pkg_name}", flush=True)
+                    # Only fill pricing/desc when unset, so manual edits are kept
+                    if not pkg.price:
+                        pkg.price = price
+                    if not pkg.max_guests:
+                        pkg.max_guests = max_guests
+                    if not pkg.description or pkg.description.endswith("package"):
+                        pkg.description = desc[:250]
                 else:
                     db.session.add(Package(name=pkg_name, checkout_url=url, club_id=club.id,
-                                           active=True, price=0.0, max_guests=0,
-                                           description=f"{club_name} package"))
+                                           active=True, price=price, max_guests=max_guests,
+                                           description=desc[:250]))
                     print(f"[SEED] package created: {club_name} / {pkg_name}", flush=True)
         db.session.commit()
     except Exception as e:

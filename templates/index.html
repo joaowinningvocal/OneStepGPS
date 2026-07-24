@@ -714,22 +714,45 @@ async function submitSchedule(fd) {
                 resetFormState(form);
                 return;
             }
-            // TRANSPORT: original flow
-            if(rCtrl)map.removeControl(rCtrl); rLayer.clearLayers();
-            const pM=L.latLng(d.motorista_coords.lat,d.motorista_coords.lng), pC=L.latLng(d.cliente_coords.lat,d.cliente_coords.lng);
-            rCtrl=L.Routing.control({waypoints:[pM,pC],router:L.Routing.osrmv1({serviceUrl:'https://router.project-osrm.org/route/v1',profile:'car'}),lineOptions:{styles:[{color:'#8a5cf6',opacity:.85,weight:5}]},show:false,addWaypoints:false,createMarker:(i,wp)=>L.marker(wp.latLng).bindPopup(`<b>${i===0?'🚗 Driver':'📍 '+fd.get('nome')}</b>`)}).addTo(map);
-            rCtrl.on('routingerror',()=>{st.innerHTML="<span style='color:var(--gold)'>✈️ Route plotted</span>";L.polyline([pM,pC],{color:'#8a5cf6',weight:3,dashArray:'8,12',opacity:.7}).addTo(rLayer);});
-            rCtrl.on('routesfound',()=>{st.innerHTML="<span style='color:var(--green)'>✅ Scheduled!</span>";});
-            map.flyToBounds([pM,pC],{padding:[70,70],duration:1.5});
-            const b=document.getElementById('drBox'); b.style.display='block';
-            document.getElementById('drName').innerText=d.motorista;
-            document.getElementById('drDist').innerText=`📍 ${d.distancia} mi away`;
-            document.getElementById('drPhone').innerHTML=d.motorista_phone?`📞 <a href="tel:${d.motorista_phone}" style="color:var(--green)">${d.motorista_phone}</a>`:`<span style="color:var(--muted)">No phone registered</span>`;
-            if(window.innerWidth<=960)document.getElementById('map').scrollIntoView({behavior:'smooth',block:'start'});
+            // TRANSPORT: booking is already saved at this point. Anything below is
+            // just map/UI decoration — it must never be reported as a booking failure.
+            st.innerHTML="<span style='color:var(--green)'>✅ Scheduled!</span>";
             document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('package')}</td><td>${fd.get('guests')}</td><td class="ac">${d.distancia}mi</td></tr>`);
+
+            try{
+                const b=document.getElementById('drBox'); b.style.display='block';
+                document.getElementById('drName').innerText=d.motorista||'—';
+                document.getElementById('drDist').innerText=`📍 ${d.distancia} mi away`;
+                document.getElementById('drPhone').innerHTML=d.motorista_phone?`📞 <a href="tel:${d.motorista_phone}" style="color:var(--green)">${d.motorista_phone}</a>`:`<span style="color:var(--muted)">No phone registered</span>`;
+
+                const mc=d.motorista_coords, cc=d.cliente_coords;
+                const haveCoords = mc && cc && mc.lat!=null && mc.lng!=null && cc.lat!=null && cc.lng!=null;
+                if(!haveCoords){
+                    st.innerHTML="<span style='color:var(--green)'>✅ Scheduled!</span> <span style='color:var(--muted);font-size:.85em'>(driver GPS not reporting — map skipped)</span>";
+                } else {
+                    if(rCtrl && map.removeControl) map.removeControl(rCtrl);
+                    rLayer.clearLayers();
+                    const pM=L.latLng(mc.lat,mc.lng), pC=L.latLng(cc.lat,cc.lng);
+                    if(window.L && L.Routing){
+                        rCtrl=L.Routing.control({waypoints:[pM,pC],router:L.Routing.osrmv1({serviceUrl:'https://router.project-osrm.org/route/v1',profile:'car'}),lineOptions:{styles:[{color:'#8a5cf6',opacity:.85,weight:5}]},show:false,addWaypoints:false,createMarker:(i,wp)=>L.marker(wp.latLng).bindPopup(`<b>${i===0?'🚗 Driver':'📍 '+fd.get('nome')}</b>`)}).addTo(map);
+                        rCtrl.on('routingerror',()=>{L.polyline([pM,pC],{color:'#8a5cf6',weight:3,dashArray:'8,12',opacity:.7}).addTo(rLayer);});
+                    } else {
+                        // routing library unavailable → draw a simple straight line
+                        L.polyline([pM,pC],{color:'#8a5cf6',weight:3,dashArray:'8,12',opacity:.7}).addTo(rLayer);
+                    }
+                    map.flyToBounds([pM,pC],{padding:[70,70],duration:1.5});
+                    if(window.innerWidth<=960)document.getElementById('map').scrollIntoView({behavior:'smooth',block:'start'});
+                }
+            }catch(mapErr){
+                console.error('Map render failed (booking was saved):', mapErr);
+                st.innerHTML="<span style='color:var(--green)'>✅ Scheduled!</span> <span style='color:var(--muted);font-size:.85em'>(map could not be drawn)</span>";
+            }
             resetFormState(form);
-        }else{st.innerHTML=`<span style='color:var(--red)'>❌ ${d.error}</span>`;}
-    }catch(err){st.innerHTML="<span style='color:var(--red)'>❌ Server error.</span>";}
+        }else{st.innerHTML=`<span style='color:var(--red)'>❌ ${d.error||'Unknown error'}</span>`;}
+    }catch(err){
+        console.error('Scheduling error:', err);
+        st.innerHTML=`<span style='color:var(--red)'>❌ ${err && err.message ? err.message : 'Unexpected error'}</span>`;
+    }
 }
 
 function resetFormState(form) {
