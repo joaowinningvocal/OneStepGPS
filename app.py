@@ -2618,6 +2618,118 @@ def _driver_for_car_today(car, today_p):
     return Driver.query.get(sh.driver_id)
 
 
+@app.route('/admin/tracking/availability', methods=['POST'])
+def tracking_set_availability():
+    """Manager-side override of a driver's Busy/Available status."""
+    if not can_dispatch():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    driver_name = (request.form.get('driver_name') or "").strip()
+    drv = Driver.query.filter_by(name=driver_name).first()
+    if not drv:
+        return jsonify({"success": False, "error": f"Driver '{driver_name}' not found"})
+    drv.available = (request.form.get('available', 'true').lower() == 'true')
+    db.session.commit()
+    fire_webhook({
+        "type":        "driver_availability_changed",
+        "driver_name": drv.name,
+        "driver_phone": drv.phone,
+        "available":   drv.available,
+        "changed_by":  session.get("username", ""),
+        "source":      "manager",
+    })
+    return jsonify({"success": True, "available": drv.available})
+
+@app.route('/api/assignable-drivers', methods=['GET'])
+def assignable_drivers():
+    """Drivers available to take a pickup, with the car they're on today."""
+    if not can_dispatch():
+        return jsonify({"error": "Unauthorized"}), 401
+    today = date.today()
+    today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
+    dow = today.weekday()
+    out = []
+    for d in Driver.query.order_by(Driver.name).all():
+        sh = (Shift.query.filter_by(driver_id=d.id, active=True)
+              .filter(Shift.specific_date == today_p).first())
+        if not sh:
+            sh = (Shift.query.filter_by(driver_id=d.id, active=True)
+                  .filter(Shift.day_of_week == dow).first())
+        car = Car.query.get(sh.car_id) if sh else None
+        out.append({
+            "id": d.id, "name": d.name, "phone": d.phone or "",
+            "available": bool(d.available),
+            "car_name": car.name if car else "",
+            "car_string": car.car_string() if car else "",
+        })
+    return jsonify({"drivers": out})
+
+@app.route('/admin/tracking/reassign/<int:customer_id>', methods=['POST'])
+def reassign_pickup(customer_id):
+    """Move a pickup to a different driver (and that driver's car for today)."""
+    if not can_dispatch():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    c = Customer.query.get_or_404(customer_id)
+    driver_name = (request.form.get('driver_name') or "").strip()
+    drv = Driver.query.filter_by(name=driver_name).first()
+    if not drv:
+        return jsonify({"success": False, "error": f"Driver '{driver_name}' not found"})
+
+    previous = c.motorista or ""
+    today = date.today()
+    today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
+    dow = today.weekday()
+    sh = (Shift.query.filter_by(driver_id=drv.id, active=True)
+          .filter(Shift.specific_date == today_p).first())
+    if not sh:
+        sh = (Shift.query.filter_by(driver_id=drv.id, active=True)
+              .filter(Shift.day_of_week == dow).first())
+    car = Car.query.get(sh.car_id) if sh else None
+
+    c.motorista = drv.name
+    c.motorista_phone = drv.phone or ""
+    if car:
+        c.car_name = car.name
+        c.car_string_val = car.car_string()
+        c.car_photo = car.photo or ""
+    # Re-arm proximity alerts for the new driver
+    c.notified_15km = False
+    c.notified_10km = False
+    c.notified_5km = False
+    db.session.commit()
+
+    fire_webhook({
+        "type":             "pickup_reassigned",
+        "customer_id":      c.id,
+        "customer_name":    c.nome,
+        "customer_phone":   c.phone,
+        "previous_driver":  previous,
+        "driver_name":      drv.name,
+        "driver_phone":     drv.phone or "",
+        "driver_car":       c.car_string_val or "",
+        "pickup_address":   c.endereco,
+        "pickup_datetime":  c.pickup_datetime,
+        "destination":      c.destination,
+        "reassigned_by":    session.get("username", ""),
+    })
+    # Let the new driver know
+    if drv.phone:
+        send_sms_bg(drv.phone,
+            f"ClubLifter: pickup reassigned to you.\n"
+            f"Guest: {c.nome}\nPickup: {c.endereco}\n"
+            f"Time: {c.pickup_datetime}\nDrop-off: {c.destination or 'N/A'}")
+    return jsonify({"success": True, "driver": drv.name,
+                    "car": c.car_string_val or "", "previous": previous})
+
+@app.route('/admin/tracking/pickup-done/<int:customer_id>', methods=['POST'])
+def tracking_mark_done(customer_id):
+    """Manager marks a pickup as completed (or reopens it)."""
+    if not can_dispatch():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    c = Customer.query.get_or_404(customer_id)
+    c.status = 'scheduled' if c.status == 'picked_up' else 'picked_up'
+    db.session.commit()
+    return jsonify({"success": True, "status": c.status})
+
 @app.route('/api/live-drivers', methods=['GET'])
 def api_live_drivers():
     """Every vehicle OneStepGPS reports, plus that driver's full pickup queue for today.

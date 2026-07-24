@@ -74,6 +74,30 @@
         .q-now .qn{color:var(--g);}
         .qname{flex:1;color:var(--t);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
         .qstar{color:var(--gold);margin-right:3px;}
+        .avail-ctl{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;padding:7px 9px;background:var(--s2);border:1px solid var(--bd);border-radius:9px;}
+        .avail-state{font-size:.74rem;font-weight:700;}
+        .avail-state.free{color:var(--g);} .avail-state.busy{color:var(--gold);}
+        .abtn{font-size:.7rem;font-weight:700;padding:5px 11px;border-radius:7px;border:1px solid var(--bhi);background:rgba(138,92,246,.12);color:var(--acc);cursor:pointer;}
+        .abtn:hover{background:var(--acc);color:#fff;}
+        .abtn:disabled{opacity:.5;cursor:wait;}
+        .qacts{display:flex;gap:4px;flex-shrink:0;}
+        .qbtn{font-size:.72rem;width:22px;height:22px;border-radius:6px;border:1px solid var(--bd);background:var(--s3);color:var(--m2);cursor:pointer;padding:0;line-height:1;}
+        .qbtn:hover{color:var(--acc);border-color:var(--bhi);}
+        .qbtn.on{color:var(--g);border-color:rgba(34,197,94,.45);}
+        .cl-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:center;justify-content:center;padding:18px;}
+        .cl-modal.open{display:flex;}
+        .cl-modal-card{background:var(--s);border:1px solid var(--bhi);border-radius:18px;padding:22px;max-width:430px;width:100%;display:flex;flex-direction:column;gap:11px;}
+        .cl-modal-card h3{font-family:'Syne',sans-serif;font-size:1.05rem;color:var(--acc);}
+        .cl-modal-btns{display:flex;gap:9px;margin-top:4px;}
+        .mb{flex:1;font-family:'Syne',sans-serif;font-weight:700;font-size:.84rem;border:none;border-radius:11px;padding:11px;cursor:pointer;}
+        .mb-cancel{background:var(--s2);color:var(--m2);border:1px solid var(--bd);}
+        .ra-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;background:var(--s2);border:1px solid var(--bd);border-radius:10px;cursor:pointer;transition:.15s;}
+        .ra-row:hover{border-color:var(--bhi);background:rgba(138,92,246,.08);}
+        .ra-name{font-weight:700;font-size:.88rem;}
+        .ra-car{font-size:.72rem;color:var(--m2);margin-top:2px;}
+        .ra-badge{font-size:.68rem;font-weight:700;padding:3px 9px;border-radius:11px;white-space:nowrap;}
+        .ra-badge.free{background:rgba(34,197,94,.12);color:var(--g);border:1px solid rgba(34,197,94,.4);}
+        .ra-badge.busy{background:rgba(251,191,36,.12);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
         .sec-split{margin:14px 0 4px;font-size:.72rem;font-weight:700;color:var(--gold);text-transform:uppercase;letter-spacing:.5px;padding:6px 2px;border-top:1px solid var(--bd);}
         .drv-nogps{border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.04);cursor:default;}
         .b-nogps{background:rgba(251,191,36,.12);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
@@ -213,6 +237,10 @@ async function loadDrivers(fit=false){
                         <span class="qn">${mark}</span>
                         <span class="qname">${q.priority?'<span class="qstar">★</span>':''}${q.customer_name}</span>
                         <span class="qmeta">${q.pickup_time||'—'}${q.guests?' · '+q.guests+'g':''}</span>
+                        <span class="qacts">
+                          <button class="qbtn" title="Reassign to another driver" onclick="event.stopPropagation();openReassign(${q.customer_id},'${(q.customer_name||'').replace(/'/g,"\\'")}','${(d.driver_name||'').replace(/'/g,"\\'")}')">⇄</button>
+                          <button class="qbtn ${q.status==='picked_up'?'on':''}" title="Toggle picked up" onclick="event.stopPropagation();toggleDone(${q.customer_id},this)">✓</button>
+                        </span>
                     </div>`;
                 }).join('');
                 queueBlock = `<div class="queue-wrap open">
@@ -227,6 +255,15 @@ async function loadDrivers(fit=false){
                 ? `<span class="drv-badge b-nogps">No GPS signal</span>`
                 : `<span class="drv-badge ${d.registered?'b-reg':'b-unreg'}">${d.registered?'Registered':'Unregistered'}</span>`;
 
+            const availCtl = d.driver_name
+                ? `<div class="avail-ctl">
+                     <span class="avail-state ${d.available===false?'busy':'free'}">${d.available===false?'🟡 Busy':'🟢 Available'}</span>
+                     <button class="abtn" onclick="event.stopPropagation();setAvail('${(d.driver_name||'').replace(/'/g,"\\'")}',${d.available===false?'true':'false'},this)">
+                        ${d.available===false?'Set Available':'Set Busy'}
+                     </button>
+                   </div>`
+                : '';
+
             const card = document.createElement('div');
             card.className = 'drv' + (d.no_gps ? ' drv-nogps' : '');
             card.innerHTML = `
@@ -235,6 +272,7 @@ async function loadDrivers(fit=false){
                 </div>
                 <div class="drv-car">${d.car||'No car info'}${d.driver_name&&d.driver_name!==d.name?` · ${d.name}`:''}</div>
                 ${counters}
+                ${availCtl}
                 ${cpBlock}
                 ${queueBlock}`;
             if(mk){ card.onclick = ()=>{ map.setView([d.lat,d.lng],14); mk.openPopup(); }; }
@@ -376,7 +414,84 @@ async function sendBug(){
         sessionStorage.setItem('pwaDismissed','1');
     });
 })();
+
+// ── Manager controls ────────────────────────────────────────────────────────
+function tToast(msg, ok=true){
+    let t=document.getElementById('tToast');
+    if(!t){ t=document.createElement('div'); t.id='tToast'; document.body.appendChild(t); }
+    t.style.cssText='position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:10000;padding:12px 18px;border-radius:11px;font-weight:600;font-size:.86rem;color:#fff;box-shadow:0 8px 26px rgba(0,0,0,.5);';
+    t.style.background = ok ? '#16a34a' : '#dc2626';
+    t.innerText = msg; t.style.display='block';
+    setTimeout(()=>t.style.display='none', 3000);
+}
+
+async function setAvail(driverName, makeAvailable, btn){
+    if(btn) btn.disabled = true;
+    const fd=new FormData();
+    fd.append('driver_name', driverName);
+    fd.append('available', makeAvailable ? 'true' : 'false');
+    try{
+        const d=await(await fetch('/admin/tracking/availability',{method:'POST',body:fd})).json();
+        if(d.success){ tToast(`${driverName} is now ${d.available?'Available':'Busy'}`); loadDrivers(); }
+        else { tToast(d.error||'Error', false); if(btn) btn.disabled=false; }
+    }catch(e){ tToast('Connection error', false); if(btn) btn.disabled=false; }
+}
+
+async function toggleDone(customerId, btn){
+    try{
+        const d=await(await fetch(`/admin/tracking/pickup-done/${customerId}`,{method:'POST'})).json();
+        if(d.success){ tToast(d.status==='picked_up'?'Marked as picked up':'Reopened'); loadDrivers(); }
+        else tToast(d.error||'Error', false);
+    }catch(e){ tToast('Connection error', false); }
+}
+
+let _raCustomer=null;
+async function openReassign(customerId, customerName, currentDriver){
+    _raCustomer = customerId;
+    document.getElementById('raGuest').innerText = customerName;
+    document.getElementById('raCurrent').innerText = currentDriver || '—';
+    const list=document.getElementById('raList');
+    list.innerHTML='<div style="color:var(--m);text-align:center;padding:16px;">Loading drivers…</div>';
+    document.getElementById('raModal').classList.add('open');
+    try{
+        const d=await(await fetch('/api/assignable-drivers')).json();
+        const rows=(d.drivers||[]).filter(x=>x.name!==currentDriver).map(x=>`
+            <div class="ra-row" onclick="doReassign('${x.name.replace(/'/g,"\\'")}')">
+                <div>
+                    <div class="ra-name">${x.name}</div>
+                    <div class="ra-car">${x.car_string||'<span style="color:var(--m)">no car assigned today</span>'}</div>
+                </div>
+                <span class="ra-badge ${x.available?'free':'busy'}">${x.available?'Available':'Busy'}</span>
+            </div>`).join('');
+        list.innerHTML = rows || '<div style="color:var(--m);text-align:center;padding:16px;">No other drivers found</div>';
+    }catch(e){ list.innerHTML='<div style="color:var(--r);text-align:center;">Could not load drivers</div>'; }
+}
+
+async function doReassign(driverName){
+    if(!_raCustomer) return;
+    const fd=new FormData(); fd.append('driver_name', driverName);
+    try{
+        const d=await(await fetch(`/admin/tracking/reassign/${_raCustomer}`,{method:'POST',body:fd})).json();
+        if(d.success){
+            document.getElementById('raModal').classList.remove('open');
+            tToast(`Reassigned to ${d.driver}${d.previous?` (was ${d.previous})`:''}`);
+            loadDrivers();
+        } else tToast(d.error||'Error', false);
+    }catch(e){ tToast('Connection error', false); }
+}
+
 </script>
 
+
+<div class="cl-modal" id="raModal">
+  <div class="cl-modal-card">
+    <h3>⇄ Reassign Pickup</h3>
+    <p style="font-size:.82rem;color:var(--m2);margin:0;">Guest: <b style="color:var(--t)" id="raGuest"></b><br>Currently with: <b style="color:var(--t)" id="raCurrent"></b></p>
+    <div id="raList" style="display:flex;flex-direction:column;gap:7px;max-height:320px;overflow-y:auto;margin-top:6px;"></div>
+    <div class="cl-modal-btns">
+      <button class="mb mb-cancel" onclick="document.getElementById('raModal').classList.remove('open')">Cancel</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
