@@ -2582,10 +2582,47 @@ def admin_tracking():
         return redirect(url_for("login"))
     return render_template('admin_tracking.html')
 
+def _norm_name(s):
+    """Loose comparison key for vehicle names (case/space/punctuation-insensitive)."""
+    return "".join(ch for ch in (s or "").lower() if ch.isalnum())
+
+def _match_car(gps_name):
+    """Find the Car record for a GPS display_name: exact first, then a loose match
+    (so 'Cadillac Escalade' still matches '2017 Cadillac Escalade ESV SUV')."""
+    car = Car.query.filter_by(name=gps_name).first()
+    if car:
+        return car
+    key = _norm_name(gps_name)
+    if not key:
+        return None
+    for c in Car.query.all():
+        ck = _norm_name(c.name)
+        if not ck:
+            continue
+        if ck == key or ck in key or key in ck:
+            return c
+    return None
+
+def _driver_for_car_today(car, today_p):
+    """Driver assigned to this car today via shift (specific date wins over weekly)."""
+    if not car:
+        return None
+    dow = date.today().weekday()
+    sh = (Shift.query.filter_by(car_id=car.id, active=True)
+          .filter(Shift.specific_date == today_p).first())
+    if not sh:
+        sh = (Shift.query.filter_by(car_id=car.id, active=True)
+              .filter(Shift.day_of_week == dow).first())
+    if not sh:
+        return None
+    return Driver.query.get(sh.driver_id)
+
+
 @app.route('/api/live-drivers', methods=['GET'])
 def api_live_drivers():
-    """Returns every vehicle the OneStepGPS account currently reports, with live coords.
-    Cross-references registered drivers (DB) to add car info + availability."""
+    """Every vehicle OneStepGPS reports, plus that driver's full pickup queue for today.
+    Pickups are linked by DRIVER (via today's shift) as well as by car name, so a
+    driver switching cars — or a car name that doesn't exactly match GPS — still works."""
     if not session.get("logged") or not can_dispatch():
         return jsonify({"error": "Unauthorized"}), 401
     try:
@@ -2597,94 +2634,127 @@ def api_live_drivers():
         data = res.json()
         lista = data if isinstance(data, list) else [data]
 
+        today = date.today()
+        today_np = f"{today.month}/{today.day}/{today.year}"
+        today_p  = f"{today.month:02d}/{today.day:02d}/{today.year}"
+
+        # All of today's transport customers, fetched once
+        todays = [c for c in Customer.query.filter_by(needs_transport=True).all()
+                  if today_np in (c.pickup_datetime or "") or today_p in (c.pickup_datetime or "")]
+
+        def _t(c):
+            if c.pickup_datetime and len(c.pickup_datetime.split(' ')) >= 3:
+                p = c.pickup_datetime.split(' '); return f"{p[1]} {p[2]}"
+            return ""
+
+        def _item(c):
+            return {
+                "customer_id":     c.id,
+                "customer_name":   c.nome,
+                "pickup_address":  c.endereco,
+                "destination":     c.destination,
+                "pickup_time":     _t(c),
+                "dispatch_status": c.dispatch_status,
+                "guests":          c.guests or 0,
+                "status":          c.status,
+                "priority":        bool(getattr(c, 'priority', False)),
+                "is_current":      False,
+            }
+
+        def _build(matched):
+            matched.sort(key=lambda c: (parse_pickup_datetime(c.pickup_datetime) or datetime.max))
+            queue, current, done = [], None, 0
+            for c in matched:
+                it = _item(c)
+                if c.status == 'picked_up':
+                    done += 1
+                elif current is None:
+                    it["is_current"] = True
+                    current = it
+                queue.append(it)
+            return queue, current, done
+
         result = []
+        claimed = set()   # customer ids already shown under a vehicle
+
         for v in lista:
             v_lat = v.get('lat') or v.get('last_tap', {}).get('lat')
             v_lng = v.get('lng') or v.get('last_tap', {}).get('lng')
             if not (v_lat and v_lng):
                 continue
-            name = v.get('display_name', 'Unknown')
-            # Match a registered car profile (if any)
-            car = Car.query.filter_by(name=name).first()
+            gps_name = v.get('display_name', 'Unknown')
+            car = _match_car(gps_name)
+            drv = _driver_for_car_today(car, today_p)
+            driver_name = drv.name if drv else ""
 
-            # Today's full queue for this car (padded + non-padded date formats)
-            today = date.today()
-            today_np = f"{today.month}/{today.day}/{today.year}"
-            today_p  = f"{today.month:02d}/{today.day:02d}/{today.year}"
+            car_names = {gps_name}
+            if car:
+                car_names.add(car.name)
 
-            all_today = (Customer.query
-                         .filter_by(car_name=name, needs_transport=True)
-                         .order_by(Customer.pickup_datetime)
-                         .all())
-            all_today = [c for c in all_today
-                         if today_np in (c.pickup_datetime or "") or today_p in (c.pickup_datetime or "")]
-            # sort chronologically, priority first within the same time
-            all_today.sort(key=lambda c: (parse_pickup_datetime(c.pickup_datetime) or datetime.max))
+            matched = [c for c in todays
+                       if (driver_name and c.motorista == driver_name)
+                       or (c.car_name and c.car_name in car_names)]
+            for c in matched:
+                claimed.add(c.id)
+            if not driver_name and matched:
+                driver_name = matched[0].motorista or ""
 
-            def _t(c):
-                if c.pickup_datetime and len(c.pickup_datetime.split(' ')) >= 3:
-                    p = c.pickup_datetime.split(' '); return f"{p[1]} {p[2]}"
-                return ""
-
-            queue, current, driver_name = [], None, ""
-            done_count = 0
-            for c in all_today:
-                is_done = (c.status == 'picked_up')
-                if is_done:
-                    done_count += 1
-                item = {
-                    "customer_id":     c.id,
-                    "customer_name":   c.nome,
-                    "pickup_address":  c.endereco,
-                    "destination":     c.destination,
-                    "pickup_time":     _t(c),
-                    "dispatch_status": c.dispatch_status,
-                    "guests":          c.guests or 0,
-                    "status":          c.status,
-                    "priority":        bool(getattr(c, 'priority', False)),
-                    "is_current":      False,
-                }
-                queue.append(item)
-                if not driver_name and c.motorista:
-                    driver_name = c.motorista
-                # first not-yet-picked-up = the one they're heading to now
-                if current is None and not is_done:
-                    item["is_current"] = True
-                    current = item
-
-            # Fall back to today's shift to name the driver when there are no pickups
-            if not driver_name and car:
-                dow = today.weekday()
-                sh = (Shift.query.filter_by(car_id=car.id, active=True)
-                      .filter((Shift.day_of_week == dow) | (Shift.specific_date == today_p))
-                      .first())
-                if sh:
-                    d = Driver.query.get(sh.driver_id)
-                    if d:
-                        driver_name = d.name
-
+            queue, current, done = _build(matched)
             result.append({
-                "name": name,
+                "name": gps_name,
                 "driver_name": driver_name,
                 "lat": float(v_lat),
                 "lng": float(v_lng),
                 "registered": bool(car),
-                "available": car.active if car else None,
+                "available": (drv.available if drv else (car.active if car else None)),
                 "car": car.car_string() if car else "",
                 "phone": "",
                 "current_pickup": current,
                 "queue": queue,
                 "total_pickups": len(queue),
-                "remaining": len(queue) - done_count,
-                "completed": done_count,
+                "remaining": len(queue) - done,
+                "completed": done,
                 "total_guests": sum(i["guests"] for i in queue),
                 "priority_count": sum(1 for i in queue if i["priority"] and i["status"] != 'picked_up'),
+                "no_gps": False,
             })
-        return jsonify({"drivers": result, "count": len(result)})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
-# ─── GUEST LIST (admin only) ──────────────────────────────────────────────────
+        # Drivers with pickups today whose vehicle isn't reporting GPS — dispatch
+        # still needs to see these, otherwise the pickups silently disappear.
+        offline = {}
+        for c in todays:
+            if c.id in claimed:
+                continue
+            key = c.motorista or "Unassigned"
+            offline.setdefault(key, []).append(c)
+
+        offline_list = []
+        for dname, custs in offline.items():
+            queue, current, done = _build(custs)
+            offline_list.append({
+                "name": dname,
+                "driver_name": dname,
+                "lat": None, "lng": None,
+                "registered": False,
+                "available": None,
+                "car": (custs[0].car_string_val or ""),
+                "phone": "",
+                "current_pickup": current,
+                "queue": queue,
+                "total_pickups": len(queue),
+                "remaining": len(queue) - done,
+                "completed": done,
+                "total_guests": sum(i["guests"] for i in queue),
+                "priority_count": sum(1 for i in queue if i["priority"] and i["status"] != 'picked_up'),
+                "no_gps": True,
+            })
+
+        return jsonify({"drivers": result, "offline_drivers": offline_list,
+                        "count": len(result), "offline_count": len(offline_list)})
+    except Exception as e:
+        print(f"[TRACKING] failed: {e}", flush=True)
+        return jsonify({"error": str(e), "drivers": [], "offline_drivers": []})
+
 @app.route('/admin/guestlist')
 def admin_guestlist():
     if not session.get("logged") or not can_dispatch():
