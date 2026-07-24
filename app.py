@@ -292,6 +292,30 @@ class Car(db.Model):
             "active": self.active, "car_string": self.car_string()
         }
 
+class DriverStop(db.Model):
+    """A period where a vehicle stayed in the same place long enough to count as a stop.
+    Built from the GPS samples the tracker already polls every couple of minutes."""
+    id           = db.Column(db.Integer, primary_key=True)
+    car_name     = db.Column(db.String(120), index=True)   # OneStepGPS display_name
+    driver_name  = db.Column(db.String(120), default="")   # driver on shift at the time
+    lat          = db.Column(db.Float)
+    lng          = db.Column(db.Float)
+    address      = db.Column(db.String(300), default="")   # reverse-geocoded once
+    started_at   = db.Column(db.DateTime)
+    ended_at     = db.Column(db.DateTime, nullable=True)   # null while still parked there
+    duration_min = db.Column(db.Integer, default=0)
+    ongoing      = db.Column(db.Boolean, default=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "car_name": self.car_name, "driver_name": self.driver_name,
+            "lat": self.lat, "lng": self.lng, "address": self.address,
+            "started_at": vegas_time(self.started_at),
+            "ended_at": vegas_time(self.ended_at) if self.ended_at else "",
+            "started_full": vegas_datetime(self.started_at),
+            "duration_min": self.duration_min, "ongoing": self.ongoing,
+        }
+
 class Shift(db.Model):
     """
     Assigns a driver + car for a time window.
@@ -348,6 +372,10 @@ class Customer(db.Model):
     here_photo      = db.Column(db.Text, default="")                   # base64 image from driver "I'm here"
     here_photo_at   = db.Column(db.DateTime, nullable=True)            # when photo was uploaded (for 24h cleanup)
     priority        = db.Column(db.Boolean, default=False)             # club managers can flag priority pickups
+    picked_up_at    = db.Column(db.DateTime, nullable=True)            # when the driver collected the guest
+    dropped_off_at  = db.Column(db.DateTime, nullable=True)            # when the guest was dropped at the venue
+    dropoff_verified = db.Column(db.Boolean, default=False)            # GPS confirmed arrival at the property
+    dropoff_distance_mi = db.Column(db.Float, default=0.0)             # car-to-venue distance at drop-off
     promoter        = db.Column(db.String(80), default="")             # NEW: which promoter created this
     # Pickup status: 'scheduled', 'picked_up'
     status          = db.Column(db.String(20), default="scheduled")
@@ -568,6 +596,27 @@ def send_sms_many(phones, body, media_url=""):
 def send_sms_bg(to, body, media_url=""):
     """Background single send."""
     return send_sms_many([to], body, media_url)
+
+def vegas_time(dt):
+    """Format a stored UTC timestamp in Las Vegas local time (handles DST)."""
+    if not dt:
+        return ""
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import timezone as _tz
+        return dt.replace(tzinfo=_tz.utc).astimezone(ZoneInfo("America/Los_Angeles")).strftime("%I:%M %p")
+    except Exception:
+        return (dt - timedelta(hours=7)).strftime("%I:%M %p")
+
+def vegas_datetime(dt):
+    if not dt:
+        return ""
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import timezone as _tz
+        return dt.replace(tzinfo=_tz.utc).astimezone(ZoneInfo("America/Los_Angeles")).strftime("%m/%d/%Y %I:%M %p")
+    except Exception:
+        return (dt - timedelta(hours=7)).strftime("%m/%d/%Y %I:%M %p")
 
 def parse_pickup_datetime(dt_str):
     """
@@ -1880,6 +1929,8 @@ def driver_dashboard():
             "package": c.package, "guests": c.guests, "details": c.details,
             "time": time_part, "status": c.status,
             "dispatch_status": c.dispatch_status,
+            "dropped_at": vegas_time(c.dropped_off_at),
+            "picked_at": vegas_time(c.picked_up_at),
             "lat": p_lat, "lng": p_lng, "dist_mi": dist_mi,
             "car_string": c.car_string_val,
             "_dt": parse_pickup_datetime(c.pickup_datetime),
@@ -1967,8 +2018,81 @@ def mark_picked_up(customer_id):
     if not _driver_owns(customer):
         return jsonify({"success": False, "error": "Not your customer"})
     customer.status = "picked_up"
+    customer.picked_up_at = datetime.utcnow()
     db.session.commit()
-    return jsonify({"success": True})
+    fire_webhook({
+        "type":           "picked_up",
+        "customer_id":    customer.id,
+        "customer_name":  customer.nome,
+        "driver_name":    customer.motorista,
+        "destination":    customer.destination,
+        "picked_up_at":   vegas_datetime(customer.picked_up_at),
+    })
+    return jsonify({"success": True, "picked_up_at": vegas_time(customer.picked_up_at)})
+
+@app.route('/driver/dropoff/<int:customer_id>', methods=['POST'])
+def driver_dropoff(customer_id):
+    """Driver confirms the guest was dropped off at the venue.
+    Records the time and, when GPS is available, verifies the car was actually
+    at the destination club (so 'made it to property' isn't just self-reported)."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"})
+    c = Customer.query.get_or_404(customer_id)
+    if not _driver_owns(c):
+        return jsonify({"success": False, "error": "Not your customer"})
+
+    c.status = "dropped_off"
+    c.dropped_off_at = datetime.utcnow()
+    if not c.picked_up_at:
+        c.picked_up_at = c.dropped_off_at
+    c.club_status = "arrived"
+
+    # GPS verification: how far is the car from the destination club right now?
+    verified, dist_mi = False, 0.0
+    try:
+        club = Club.query.filter_by(name=c.destination).first()
+        if club and club.address and c.car_name:
+            headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+            res = requests.get("https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
+                               headers=headers_api, timeout=8).json()
+            lista = res if isinstance(res, list) else [res]
+            car_lat = car_lng = None
+            for v in lista:
+                if _norm_name(v.get('display_name', '')) == _norm_name(c.car_name):
+                    car_lat = v.get('lat') or v.get('last_tap', {}).get('lat')
+                    car_lng = v.get('lng') or v.get('last_tap', {}).get('lng')
+                    break
+            if car_lat and car_lng:
+                encoded = urllib.parse.quote(club.address)
+                geo = requests.get(
+                    f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1",
+                    headers={'User-Agent': 'ClubLifter_App'}, timeout=8).json()
+                if geo:
+                    dist_mi = round(calcular_distancia(float(car_lat), float(car_lng),
+                                                       float(geo[0]['lat']), float(geo[0]['lon'])), 2)
+                    verified = dist_mi <= 0.25   # within ~400 m of the venue
+    except Exception as e:
+        print(f"[DROPOFF] GPS verification skipped: {e}", flush=True)
+
+    c.dropoff_verified = verified
+    c.dropoff_distance_mi = dist_mi
+    db.session.commit()
+
+    fire_webhook({
+        "type":            "dropped_off",
+        "customer_id":     c.id,
+        "customer_name":   c.nome,
+        "customer_phone":  c.phone,
+        "driver_name":     c.motorista,
+        "driver_car":      c.car_string_val or "",
+        "destination":     c.destination,
+        "dropped_off_at":  vegas_datetime(c.dropped_off_at),
+        "verified_at_venue": verified,
+        "distance_to_venue_mi": dist_mi,
+        "guests":          c.guests,
+    })
+    return jsonify({"success": True, "dropped_off_at": vegas_time(c.dropped_off_at),
+                    "verified": verified, "distance_mi": dist_mi})
 
 @app.route('/driver/report-problem', methods=['POST'])
 def report_problem():
@@ -2690,6 +2814,67 @@ def _driver_for_car_today(car, today_p):
     return Driver.query.get(sh.driver_id)
 
 
+def can_see_driver_tracking():
+    """Driver Tracking (stop history) is limited to master and club owners."""
+    return session.get("role") in ("master", "club_owner")
+
+@app.route('/admin/driver-tracking')
+def admin_driver_tracking():
+    if not session.get("logged") or not can_see_driver_tracking():
+        return redirect(url_for("login"))
+    return render_template('admin_driver_tracking.html')
+
+@app.route('/api/driver-stops')
+def api_driver_stops():
+    """Stop history. ?date=YYYY-MM-DD (default today), ?driver=name, ?min=minutes"""
+    if not session.get("logged") or not can_see_driver_tracking():
+        return jsonify({"error": "Unauthorized"}), 401
+    day_iso = request.args.get('date', date.today().strftime("%Y-%m-%d"))
+    driver_f = (request.args.get('driver', '') or "").strip()
+    try:
+        min_min = int(request.args.get('min', 5))
+    except ValueError:
+        min_min = 5
+
+    # Vegas day → UTC window
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import timezone as _tz
+        tz = ZoneInfo("America/Los_Angeles")
+        y, m, d = [int(x) for x in day_iso.split("-")]
+        start_local = datetime(y, m, d, 0, 0, tzinfo=tz)
+        end_local = start_local + timedelta(days=1)
+        start_utc = start_local.astimezone(_tz.utc).replace(tzinfo=None)
+        end_utc = end_local.astimezone(_tz.utc).replace(tzinfo=None)
+    except Exception:
+        y, m, d = [int(x) for x in day_iso.split("-")]
+        start_utc = datetime(y, m, d) + timedelta(hours=7)
+        end_utc = start_utc + timedelta(days=1)
+
+    q = (DriverStop.query
+         .filter(DriverStop.started_at >= start_utc, DriverStop.started_at < end_utc)
+         .filter(DriverStop.duration_min >= min_min))
+    if driver_f:
+        q = q.filter((DriverStop.driver_name == driver_f) | (DriverStop.car_name == driver_f))
+    stops = q.order_by(DriverStop.started_at.desc()).all()
+
+    # Group by driver (falling back to the vehicle when no driver is on shift)
+    groups = {}
+    for s in stops:
+        key = s.driver_name or s.car_name or "Unknown"
+        g = groups.setdefault(key, {"driver": key, "car_name": s.car_name,
+                                    "stops": [], "total_min": 0, "count": 0})
+        g["stops"].append(s.to_dict())
+        g["total_min"] += (s.duration_min or 0)
+        g["count"] += 1
+    out = sorted(groups.values(), key=lambda g: g["total_min"], reverse=True)
+
+    drivers = sorted({s.driver_name for s in DriverStop.query.all() if s.driver_name})
+    return jsonify({"groups": out, "date": day_iso, "min": min_min,
+                    "known_drivers": drivers,
+                    "total_stops": len(stops),
+                    "total_minutes": sum(s.duration_min or 0 for s in stops)})
+
 @app.route('/admin/tracking/availability', methods=['POST'])
 def tracking_set_availability():
     """Manager-side override of a driver's Busy/Available status."""
@@ -2990,8 +3175,48 @@ def admin_guestlist():
         customers=all_customers, clubs=clubs,
         filter_type=filter_type, filter_club=filter_club,
         filter_date_iso=filter_date_iso, view_all=view_all,
-        total=total, coming=coming, arrived=arrived, left=left_
+        total=total, coming=coming, arrived=arrived, left=left_,
+        vt=vegas_time
     )
+
+@app.route('/admin/guestlist/export')
+def export_guestlist():
+    """CSV export of the guest list, including who drove and the ride timeline."""
+    if not session.get("logged") or not can_dispatch():
+        return redirect(url_for("login"))
+    import csv as _csv, io as _io
+    view_all = request.args.get('view', '') == 'all'
+    filter_date_iso = request.args.get('date', date.today().strftime("%Y-%m-%d"))
+    rows = Customer.query.order_by(Customer.pickup_datetime).all()
+    if not view_all:
+        try:
+            y, m, d = filter_date_iso.split("-")
+            np_, pd_ = f"{int(m)}/{int(d)}/{y}", f"{int(m):02d}/{int(d):02d}/{y}"
+            rows = [c for c in rows if np_ in (c.pickup_datetime or "") or pd_ in (c.pickup_datetime or "")]
+        except Exception:
+            pass
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["Date", "Scheduled Time", "Guest", "Phone", "Guests", "Package",
+                "Pickup Address", "Destination", "Driver", "Car",
+                "Picked Up At", "Dropped Off At", "Arrived At Property",
+                "Distance To Venue (mi)", "Status", "Priority", "Promoter"])
+    for c in rows:
+        parts = (c.pickup_datetime or "").split(" ")
+        d_part = parts[0] if parts else ""
+        t_part = " ".join(parts[1:3]) if len(parts) >= 3 else ""
+        w.writerow([
+            d_part, t_part, c.nome, c.phone, c.guests, c.package,
+            c.endereco, c.destination, c.motorista, c.car_string_val,
+            vegas_datetime(c.picked_up_at), vegas_datetime(c.dropped_off_at),
+            ("Yes" if c.dropoff_verified else ("No" if c.dropped_off_at else "")),
+            (c.dropoff_distance_mi or "") if c.dropped_off_at else "",
+            c.status, ("Yes" if getattr(c, 'priority', False) else "No"), c.promoter or "",
+        ])
+    out = buf.getvalue()
+    fname = f"clublifter_guestlist_{'all' if view_all else filter_date_iso}.csv"
+    return app.response_class(out, mimetype='text/csv',
+        headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 @app.route('/admin/guestlist/status/<int:customer_id>', methods=['POST'])
 def update_club_status(customer_id):
@@ -3121,6 +3346,92 @@ def customer_eta(customer_id):
         return jsonify({"eta_min": None, "distance_km": None, "reason": str(e)}), 500
 
 # ─── BACKGROUND DISTANCE TRACKER (15km/5km notifications) ─────────────────────
+# ─── DRIVER STOP DETECTION ────────────────────────────────────────────────────
+STOP_RADIUS_MI = 0.05    # ~80 m — within this, the vehicle counts as "not moving"
+MIN_STOP_MIN   = 5       # only record a stop once it lasts this long
+_stop_anchors  = {}      # car_name -> {"lat","lng","since","stop_id"}
+
+def _reverse_geocode(lat, lng):
+    try:
+        r = requests.get(
+            f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lng}&format=json&zoom=18",
+            headers={'User-Agent': 'ClubLifter_StopTracker'}, timeout=8).json()
+        return (r.get('display_name') or "")[:300]
+    except Exception:
+        return ""
+
+def detect_driver_stops():
+    """Compare each vehicle's current position with its anchor point.
+    Still there → the stop grows. Moved away → the stop is closed."""
+    try:
+        headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+        res = requests.get("https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
+                           headers=headers_api, timeout=10).json()
+        lista = res if isinstance(res, list) else [res]
+    except Exception as e:
+        print(f"[STOPS] GPS fetch failed: {e}", flush=True)
+        return
+
+    now = datetime.utcnow()
+    today = date.today()
+    today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
+
+    for v in lista:
+        name = v.get('display_name', '')
+        lat = v.get('lat') or v.get('last_tap', {}).get('lat')
+        lng = v.get('lng') or v.get('last_tap', {}).get('lng')
+        if not name or not lat or not lng:
+            continue
+        try:
+            lat, lng = float(lat), float(lng)
+        except (TypeError, ValueError):
+            continue
+
+        anchor = _stop_anchors.get(name)
+        if anchor is None:
+            _stop_anchors[name] = {"lat": lat, "lng": lng, "since": now, "stop_id": None}
+            continue
+
+        moved = calcular_distancia(anchor["lat"], anchor["lng"], lat, lng)
+        if moved > STOP_RADIUS_MI:
+            # Vehicle left — close any open stop and re-anchor
+            if anchor.get("stop_id"):
+                st = DriverStop.query.get(anchor["stop_id"])
+                if st and st.ongoing:
+                    st.ended_at = now
+                    st.duration_min = max(1, int((now - st.started_at).total_seconds() // 60))
+                    st.ongoing = False
+                    db.session.commit()
+                    print(f"[STOPS] {name} left after {st.duration_min} min", flush=True)
+            _stop_anchors[name] = {"lat": lat, "lng": lng, "since": now, "stop_id": None}
+            continue
+
+        # Still in the same place
+        minutes = int((now - anchor["since"]).total_seconds() // 60)
+        if minutes < MIN_STOP_MIN:
+            continue
+
+        car = _match_car(name)
+        drv = _driver_for_car_today(car, today_p)
+        driver_name = drv.name if drv else ""
+
+        if anchor.get("stop_id"):
+            st = DriverStop.query.get(anchor["stop_id"])
+            if st:
+                st.duration_min = minutes
+                if driver_name and not st.driver_name:
+                    st.driver_name = driver_name
+                db.session.commit()
+        else:
+            st = DriverStop(car_name=name, driver_name=driver_name,
+                            lat=anchor["lat"], lng=anchor["lng"],
+                            address=_reverse_geocode(anchor["lat"], anchor["lng"]),
+                            started_at=anchor["since"], duration_min=minutes, ongoing=True)
+            db.session.add(st)
+            db.session.commit()
+            anchor["stop_id"] = st.id
+            print(f"[STOPS] {name} parked at {st.address[:60]} ({minutes} min)", flush=True)
+
 def distance_tracker_loop():
     """
     Runs in background. Every 2 minutes checks all 'scheduled' customers
@@ -3131,6 +3442,12 @@ def distance_tracker_loop():
         try:
             time.sleep(120)  # check every 2 minutes
             with app.app_context():
+                # ── Driver stop detection (parked-too-long tracking) ──
+                try:
+                    detect_driver_stops()
+                except Exception as e:
+                    print(f"[STOPS] detection error: {e}", flush=True)
+
                 # ── Purge "I'm here" photos older than 24h ──
                 try:
                     cutoff = datetime.utcnow() - timedelta(hours=24)
@@ -3428,6 +3745,10 @@ with app.app_context():
     safe_migrate("customer", "here_photo",      "ALTER TABLE customer ADD COLUMN here_photo TEXT DEFAULT ''")
     safe_migrate("customer", "here_photo_at",   "ALTER TABLE customer ADD COLUMN here_photo_at DATETIME")
     safe_migrate("customer", "priority",        "ALTER TABLE customer ADD COLUMN priority BOOLEAN DEFAULT 0")
+    safe_migrate("customer", "picked_up_at",    "ALTER TABLE customer ADD COLUMN picked_up_at DATETIME")
+    safe_migrate("customer", "dropped_off_at",  "ALTER TABLE customer ADD COLUMN dropped_off_at DATETIME")
+    safe_migrate("customer", "dropoff_verified","ALTER TABLE customer ADD COLUMN dropoff_verified BOOLEAN DEFAULT 0")
+    safe_migrate("customer", "dropoff_distance_mi", "ALTER TABLE customer ADD COLUMN dropoff_distance_mi FLOAT DEFAULT 0")
     safe_migrate("customer", "car_name",        "ALTER TABLE customer ADD COLUMN car_name VARCHAR(100) DEFAULT ''")
     safe_migrate("customer", "car_string_val",  "ALTER TABLE customer ADD COLUMN car_string_val VARCHAR(200) DEFAULT ''")
     safe_migrate("customer", "car_photo",       "ALTER TABLE customer ADD COLUMN car_photo VARCHAR(255) DEFAULT ''")

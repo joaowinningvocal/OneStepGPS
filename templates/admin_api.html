@@ -84,7 +84,7 @@
         <div class="nav-r">
             <div class="pills-desk" style="display:flex;gap:7px;">
                 <a href="/admin/today"    class="pill">Today</a>
-                <a href="/admin/tracking" class="pill">Tracking</a>
+                <a href="/admin/tracking" class="pill">Tracking</a>{% if session.get('role') in ['master','club_owner'] %}<a href="/admin/driver-tracking" class="pill">Driver Tracking</a>{% endif %}
                 <a href="/admin/guestlist" class="pill">Guest List</a>
                 {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages" class="pill">Packages</a>{% endif %}
                 {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers"  class="pill">Drivers</a>{% endif %}
@@ -99,7 +99,7 @@
     </div>
     <div class="mobile-menu" id="mobileMenu">
         <a href="/admin/today">Today</a>
-        <a href="/admin/tracking">Tracking</a>
+        <a href="/admin/tracking">Tracking</a>{% if session.get('role') in ['master','club_owner'] %}<a href="/admin/driver-tracking">Driver Tracking</a>{% endif %}
         <a href="/admin/guestlist">Guest List</a>
         {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages">Packages</a>{% endif %}
         {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers">Drivers</a>{% endif %}

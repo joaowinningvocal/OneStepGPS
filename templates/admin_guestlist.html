@@ -71,6 +71,15 @@
         .b-transport{background:rgba(138,92,246,.1);color:var(--acc);border:1px solid rgba(138,92,246,.4);}
         .b-walkin{background:rgba(251,191,36,.1);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
         .b-dest{background:rgba(149,191,71,.1);color:#95bf47;border:1px solid rgba(149,191,71,.4);}
+        .ride-cell{font-size:.74rem;line-height:1.45;}
+        .ride-drv{font-weight:700;color:var(--t);}
+        .ride-line{color:var(--m2);white-space:nowrap;}
+        .ride-line.drop{color:var(--g);}
+        .ride-line.pend{color:var(--gold);font-style:italic;}
+        .v-ok{color:var(--g);font-size:.68rem;font-weight:700;margin-left:3px;}
+        .v-no{color:var(--gold);font-size:.68rem;margin-left:3px;}
+        .btn-export{font-size:.74rem;font-weight:700;padding:7px 14px;border-radius:9px;border:1px solid var(--bd);background:var(--s2);color:var(--m2);cursor:pointer;text-decoration:none;display:inline-block;}
+        .btn-export:hover{color:var(--g);border-color:rgba(34,197,94,.4);}
         .prio-star{background:none;border:none;color:#3a4252;font-size:1.05rem;cursor:pointer;padding:0 4px;transition:.15s;vertical-align:middle;}
         .prio-star:hover{color:#fbbf24;transform:scale(1.15);}
         .prio-star.on{color:#fbbf24;text-shadow:0 0 8px rgba(251,191,36,.5);}
@@ -165,7 +174,7 @@
         <div class="nav-r">
             <div class="pills-desk" style="display:flex;gap:7px;">
                 <a href="/admin/today"    class="pill">Today</a>
-                <a href="/admin/tracking" class="pill">Tracking</a>
+                <a href="/admin/tracking" class="pill">Tracking</a>{% if session.get('role') in ['master','club_owner'] %}<a href="/admin/driver-tracking" class="pill">Driver Tracking</a>{% endif %}
                 <a href="/admin/guestlist" class="pill act">Guest List</a>
                 {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages" class="pill">Packages</a>{% endif %}
                 {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers"  class="pill">Drivers</a>{% endif %}
@@ -181,7 +190,7 @@
 
     <div class="mobile-menu" id="mobileMenu">
         <a href="/admin/today">Today</a>
-        <a href="/admin/tracking">Tracking</a>
+        <a href="/admin/tracking">Tracking</a>{% if session.get('role') in ['master','club_owner'] %}<a href="/admin/driver-tracking">Driver Tracking</a>{% endif %}
         <a href="/admin/guestlist" class="act">Guest List</a>
         {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages">Packages</a>{% endif %}
         {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers">Drivers</a>{% endif %}
@@ -232,6 +241,10 @@
                 <input type="date" class="fc" value="{{ filter_date_iso }}" id="dateFilter"
                     onchange="window.location='?type={{ filter_type }}&club={{ filter_club }}&date='+this.value">
             </div>
+            <div>
+                <label>Export</label>
+                <a class="btn-export" href="/admin/guestlist/export?date={{ filter_date_iso }}{{ '&view=all' if view_all else '' }}">⬇️ Download CSV</a>
+            </div>
         </div>
         {% if view_all %}
         <div style="font-size:.74rem;color:var(--m2);margin-top:10px;">🗂️ Showing all guests, most recent first.</div>
@@ -246,7 +259,7 @@
                 <thead>
                     <tr>
                         <th>Date</th><th>Time</th><th>Name</th><th>Phones</th><th>Type</th>
-                        <th>Destination</th><th>Dispatch</th><th>Status</th><th></th>
+                        <th>Destination</th><th>Ride</th><th>Dispatch</th><th>Status</th><th></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -273,6 +286,20 @@
                         <td>{% if c.destination %}<span class="bg b-dest">🏢 {{ c.destination }}</span>{% else %}—{% endif %}</td>
                         <td>
                             {% if c.needs_transport %}
+                              <div class="ride-cell">
+                                <div class="ride-drv">{{ c.motorista or '—' }}</div>
+                                {% if c.picked_up_at %}<div class="ride-line">🚗 {{ vt(c.picked_up_at) }}</div>{% endif %}
+                                {% if c.dropped_off_at %}
+                                  <div class="ride-line drop">🏁 {{ vt(c.dropped_off_at) }}
+                                    {% if c.dropoff_verified %}<span class="v-ok" title="GPS confirmed at venue">✓ at venue</span>
+                                    {% else %}<span class="v-no" title="Not confirmed by GPS ({{ c.dropoff_distance_mi }} mi away)">unconfirmed</span>{% endif %}
+                                  </div>
+                                {% elif c.picked_up_at %}<div class="ride-line pend">in transit…</div>{% endif %}
+                              </div>
+                            {% else %}<span style="color:var(--m);font-size:.74rem;">—</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if c.needs_transport %}
                             <div class="dispatch-group">
                                 <button class="dsb {{ 'act-sent' if c.dispatch_status=='sent' else '' }}"           onclick="setDispatch({{ c.id }}, 'sent', this)" title="Driver notified">📤 Sent</button>
                                 <button class="dsb {{ 'act-confirmed' if c.dispatch_status=='confirmed' else '' }}" onclick="setDispatch({{ c.id }}, 'confirmed', this)" title="Driver confirmed enroute">✅ Confirmed</button>
@@ -291,13 +318,16 @@
                     </tr>
                     <!-- EXPANDABLE DETAIL ROW -->
                     <tr id="details-{{ c.id }}" class="detail-row" style="display:none;">
-                        <td colspan="9">
+                        <td colspan="10">
                             <div class="detail-box">
                                 <div class="detail-grid">
                                     <div class="detail-item"><span class="dlabel">📍 Pickup Location</span><span class="dval">{{ c.endereco or '—' }}</span></div>
                                     <div class="detail-item"><span class="dlabel">🏢 Destination</span><span class="dval">{{ c.destination or '—' }}</span></div>
                                     <div class="detail-item"><span class="dlabel">🎟️ Package</span><span class="dval">{{ c.package or '—' }}</span></div>
                                     <div class="detail-item"><span class="dlabel">👥 Guests</span><span class="dval">{{ c.guests or '—' }}</span></div>
+                                    <div class="detail-item"><span class="dlabel">🚗 Driver</span><span class="dval">{{ c.motorista or '—' }}{% if c.car_string_val %} · {{ c.car_string_val }}{% endif %}</span></div>
+                                    <div class="detail-item"><span class="dlabel">⏱️ Picked Up</span><span class="dval">{{ vt(c.picked_up_at) or '—' }}</span></div>
+                                    <div class="detail-item"><span class="dlabel">🏁 Dropped Off</span><span class="dval">{{ vt(c.dropped_off_at) or '—' }}{% if c.dropped_off_at %} · {{ '✓ confirmed at venue' if c.dropoff_verified else 'not GPS-confirmed (' ~ c.dropoff_distance_mi ~ ' mi away)' }}{% endif %}</span></div>
                                     <div class="detail-item"><span class="dlabel">🚘 Driver</span><span class="dval">{{ c.motorista or '—' }}{% if c.motorista_phone %} · {{ c.motorista_phone }}{% endif %}</span></div>
                                     <div class="detail-item"><span class="dlabel">🚗 Car</span><span class="dval">{{ c.car_string_val or '—' }}</span></div>
                                     <div class="detail-item"><span class="dlabel">📝 Notes</span><span class="dval">{{ c.details or '—' }}</span></div>

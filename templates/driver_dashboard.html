@@ -67,6 +67,9 @@
         .ab-here{background:linear-gradient(135deg,var(--g),#16a34a);}
         .ab-custom{background:linear-gradient(135deg,var(--acc),var(--acc2));}
         .ab-call{background:linear-gradient(135deg,#0ea5e9,#0369a1);}
+        .ab-drop{background:var(--s2);border:1px solid rgba(251,191,36,.35);color:var(--gold);grid-column:span 2;}
+        .ab-drop:hover{background:rgba(251,191,36,.12);}
+        .ab-drop.done{background:rgba(34,197,94,.12);color:var(--g);border-color:rgba(34,197,94,.4);}
         .ab-pick{background:var(--s2);border:1px solid var(--bd);color:var(--m2);grid-column:span 2;}
         .ab-pick:hover{color:var(--t);}
         .ab-pick.done{background:rgba(34,197,94,.12);color:var(--g);border-color:rgba(34,197,94,.4);}
@@ -157,8 +160,11 @@
                             <button class="ab ab-here" onclick="openHere({{ p.id }})">📍 I'm Here</button>
                             <button class="ab ab-call ab-full" onclick="startCall({{ p.id }})">📞 Start Call</button>
                             <button class="ab ab-custom ab-full" onclick="openCustom({{ p.id }})">✍️ Custom Message</button>
-                            <button class="ab ab-pick {{ 'done' if p.status=='picked_up' else '' }}" id="pickbtn-{{ p.id }}" onclick="markPicked({{ p.id }})">
-                                {{ '✅ Picked Up' if p.status=='picked_up' else 'Mark as Picked Up' }}
+                            <button class="ab ab-pick {{ 'done' if p.status in ['picked_up','dropped_off'] else '' }}" id="pickbtn-{{ p.id }}" onclick="markPicked({{ p.id }})">
+                                {{ '✅ Picked Up' if p.status in ['picked_up','dropped_off'] else 'Mark as Picked Up' }}
+                            </button>
+                            <button class="ab ab-drop {{ 'done' if p.status=='dropped_off' else '' }}" id="dropbtn-{{ p.id }}" onclick="markDropped({{ p.id }})">
+                                {{ '🏁 Dropped Off · ' ~ p.dropped_at if p.status=='dropped_off' else '🏁 Dropped Off' }}
                             </button>
                         </div>
                     </div>
@@ -322,6 +328,20 @@ async function switchCar(carId, carName, assignedTo){
             if(d2.success){closeModal('carModal');toast(`🚗 Switched to ${carName}`);setTimeout(()=>location.reload(),1200);}
             else toast(d2.error||'Error',false);
         }
+    } else toast(d.error||'Error',false);
+}
+
+// ---- Dropped off ----
+async function markDropped(id){
+    const d=await(await fetch(`/driver/dropoff/${id}`,{method:'POST'})).json();
+    if(d.success){
+        const b=document.getElementById('dropbtn-'+id);
+        b.className='ab ab-drop done';
+        b.innerText='🏁 Dropped Off · '+(d.dropped_off_at||'');
+        const pb=document.getElementById('pickbtn-'+id);
+        if(pb){pb.className='ab ab-pick done';pb.innerText='✅ Picked Up';}
+        document.getElementById('pk-'+id).classList.add('done');
+        toast(d.verified?'🏁 Drop-off confirmed at the venue':'🏁 Drop-off recorded');
     } else toast(d.error||'Error',false);
 }
 

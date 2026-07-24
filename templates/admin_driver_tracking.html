@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="google" content="notranslate">
+    <meta name="format-detection" content="telephone=no,date=no,address=no,email=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClubLifter — Driver Tracking</title>
+    <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--s3:#0d1117;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--acc2:#6d28d9;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--b:#3b82f6;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
+        *{margin:0;padding:0;box-sizing:border-box;text-decoration:none;}
+        body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;padding:14px;}
+        .wrap{max-width:1400px;margin:0 auto;}
+        .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 18px;margin-bottom:14px;background:var(--s);border:1px solid var(--bd);border-radius:14px;flex-wrap:wrap;}
+        .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:var(--acc);}
+        .brand span{color:var(--t);}
+        .pills{display:flex;gap:7px;flex-wrap:wrap;}
+        .pill{font-size:.76rem;font-weight:600;color:var(--m2);padding:7px 13px;border-radius:20px;border:1px solid var(--bd);}
+        .pill:hover{color:var(--t);border-color:var(--bhi);}
+        .pill.act{color:#fff;background:linear-gradient(135deg,var(--acc),var(--acc2));border-color:transparent;}
+        h1{font-family:'Syne',sans-serif;font-size:1.3rem;margin-bottom:3px;}
+        .sub{font-size:.8rem;color:var(--m2);margin-bottom:14px;}
+        .card{background:var(--s);border:1px solid var(--bd);border-radius:16px;padding:18px;margin-bottom:14px;}
+        .filters{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;}
+        .f label{display:block;font-size:.68rem;font-weight:700;color:var(--m2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}
+        .fc,.fs{background:var(--s3);border:1px solid var(--bd);color:var(--t);border-radius:9px;padding:9px 12px;font-size:.85rem;font-family:'DM Sans',sans-serif;}
+        .stats{display:flex;gap:9px;flex-wrap:wrap;margin-left:auto;}
+        .stat{background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:8px 14px;text-align:center;}
+        .stat b{display:block;font-family:'Syne',sans-serif;font-size:1.1rem;}
+        .stat span{font-size:.66rem;color:var(--m2);text-transform:uppercase;letter-spacing:.4px;}
+        .layout{display:grid;grid-template-columns:1fr 420px;gap:14px;}
+        #map{height:calc(100vh - 300px);min-height:400px;border-radius:14px;border:1px solid var(--bd);}
+        .list{max-height:calc(100vh - 300px);overflow-y:auto;display:flex;flex-direction:column;gap:11px;padding-right:4px;}
+        .grp{background:var(--s);border:1px solid var(--bd);border-radius:14px;padding:14px;}
+        .grp-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;}
+        .grp-name{font-family:'Syne',sans-serif;font-weight:700;font-size:.98rem;}
+        .grp-meta{font-size:.72rem;color:var(--m2);margin-bottom:9px;}
+        .grp-total{font-size:.72rem;font-weight:700;color:var(--gold);background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.35);border-radius:11px;padding:3px 10px;white-space:nowrap;}
+        .stop{display:flex;gap:10px;padding:9px 10px;background:var(--s2);border:1px solid var(--bd);border-radius:9px;margin-top:7px;cursor:pointer;transition:.15s;}
+        .stop:hover{border-color:var(--bhi);}
+        .stop.long{border-color:rgba(239,68,68,.4);background:rgba(239,68,68,.05);}
+        .stop.ongoing{border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.05);}
+        .dur{flex-shrink:0;font-family:'Syne',sans-serif;font-weight:800;font-size:.86rem;min-width:52px;text-align:center;color:var(--m2);}
+        .stop.long .dur{color:var(--r);}
+        .stop.ongoing .dur{color:var(--g);}
+        .stop-info{flex:1;min-width:0;}
+        .stop-addr{font-size:.78rem;line-height:1.35;}
+        .stop-time{font-size:.7rem;color:var(--m);margin-top:3px;}
+        .badge-now{font-size:.62rem;font-weight:700;color:var(--g);border:1px solid rgba(34,197,94,.4);border-radius:9px;padding:1px 6px;margin-left:5px;}
+        .empty{text-align:center;padding:40px 16px;color:var(--m);}
+        .empty .ic{font-size:2rem;margin-bottom:8px;}
+        .note{font-size:.72rem;color:var(--m);margin-top:10px;line-height:1.5;}
+        .leaflet-popup-content-wrapper{background:var(--s2);color:var(--t);border-radius:10px;}
+        .leaflet-popup-tip{background:var(--s2);}
+        @media(max-width:1000px){.layout{grid-template-columns:1fr;}#map{height:320px;}.list{max-height:none;}}
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="topbar">
+        <div class="brand">Club<span>Lifter</span></div>
+        <div class="pills">
+            <a href="/admin/today" class="pill">Today</a>
+            <a href="/admin/tracking" class="pill">Tracking</a>
+            <a href="/admin/driver-tracking" class="pill act">Driver Tracking</a>
+            <a href="/admin/guestlist" class="pill">Guest List</a>
+            <a href="/" class="pill">← Dashboard</a>
+        </div>
+    </div>
+
+    <h1>Driver Tracking</h1>
+    <div class="sub">Where vehicles stopped, for how long, and the address — built from GPS history.</div>
+
+    <div class="card">
+        <div class="filters">
+            <div class="f"><label>Date</label>
+                <input type="date" id="fDate" class="fc" onchange="load()">
+            </div>
+            <div class="f"><label>Driver</label>
+                <select id="fDriver" class="fs" onchange="load()"><option value="">All drivers</option></select>
+            </div>
+            <div class="f"><label>Minimum stop</label>
+                <select id="fMin" class="fs" onchange="load()">
+                    <option value="5">5+ minutes</option>
+                    <option value="10">10+ minutes</option>
+                    <option value="20" selected>20+ minutes</option>
+                    <option value="45">45+ minutes</option>
+                </select>
+            </div>
+            <div class="stats">
+                <div class="stat"><b id="sStops">0</b><span>Stops</span></div>
+                <div class="stat"><b id="sTime">0h</b><span>Stopped</span></div>
+            </div>
+        </div>
+        <div class="note">A stop is recorded when a vehicle stays within ~80 m for at least 5 minutes. Stops in <span style="color:var(--r)">red</span> are unusually long; <span style="color:var(--g)">green</span> means the vehicle is still there right now.</div>
+    </div>
+
+    <div class="layout">
+        <div id="map"></div>
+        <div class="list" id="list"><div class="empty">Loading…</div></div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([36.1147,-115.1728], 11);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© ClubLifter'}).addTo(map);
+let markers = [];
+
+function fmtDur(m){
+    if(m < 60) return m + 'm';
+    const h = Math.floor(m/60), r = m%60;
+    return r ? `${h}h${r}m` : `${h}h`;
+}
+
+async function load(){
+    const d = document.getElementById('fDate').value;
+    const drv = document.getElementById('fDriver').value;
+    const min = document.getElementById('fMin').value;
+    const list = document.getElementById('list');
+    list.innerHTML = '<div class="empty">Loading…</div>';
+    markers.forEach(m=>map.removeLayer(m)); markers = [];
+
+    try{
+        const r = await fetch(`/api/driver-stops?date=${d}&driver=${encodeURIComponent(drv)}&min=${min}`);
+        const data = await r.json();
+        if(data.error){ list.innerHTML = `<div class="empty">⚠️ ${data.error}</div>`; return; }
+
+        document.getElementById('sStops').innerText = data.total_stops;
+        document.getElementById('sTime').innerText = fmtDur(data.total_minutes||0);
+
+        // driver dropdown (keep current selection)
+        const sel = document.getElementById('fDriver');
+        if(sel.options.length <= 1 && (data.known_drivers||[]).length){
+            data.known_drivers.forEach(n=>{
+                const o=document.createElement('option'); o.value=n; o.text=n; sel.appendChild(o);
+            });
+            sel.value = drv;
+        }
+
+        if(!data.groups.length){
+            list.innerHTML = '<div class="empty"><div class="ic">🅿️</div><div style="font-weight:600;">No stops recorded</div><div style="font-size:.8rem;margin-top:4px;">Try a smaller minimum, or another date.</div></div>';
+            return;
+        }
+
+        list.innerHTML = '';
+        const bounds = [];
+        data.groups.forEach(g=>{
+            const box = document.createElement('div');
+            box.className = 'grp';
+            const rows = g.stops.map(s=>{
+                const long = s.duration_min >= 45;
+                const cls = s.ongoing ? 'ongoing' : (long ? 'long' : '');
+                return `<div class="stop ${cls}" onclick="focusStop(${s.lat},${s.lng})">
+                    <div class="dur">${fmtDur(s.duration_min)}</div>
+                    <div class="stop-info">
+                        <div class="stop-addr">${s.address || `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`}</div>
+                        <div class="stop-time">${s.started_at}${s.ended_at ? ' → '+s.ended_at : ''}${s.ongoing?'<span class="badge-now">still there</span>':''}</div>
+                    </div>
+                </div>`;
+            }).join('');
+            box.innerHTML = `
+                <div class="grp-hd">
+                    <div class="grp-name">${g.driver}</div>
+                    <span class="grp-total">${fmtDur(g.total_min)} stopped</span>
+                </div>
+                <div class="grp-meta">${g.car_name||''} · ${g.count} stop${g.count>1?'s':''}</div>
+                ${rows}`;
+            list.appendChild(box);
+
+            g.stops.forEach(s=>{
+                const mk = L.circleMarker([s.lat,s.lng],{
+                    radius: Math.min(20, 6 + s.duration_min/8),
+                    color: s.ongoing ? '#22c55e' : (s.duration_min>=45 ? '#ef4444' : '#8a5cf6'),
+                    fillOpacity:.35, weight:2
+                }).addTo(map);
+                mk.bindPopup(`<b>${g.driver}</b><br>${s.address||''}<br>⏱️ ${fmtDur(s.duration_min)} · ${s.started_at}${s.ended_at?' → '+s.ended_at:''}`);
+                markers.push(mk); bounds.push([s.lat,s.lng]);
+            });
+        });
+        if(bounds.length) map.fitBounds(bounds,{padding:[50,50],maxZoom:14});
+    }catch(e){
+        list.innerHTML = '<div class="empty">⚠️ Could not load stop history.</div>';
+    }
+}
+
+function focusStop(lat,lng){ map.setView([lat,lng],17); }
+
+// default to today (Vegas date)
+(function(){
+    const now = new Date();
+    const vegas = new Date(now.toLocaleString('en-US',{timeZone:'America/Los_Angeles'}));
+    document.getElementById('fDate').value = vegas.toISOString().slice(0,10);
+    load();
+    setInterval(load, 60000);
+})();
+</script>
+</body>
+</html>
