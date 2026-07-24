@@ -1814,14 +1814,23 @@ def driver_dashboard():
     today_p  = f"{today.month:02d}/{today.day:02d}/{today.year}"
     today_str = today_np
 
-    # Get today's scheduled customers for this driver, ordered by pickup time
-    all_customers = Customer.query.filter_by(motorista=driver_name).order_by(Customer.pickup_datetime).all()
+    # Today's pickups for this driver. Matched by any of the driver's identities
+    # (username / Driver record name) OR the car they're assigned to today, so a
+    # pickup still shows up when `motorista` holds the car name or a variant.
+    names, car_names = driver_scope(driver_name)
+    all_customers = Customer.query.order_by(Customer.pickup_datetime).all()
     my_customers  = [c for c in all_customers
-                     if today_np in (c.pickup_datetime or "")
-                     or today_p in (c.pickup_datetime or "")]
+                     if (today_np in (c.pickup_datetime or "") or today_p in (c.pickup_datetime or ""))
+                     and ((c.motorista and c.motorista in names)
+                          or (c.car_name and c.car_name in car_names))]
 
-    # Get driver availability status
+    # Get driver availability status (loose match on the Driver record)
     driver_profile = Driver.query.filter_by(name=driver_name).first()
+    if not driver_profile:
+        for n in names:
+            driver_profile = Driver.query.filter_by(name=n).first()
+            if driver_profile:
+                break
     driver_available = driver_profile.available if driver_profile else True
 
     # Driver's live car GPS (for the map) — look up by the car on their pickups or shift
@@ -1955,7 +1964,7 @@ def mark_picked_up(customer_id):
         return jsonify({"success": False, "error": "Unauthorized"})
     customer = Customer.query.get_or_404(customer_id)
     # Verify the driver owns this customer
-    if customer.motorista != session.get("username"):
+    if not _driver_owns(customer):
         return jsonify({"success": False, "error": "Not your customer"})
     customer.status = "picked_up"
     db.session.commit()
@@ -2054,8 +2063,71 @@ def driver_back_online():
     return jsonify({"success": True, "message": "You are back online!"})
 
 # ─── DRIVER PICKUP ACTIONS (enroute / I'm here / custom message) ───────────────
+def driver_scope(username):
+    """Everything that identifies a logged-in driver's pickups.
+
+    A pickup's `motorista` field isn't always the driver's username: it can hold the
+    Driver record name, or (when assignment falls back to nearest car) the vehicle's
+    GPS display name. So we resolve the driver to a set of names AND the cars they're
+    on today, and match pickups against any of them.
+    Returns (names, car_names).
+    """
+    names = set()
+    car_names = set()
+    uname = (username or "").strip()
+    if not uname:
+        return names, car_names
+    names.add(uname)
+
+    drv = Driver.query.filter_by(name=uname).first()
+    if not drv:
+        # loose match (e.g. Driver "tj.madzhary" vs user "tj.madzharyan")
+        key = _norm_name(uname)
+        for d in Driver.query.all():
+            dk = _norm_name(d.name)
+            if dk and (dk == key or dk in key or key in dk):
+                drv = d
+                break
+    if drv:
+        names.add(drv.name)
+        today = date.today()
+        today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
+        dow = today.weekday()
+        shifts = (Shift.query.filter_by(driver_id=drv.id, active=True)
+                  .filter((Shift.specific_date == today_p) | (Shift.day_of_week == dow)).all())
+        for sh in shifts:
+            car = Car.query.get(sh.car_id)
+            if car:
+                car_names.add(car.name)
+                # the car's GPS display name may differ slightly
+                names.add(car.name)
+    return names, car_names
+
+def get_driver_record(username):
+    """Driver row for a logged-in username, tolerating small name differences."""
+    uname = (username or "").strip()
+    if not uname:
+        return None
+    drv = Driver.query.filter_by(name=uname).first()
+    if drv:
+        return drv
+    key = _norm_name(uname)
+    for d in Driver.query.all():
+        dk = _norm_name(d.name)
+        if dk and (dk == key or dk in key or key in dk):
+            return d
+    return None
+
+def customer_belongs_to_driver(c, username):
+    names, car_names = driver_scope(username)
+    if c.motorista and c.motorista in names:
+        return True
+    if c.car_name and c.car_name in car_names:
+        return True
+    return False
+
 def _driver_owns(customer):
-    return customer.motorista == session.get("username")
+    return customer_belongs_to_driver(customer, session.get("username"))
 
 @app.route('/driver/available', methods=['POST'])
 def driver_set_available():
@@ -2063,7 +2135,7 @@ def driver_set_available():
     if not session.get("logged") or session.get("role") != "driver":
         return jsonify({"success": False, "error": "Unauthorized"})
     driver_name = session.get("username")
-    prof = Driver.query.filter_by(name=driver_name).first()
+    prof = get_driver_record(driver_name)
     if not prof:
         return jsonify({"success": False, "error": "Driver profile not found"})
     prof.available = request.form.get('available', 'true').lower() == 'true'
@@ -2199,7 +2271,7 @@ def driver_cars():
     if not session.get("logged") or session.get("role") != "driver":
         return jsonify({"success": False, "error": "Unauthorized"})
     driver_name = session.get("username")
-    me = Driver.query.filter_by(name=driver_name).first()
+    me = get_driver_record(driver_name)
     today = date.today()
     dow = today.weekday()  # 0=Mon
     today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
@@ -2230,7 +2302,7 @@ def driver_switch_car():
     if not session.get("logged") or session.get("role") != "driver":
         return jsonify({"success": False, "error": "Unauthorized"})
     driver_name = session.get("username")
-    me = Driver.query.filter_by(name=driver_name).first()
+    me = get_driver_record(driver_name)
     if not me:
         return jsonify({"success": False, "error": "Driver profile not found"})
     car_id = request.form.get('car_id')
