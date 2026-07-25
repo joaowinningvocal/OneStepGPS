@@ -89,6 +89,29 @@
         .fc:focus, .fs:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(138,92,246,.15); background:#1a2035; }
         .fs { background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7'%3E%3Cpath fill='%238892a0' d='M5 7L0 0h10z'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 13px center; padding-right:34px; }
         .fs option { background:var(--surface2); }
+        .fs optgroup {
+            background:#0d1117; color:var(--accent);
+            font-family:'Syne',sans-serif; font-weight:700; font-size:.78rem;
+            text-transform:uppercase; letter-spacing:.06em;
+            padding:6px 4px;
+        }
+        .fs optgroup option {
+            color:var(--text); font-family:'DM Sans',sans-serif; font-weight:400;
+            font-size:.86rem; text-transform:none; letter-spacing:0; padding:6px 8px;
+        }
+        /* Driver assignment select — clearer, less "default" look */
+        #driverMode {
+            font-weight:600;
+            background-color:#12172a;
+            border-color:rgba(138,92,246,.35);
+        }
+        #driverMode:hover { border-color:var(--bhi); }
+        #manualDriverBox {
+            animation:slideDown .22s ease;
+            border-left:2px solid var(--accent);
+            padding-left:12px; margin-left:2px;
+        }
+        @keyframes slideDown { from{opacity:0;transform:translateY(-6px);} to{opacity:1;transform:none;} }
 
         /* DATE ROW */
         .drow { display:flex; gap:7px; }
@@ -323,8 +346,16 @@
                             <label>Party Package <span style="color:var(--m2);font-weight:400;text-transform:none;">(optional)</span></label>
                             <select name="package" id="packageSelect" class="fs">
                                 <option value="">No package</option>
+                                {% set ns = namespace(current='__START__') %}
                                 {% for p in packages %}
-                                <option value="{{ p.name }}" data-clubid="{{ p.club_id or '' }}">{{ p.name }}{% if p.price > 0 %} — ${{ "%.2f"|format(p.price) }}{% endif %}{% if p.max_guests %} (up to {{ p.max_guests }}){% endif %}</option>
+                                    {% set club = p.club_name() or 'Other Packages' %}
+                                    {% if club != ns.current %}
+                                        {% if not loop.first %}</optgroup>{% endif %}
+                                        <optgroup label="{{ club }}">
+                                        {% set ns.current = club %}
+                                    {% endif %}
+                                    <option value="{{ p.name }}" data-clubid="{{ p.club_id or '' }}">{{ p.name }}{% if p.price > 0 %} — ${{ "%.2f"|format(p.price) }}{% endif %}{% if p.max_guests %} (up to {{ p.max_guests }}){% endif %}</option>
+                                    {% if loop.last %}</optgroup>{% endif %}
                                 {% endfor %}
                             </select>
                         </div>
@@ -585,12 +616,17 @@ function filterPackages(){
     const sel = dest.options[dest.selectedIndex];
     const clubId = sel ? (sel.getAttribute('data-clubid')||'') : '';
     let currentStillValid = false;
-    Array.from(pkg.options).forEach(o=>{
-        if(!o.value){ return; }
-        const pc = o.getAttribute('data-clubid')||'';
-        const show = (!pc || !clubId || pc === clubId);
-        o.hidden = !show; o.disabled = !show;
-        if(show && o.selected) currentStillValid = true;
+    // Show/hide options; hide an optgroup entirely when none of its options match
+    Array.from(pkg.querySelectorAll('optgroup')).forEach(g=>{
+        let anyVisible = false;
+        Array.from(g.querySelectorAll('option')).forEach(o=>{
+            const pc = o.getAttribute('data-clubid')||'';
+            const show = (!pc || !clubId || pc === clubId);
+            o.hidden = !show; o.disabled = !show;
+            if(show){ anyVisible = true; if(o.selected) currentStillValid = true; }
+        });
+        g.hidden = !anyVisible;
+        g.style.display = anyVisible ? '' : 'none';
     });
     if(!currentStillValid) pkg.selectedIndex = 0;
 }

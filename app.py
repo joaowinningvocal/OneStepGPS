@@ -840,6 +840,8 @@ def index():
         return redirect(url_for("driver_dashboard"))
 
     packages = Package.query.filter_by(active=True).all()
+    # Group order: real club packages first (by club), generic/no-club ones last
+    packages = sorted(packages, key=lambda p: (p.club_id is None, p.club_id or 0, p.price or 0))
     user     = User.query.get(session.get("user_id"))
 
     if session.get("role") == "master":
