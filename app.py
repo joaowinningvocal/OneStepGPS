@@ -659,6 +659,15 @@ def send_sms_bg(to, body, media_url=""):
     """Background single send."""
     return send_sms_many([to], body, media_url)
 
+def vegas_today():
+    """Today's date in Las Vegas (the server runs in UTC, which rolls over ~7h early
+    and breaks 'today's pickups' for late-night bookings)."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/Los_Angeles")).date()
+    except Exception:
+        return (datetime.utcnow() - timedelta(hours=7)).date()
+
 def vegas_time(dt):
     """Format a stored UTC timestamp in Las Vegas local time (handles DST)."""
     if not dt:
@@ -1323,7 +1332,7 @@ def admin_today():
     if not session.get("logged") or not can_dispatch():
         return redirect(url_for("login"))
 
-    today = date.today()
+    today = vegas_today()
     # Match both non-padded (7/1/2026) and padded (07/01/2026) date formats,
     # since pickups may be stored either way.
     today_np = f"{today.month}/{today.day}/{today.year}"           # 7/1/2026
@@ -2004,7 +2013,7 @@ def driver_dashboard():
 
     driver_name = session.get("username")
 
-    today = date.today()
+    today = vegas_today()
     today_np = f"{today.month}/{today.day}/{today.year}"
     today_p  = f"{today.month:02d}/{today.day:02d}/{today.year}"
     today_str = today_np
@@ -2361,7 +2370,7 @@ def driver_scope(username):
                 break
     if drv:
         names.add(drv.name)
-        today = date.today()
+        today = vegas_today()
         today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
         dow = today.weekday()
         # Direct 1:1 car assignment
@@ -2549,7 +2558,7 @@ def driver_cars():
         return jsonify({"success": False, "error": "Unauthorized"})
     driver_name = session.get("username")
     me = get_driver_record(driver_name)
-    today = date.today()
+    today = vegas_today()
     dow = today.weekday()  # 0=Mon
     today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
 
@@ -2586,7 +2595,7 @@ def driver_switch_car():
     confirm = request.form.get('confirm', 'false').lower() == 'true'
     car = Car.query.get_or_404(int(car_id))
 
-    today = date.today()
+    today = vegas_today()
     dow = today.weekday()
     today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
 
@@ -2960,7 +2969,7 @@ def _driver_for_car_today(car, today_p):
     direct = Driver.query.filter_by(assigned_car_id=car.id).first()
     if direct:
         return direct
-    dow = date.today().weekday()
+    dow = vegas_today().weekday()
     sh = (Shift.query.filter_by(car_id=car.id, active=True)
           .filter(Shift.specific_date == today_p).first())
     if not sh:
@@ -2986,7 +2995,7 @@ def api_driver_stops():
     """Stop history. ?date=YYYY-MM-DD (default today), ?driver=name, ?min=minutes"""
     if not session.get("logged") or not can_see_driver_tracking():
         return jsonify({"error": "Unauthorized"}), 401
-    day_iso = request.args.get('date', date.today().strftime("%Y-%m-%d"))
+    day_iso = request.args.get('date', vegas_today().strftime("%Y-%m-%d"))
     driver_f = (request.args.get('driver', '') or "").strip()
     try:
         min_min = int(request.args.get('min', 5))
@@ -3058,7 +3067,7 @@ def assignable_drivers():
     """Drivers available to take a pickup, with the car they're on today."""
     if not can_dispatch():
         return jsonify({"error": "Unauthorized"}), 401
-    today = date.today()
+    today = vegas_today()
     today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
     dow = today.weekday()
     out = []
@@ -3089,7 +3098,7 @@ def reassign_pickup(customer_id):
         return jsonify({"success": False, "error": f"Driver '{driver_name}' not found"})
 
     previous = c.motorista or ""
-    today = date.today()
+    today = vegas_today()
     today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
     dow = today.weekday()
     sh = (Shift.query.filter_by(driver_id=drv.id, active=True)
@@ -3160,7 +3169,7 @@ def api_live_drivers():
         data = res.json()
         lista = data if isinstance(data, list) else [data]
 
-        today = date.today()
+        today = vegas_today()
         today_np = f"{today.month}/{today.day}/{today.year}"
         today_p  = f"{today.month:02d}/{today.day:02d}/{today.year}"
 
@@ -3305,7 +3314,7 @@ def admin_guestlist():
     filter_club = request.args.get('club', 'all')
     view_all    = request.args.get('view', '') == 'all'
     # date arrives as ISO (YYYY-MM-DD) from the date picker; default = today
-    filter_date_iso = request.args.get('date', date.today().strftime("%Y-%m-%d"))
+    filter_date_iso = request.args.get('date', vegas_today().strftime("%Y-%m-%d"))
 
     q = Customer.query
     if filter_type == 'transport':
@@ -3357,7 +3366,7 @@ def export_guestlist():
         return redirect(url_for("login"))
     import csv as _csv, io as _io
     view_all = request.args.get('view', '') == 'all'
-    filter_date_iso = request.args.get('date', date.today().strftime("%Y-%m-%d"))
+    filter_date_iso = request.args.get('date', vegas_today().strftime("%Y-%m-%d"))
     rows = Customer.query.order_by(Customer.pickup_datetime).all()
     if not view_all:
         try:
@@ -3544,7 +3553,7 @@ def detect_driver_stops():
         return
 
     now = datetime.utcnow()
-    today = date.today()
+    today = vegas_today()
     today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
 
     for v in lista:
@@ -3636,7 +3645,7 @@ def distance_tracker_loop():
                 except Exception as e:
                     print(f"[CLEANUP] photo purge error: {e}", flush=True)
 
-                today = date.today()
+                today = vegas_today()
                 today_np = f"{today.month}/{today.day}/{today.year}"
                 today_p  = f"{today.month:02d}/{today.day:02d}/{today.year}"
 
