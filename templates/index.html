@@ -320,21 +320,13 @@
                         </div>
 
                         <div class="f">
-                            <label>Party Package</label>
-                            <div style="display:flex;gap:6px;align-items:center;">
-                                <select name="package" id="packageSelect" class="fs" required onchange="onPackageChange(this)">
-                                    <option value="" disabled selected>Select a package…</option>
-                                    {% for p in packages %}
-                                    <option value="{{ p.name }}" data-checkout="{{ p.checkout_url or '' }}" data-clubid="{{ p.club_id or '' }}">{{ p.name }}{% if p.price > 0 %} — ${{ "%.2f"|format(p.price) }}{% endif %}{% if p.max_guests %} (up to {{ p.max_guests }}){% endif %}</option>
-                                    {% endfor %}
-                                </select>
-                                <button type="button" id="checkoutBtn" onclick="openCheckout()" title="Open checkout again"
-                                    style="display:none;flex-shrink:0;background:rgba(138,92,246,.15);border:1px solid rgba(138,92,246,.4);color:#8a5cf6;border-radius:10px;padding:9px 12px;cursor:pointer;font-size:1rem;transition:.2s;"
-                                    onmouseover="this.style.background='rgba(138,92,246,.3)'"
-                                    onmouseout="this.style.background='rgba(138,92,246,.15)'">↗
-                                </button>
-                            </div>
-                            <div id="checkoutNote" style="display:none;font-size:.72rem;color:var(--g);margin-top:5px;">✅ Checkout opened — complete the payment then schedule the pickup.</div>
+                            <label>Party Package <span style="color:var(--m2);font-weight:400;text-transform:none;">(optional)</span></label>
+                            <select name="package" id="packageSelect" class="fs">
+                                <option value="">No package</option>
+                                {% for p in packages %}
+                                <option value="{{ p.name }}" data-clubid="{{ p.club_id or '' }}">{{ p.name }}{% if p.price > 0 %} — ${{ "%.2f"|format(p.price) }}{% endif %}{% if p.max_guests %} (up to {{ p.max_guests }}){% endif %}</option>
+                                {% endfor %}
+                            </select>
                         </div>
 
                         <div class="f">
@@ -351,6 +343,21 @@
                                 </select>
                             </div>
                             <div id="dateErr" style="color:var(--red);font-size:.78rem;margin-top:4px;display:none;">Invalid date (MM/DD/YYYY)</div>
+                        </div>
+
+                        <div class="f">
+                            <label>Driver Assignment</label>
+                            <select name="driver_mode" id="driverMode" class="fs" onchange="onDriverModeChange()">
+                                <option value="auto" selected>🤖 Auto — assign nearest available driver</option>
+                                <option value="manual">👤 Manually pick a driver</option>
+                            </select>
+                        </div>
+
+                        <div class="f" id="manualDriverBox" style="display:none;">
+                            <label>Choose Driver</label>
+                            <select name="manual_driver" id="manualDriver" class="fs">
+                                <option value="">Select a driver…</option>
+                            </select>
                         </div>
 
                         <button type="submit" class="btn-go">SCHEDULE PICKUP</button>
@@ -371,11 +378,11 @@
                     <div class="ctitle">Pickup History</div>
                     <div class="hscroll">
                         <table class="htbl" id="tabelaDados">
-                            <thead><tr><th>Customer</th><th>Package</th><th>Guests</th><th style="text-align:right">Dist.</th></tr></thead>
+                            <thead><tr><th>Customer</th><th>Guests</th><th style="text-align:right">Dist.</th></tr></thead>
                             <tbody>
                                 {% for c in clientes %}
                                 <tr>
-                                    <td>{{ c.nome }}</td><td>{{ c.package }}</td>
+                                    <td>{{ c.nome }}</td>
                                     <td>{{ c.guests }}</td><td class="ac">{{ c.distancia }}mi</td>
                                 </tr>
                                 {% endfor %}
@@ -528,8 +535,6 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{att
 var rCtrl=null, rLayer=L.layerGroup().addTo(map);
 
 // ── PACKAGE CHECKOUT ─────────────────────────────────────────────────────────
-let currentCheckoutUrl = '';
-let pendingFormData    = null;
 
 // ── MULTI-PHONE + TRANSPORT TOGGLE ───────────────────────────────────────────
 let phoneCounter = 0;
@@ -571,32 +576,48 @@ function toggleTransport(needs) {
 }
 
 // ── PACKAGE CHECKOUT ─────────────────────────────────────────────────────────
-// Show only the packages belonging to the selected destination club
-// (packages with no club are treated as available everywhere)
+
+// Filter packages by selected destination club (optional field, no checkout)
 function filterPackages(){
     const dest = document.getElementById('destSelect');
     const pkg  = document.getElementById('packageSelect');
     if(!dest || !pkg) return;
     const sel = dest.options[dest.selectedIndex];
     const clubId = sel ? (sel.getAttribute('data-clubid')||'') : '';
-    let visible = 0, currentStillValid = false;
+    let currentStillValid = false;
     Array.from(pkg.options).forEach(o=>{
-        if(!o.value){ return; }              // keep the placeholder
+        if(!o.value){ return; }
         const pc = o.getAttribute('data-clubid')||'';
         const show = (!pc || !clubId || pc === clubId);
-        o.hidden = !show;
-        o.disabled = !show;
-        if(show){ visible++; if(o.selected) currentStillValid = true; }
+        o.hidden = !show; o.disabled = !show;
+        if(show && o.selected) currentStillValid = true;
     });
-    // Reset the selection if the chosen package doesn't belong to this club
-    if(!currentStillValid){
-        pkg.selectedIndex = 0;
-        const btn=document.getElementById('checkoutBtn'), note=document.getElementById('checkoutNote');
-        if(btn) btn.style.display='none';
-        if(note) note.style.display='none';
-    }
+    if(!currentStillValid) pkg.selectedIndex = 0;
 }
 document.addEventListener('DOMContentLoaded', filterPackages);
+
+// Manual vs automatic driver assignment
+async function onDriverModeChange(){
+    const mode = document.getElementById('driverMode').value;
+    const box = document.getElementById('manualDriverBox');
+    if(mode === 'manual'){
+        box.style.display = 'block';
+        const sel = document.getElementById('manualDriver');
+        if(sel.options.length <= 1){
+            try{
+                const d = await (await fetch('/api/assignable-drivers')).json();
+                (d.drivers||[]).forEach(x=>{
+                    const o = document.createElement('option');
+                    o.value = x.name;
+                    o.text = `${x.name}${x.car_string ? ' · '+x.car_string : ''}${x.available ? '' : ' (busy)'}`;
+                    sel.appendChild(o);
+                });
+            }catch(e){}
+        }
+    } else {
+        box.style.display = 'none';
+    }
+}
 
 // Build pickup-time options every 15 minutes (6:00 PM → 5:45 AM, nightlife hours)
 (function(){
@@ -619,34 +640,9 @@ document.addEventListener('DOMContentLoaded', filterPackages);
 })();
 
 
-function onPackageChange(sel) {
-    const opt = sel.options[sel.selectedIndex];
-    currentCheckoutUrl = opt.getAttribute('data-checkout') || '';
-    const btn  = document.getElementById('checkoutBtn');
-    const note = document.getElementById('checkoutNote');
-    if (currentCheckoutUrl) {
-        btn.style.display = 'block';
-        window.open(currentCheckoutUrl, '_blank');
-        note.style.display = 'block';
-    } else {
-        btn.style.display = 'none';
-        note.style.display = 'none';
-    }
-}
 
-function openCheckout() {
-    if (currentCheckoutUrl) window.open(currentCheckoutUrl, '_blank');
-}
 
-function cancelConfirm() {
-    document.getElementById('confirmModal').style.display = 'none';
-    pendingFormData = null;
-}
 
-async function proceedSchedule() {
-    document.getElementById('confirmModal').style.display = 'none';
-    if (pendingFormData) await submitSchedule(pendingFormData);
-}
 
 document.getElementById('markerForm').onsubmit=async(e)=>{
     e.preventDefault();
@@ -665,12 +661,6 @@ document.getElementById('markerForm').onsubmit=async(e)=>{
         .map(i => i.value.trim()).filter(v => v);
     fd.append('extra_phones', JSON.stringify(extras));
 
-    // Show confirmation modal if package has checkout URL
-    if (currentCheckoutUrl) {
-        pendingFormData = fd;
-        document.getElementById('confirmModal').style.display = 'flex';
-        return;
-    }
     await submitSchedule(fd);
 };
 
@@ -697,7 +687,7 @@ async function submitSchedule(fd) {
                 const d2=await(await fetch('/cadastrar_cep',{method:'POST',body:fd})).json();
                 if (d2.success && d2.waitlist) {
                     st.innerHTML="<span style='color:var(--gold)'>🕓 Added to waitlist — assign a driver later.</span>";
-                    document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('package')}</td><td>${fd.get('guests')}</td><td class="ac" style="color:var(--gold)">waitlist</td></tr>`);
+                    document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('guests')}</td><td class="ac" style="color:var(--gold)">waitlist</td></tr>`);
                     resetFormState(form);
                 } else {
                     st.innerHTML=`<span style='color:var(--red)'>❌ ${d2.error||'Could not add to waitlist'}</span>`;
@@ -712,21 +702,21 @@ async function submitSchedule(fd) {
             // WALK-IN: no map / driver, just confirm
             if (d.walk_in) {
                 st.innerHTML="<span style='color:var(--green)'>✅ Walk-in registered!</span>";
-                document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('package')}</td><td>${fd.get('guests')}</td><td class="ac">walk-in</td></tr>`);
+                document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('guests')}</td><td class="ac">walk-in</td></tr>`);
                 resetFormState(form);
                 return;
             }
             // WAITLIST (forced through earlier): no map route to draw
             if (d.waitlist) {
                 st.innerHTML="<span style='color:var(--gold)'>🕓 Added to waitlist — assign a driver later.</span>";
-                document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('package')}</td><td>${fd.get('guests')}</td><td class="ac" style="color:var(--gold)">waitlist</td></tr>`);
+                document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('guests')}</td><td class="ac" style="color:var(--gold)">waitlist</td></tr>`);
                 resetFormState(form);
                 return;
             }
             // TRANSPORT: booking is already saved at this point. Anything below is
             // just map/UI decoration — it must never be reported as a booking failure.
             st.innerHTML="<span style='color:var(--green)'>✅ Scheduled!</span>";
-            document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('package')}</td><td>${fd.get('guests')}</td><td class="ac">${d.distancia}mi</td></tr>`);
+            document.querySelector('#tabelaDados tbody').insertAdjacentHTML('afterbegin',`<tr><td>${fd.get('nome')}</td><td>${fd.get('guests')}</td><td class="ac">${d.distancia}mi</td></tr>`);
 
             try{
                 const b=document.getElementById('drBox'); b.style.display='block';
@@ -770,25 +760,11 @@ function resetFormState(form) {
     document.getElementById('addrDisp').classList.remove('filled');
     document.getElementById('addrVal').value='';
     document.getElementById('customF').classList.remove('show');
-    document.getElementById('checkoutBtn').style.display='none';
-    document.getElementById('checkoutNote').style.display='none';
     document.getElementById('extraPhones').innerHTML='';
-    currentCheckoutUrl='';
     toggleTransport(true);  // reset to default
 }
 </script>
 <!-- PAYMENT CONFIRMATION MODAL -->
-<div id="confirmModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
-    <div style="background:#0f1420;border:1px solid rgba(138,92,246,.4);border-radius:20px;padding:32px 28px;max-width:400px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6);">
-        <div style="font-size:2rem;margin-bottom:12px;">💳</div>
-        <div style="font-family:Syne,sans-serif;font-weight:700;font-size:1.1rem;margin-bottom:8px;">Payment Confirmed?</div>
-        <div style="font-size:.85rem;color:#8892a0;margin-bottom:24px;">Please confirm the order was placed on Shopify before scheduling the pickup.</div>
-        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-            <button onclick="cancelConfirm()" style="background:none;border:1px solid #5a6270;color:#8892a0;border-radius:12px;padding:10px 22px;font-weight:600;font-size:.85rem;cursor:pointer;transition:.2s;" onmouseover="this.style.borderColor='#ef4444';this.style.color='#ef4444'" onmouseout="this.style.borderColor='#5a6270';this.style.color='#8892a0'">Cancel</button>
-            <button onclick="proceedSchedule()" style="background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;color:#fff;border-radius:12px;padding:10px 22px;font-weight:700;font-size:.85rem;cursor:pointer;transition:.2s;box-shadow:0 4px 14px rgba(138,92,246,.4);">✅ Yes, Schedule Pickup</button>
-        </div>
-    </div>
-</div>
 <!-- Valet Spot Picker Modal -->
 <style>#valetModal.open{display:flex !important;}</style>
 <div id="valetModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:18px;">

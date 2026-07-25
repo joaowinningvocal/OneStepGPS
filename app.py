@@ -1043,9 +1043,27 @@ def cadastrar_cep():
         motorista_coords = None
         chosen_car      = None            # Car object
 
+        # Strategy 0: manual override — the booker explicitly chose a driver
+        driver_mode   = (request.form.get('driver_mode', 'auto') or 'auto').strip()
+        manual_driver = (request.form.get('manual_driver', '') or '').strip()
+        if driver_mode == 'manual' and manual_driver:
+            mdrv = Driver.query.filter_by(name=manual_driver).first()
+            if not mdrv:
+                mdrv = get_driver_record(manual_driver)
+            if mdrv:
+                melhor_v = mdrv.name
+                # Their assigned car (1:1), then compute distance if GPS is available
+                if mdrv.assigned_car_id:
+                    chosen_car = Car.query.get(mdrv.assigned_car_id)
+                if chosen_car:
+                    coords = gps_by_name.get(chosen_car.name)
+                    if coords:
+                        motorista_coords = coords
+                        menor_d = calcular_distancia(lat_cli, lng_cli, coords["lat"], coords["lng"])
+
         shifts = get_scheduled_shifts(requested_dt)
 
-        if shifts:
+        if melhor_v == "Unavailable" and shifts:
             # Among scheduled drivers, pick the closest one whose driver is free this hour
             best = None
             for sh in shifts:
