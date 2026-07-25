@@ -108,7 +108,7 @@
                 <a href="/admin/guestlist" class="pill">Guest List</a>
                 {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages" class="pill">Packages</a>{% endif %}
                 {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers"  class="pill">Drivers</a>{% endif %}
-                <a href="/admin/schedule" class="pill">Cars Schedule</a>
+                <a href="/admin/schedule" class="pill">Driver Management</a>
                 {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users"    class="pill">Users</a>{% endif %}
                 {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs"    class="pill act">Clubs</a>{% endif %}
             {% if session.get('role') == 'master' %}<a href="/admin/api" class="pill">API</a>{% endif %}
@@ -123,7 +123,7 @@
         <a href="/admin/guestlist">Guest List</a>
         {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages">Packages</a>{% endif %}
         {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers">Drivers</a>{% endif %}
-        <a href="/admin/schedule">Cars Schedule</a>
+        <a href="/admin/schedule">Driver Management</a>
         {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users">Users</a>{% endif %}
         {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs" class="act">Clubs</a>{% endif %}
         {% if session.get('role') == 'master' %}<a href="/admin/api">API</a>{% endif %}

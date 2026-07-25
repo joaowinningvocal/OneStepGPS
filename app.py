@@ -254,6 +254,7 @@ class Driver(db.Model):
     phone      = db.Column(db.String(20), default="")
     # available: False means driver reported a problem and is temporarily disabled
     available  = db.Column(db.Boolean, default=True)
+    assigned_car_id = db.Column(db.Integer, db.ForeignKey('car.id'), nullable=True)  # 1:1 car assignment
     # DEPRECATED car fields (kept for backward-compat migration into Car)
     car_model  = db.Column(db.String(100), default="")
     car_color  = db.Column(db.String(50), default="")
@@ -510,6 +511,67 @@ def fire_webhook(payload: dict):
 def twilio_configured():
     return bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and (TWILIO_FROM_NUMBER or TWILIO_MESSAGING_SERVICE_SID))
 
+STREETVIEW_LINKS = {
+    "aria": "https://maps.app.goo.gl/up5uiB4NMudFYDfg9",  # Aria
+    "allegiantstadium": "https://maps.app.goo.gl/efu94gi9DRuXTgzZ8",  # Allegiant Stadium
+    "bellagiodropoff": "https://maps.app.goo.gl/vsB5Ykx75qcyH7jB9",  # Bellagio (Drop off)
+    "caesarspalace": "https://www.google.com/maps/search/Caesars+Palace+Las+Vegas+Main+parking+garage+lower+level+and+open-air+area+near+the+Colosseum+street+view",  # Caesars Palace
+    "circadowntown": "https://www.google.com/maps/search/Circa+Downtown+Las+Vegas+Main+level+of+the+Garage+Mahal%2C+follow+signage+near+the+main+entrance+street+view",  # Circa Downtown
+    "cosmopolitan": "https://www.google.com/maps/search/Cosmopolitan+Las+Vegas+Boulevard+Tower+entrance+near+valet%3B+Chelsea+Tower+Uber-labeled+option+when+available+street+view",  # Cosmopolitan
+    "encore": "https://www.google.com/maps/search/Encore+Las+Vegas+Main+resort+North+Valet+area%2C+accessible+off+Encore+Resort+Blvd+east+of+Las+Vegas+Strip+street+view",  # Encore
+    "excalibur": "https://www.google.com/maps/search/Excalibur+Las+Vegas+Southern+Royal+Tower+entrance%3B+North+Valet+sometimes+used+as+alternate+street+view",  # Excalibur
+    "flamingolasvegas": "https://www.google.com/maps/search/Flamingo+Las+Vegas+Las+Vegas+Dedicated+area+past+the+roundabout+at+the+hotel%27s+main+entrance+Porte+Coch%C3%A8re+street+view",  # Flamingo Las Vegas
+    "fontainebleau": "https://www.google.com/maps/search/Fontainebleau+Las+Vegas+North+and+South+Valet+Entrances%3B+South+is+deeper+in+property+garage+level+street+view",  # Fontainebleau
+    "goldennuggetdowntown": "https://www.google.com/maps/search/Golden+Nugget+Downtown+Las+Vegas+Second+floor+of+the+main+self-parking+garage+on+the+south+side+of+the+hotel+street+view",  # Golden Nugget Downtown
+    "harrahslasvegas": "https://www.google.com/maps/search/Harrah%27s+Las+Vegas+Las+Vegas+Main+Porte+Cochere+%2F+front+entrance+off+Las+Vegas+Strip+or+drop-off+lane+before+valet+in+parking+garage+street+view",  # Harrah\'s Las Vegas
+    "harryreidinternationalairport": "https://www.google.com/maps/search/Harry+Reid+International+Airport+Las+Vegas+Inside+parking+garages+at+Terminals+1+and+3+street+view",  # Harry Reid International Airport
+    "horseshoelasvegas": "https://www.google.com/maps/search/Horseshoe+Las+Vegas+Las+Vegas+Tour+bus+and+shuttle+area+on+north+side+of+property+near+Flamingo+Road+street+view",  # Horseshoe Las Vegas
+    "luxor": "https://www.google.com/maps/search/Luxor+Las+Vegas+North+Entrance+off+Reno+Drive+near+valet+area+street+view",  # Luxor
+    "mandalaybay": "https://www.google.com/maps/search/Mandalay+Bay+Las+Vegas+South+of+hotel+lobby%2C+down+escalator%2C+beach+level+street+view",  # Mandalay Bay
+    "mgmgrand": "https://www.google.com/maps/search/MGM+Grand+Las+Vegas+Ground+floor+of+self-parking+garage+%2F+Rideshare+Lounge+via+MGM+Underground+exit+near+Monorail+station+street+view",  # MGM Grand
+    "newyorknewyork": "https://www.google.com/maps/search/New+York-New+York+Las+Vegas+South+Entrance+near+dedicated+rideshare+zone+street+view",  # New York-New York
+    "palmscasinoresort": "https://www.google.com/maps/search/Palms+Casino+Resort+Las+Vegas+Main+entrance+valet+area+street+view",  # Palms Casino Resort
+    "parislasvegas": "https://www.google.com/maps/search/Paris+Las+Vegas+Las+Vegas+Back+Valet+Entrance+near+convention+area+street+view",  # Paris Las Vegas
+    "parkmgm": "https://www.google.com/maps/search/Park+MGM+Las+Vegas+Dedicated+lower+level+pickup+area%2C+usually+near+bell+desk+street+view",  # Park MGM
+    "planethollywood": "https://www.google.com/maps/search/Planet+Hollywood+Las+Vegas+Entrance+near+Miracle+Mile+Shops+Valet+street+view",  # Planet Hollywood
+    "plazahotelcasinodowntown": "https://www.google.com/maps/search/Plaza+Hotel+%26+Casino+Downtown+Las+Vegas+Valet+area+on+Main+Street+between+Stewart+and+Ogden+avenues+street+view",  # Plaza Hotel & Casino Downtown
+    "resortsworld": "https://www.google.com/maps/search/Resorts+World+Las+Vegas+Lower+Level+Rideshare+Lobby%3B+take+elevator+or+escalator+down+street+view",  # Resorts World
+    "saharalasvegas": "https://www.google.com/maps/search/SAHARA+Las+Vegas+Las+Vegas+Main+Entrance+Valet+%2F+designated+lanes+at+primary+porte+coch%C3%A8re+street+view",  # SAHARA Las Vegas
+    "southpointhotel": "https://www.google.com/maps/search/South+Point+Hotel+Las+Vegas+Designated+lane+near+main+Valet+Entrance+or+Bingo+Hall+entrance+street+view",  # South Point Hotel
+    "tmobilearena": "https://www.google.com/maps/search/T-Mobile+Arena+Las+Vegas+Pickup+requires+walking+to+New+York-New+York+or+Park+MGM+street+view",  # T-Mobile Arena
+    "thelinq": "https://www.google.com/maps/search/The+LINQ+Las+Vegas+End+of+the+Promenade+near+the+High+Roller+Ferris+Wheel+street+view",  # The LINQ
+    "thepalazzo": "https://www.google.com/maps/search/The+Palazzo+Las+Vegas+Lower+Porte+Cochere%3B+down+escalators+across+lobby+from+front+desk%3B+pickup+near+fountain.+Alternate%3A+Venetian+Parking+Garage+Level+2+street+view",  # The Palazzo
+    "thevenetian": "https://www.google.com/maps/search/The+Venetian+Las+Vegas+Level+2+of+The+Venetian+Guest+Parking+Garage+street+view",  # The Venetian
+    "treasureisland": "https://www.google.com/maps/search/Treasure+Island+Las+Vegas+South+Valet+Entrance+near+Sirens+Cove+street+view",  # Treasure Island
+    "vdarahotelspa": "https://www.google.com/maps/search/Vdara+Hotel+%26+Spa+Las+Vegas+Main+Valet+and+Porte+Coch%C3%A8re+located+off+Harmon+Avenue+street+view",  # Vdara Hotel & Spa
+    "westgatelasvegas": "https://www.google.com/maps/search/Westgate+Las+Vegas+Las+Vegas+East+Tower+Entrance+near+designated+rideshare+zone+street+view",  # Westgate Las Vegas
+    "wynn": "https://www.google.com/maps/search/Wynn+Las+Vegas+Main+Valet+entrance+and+South+Gate%2FTour+Lobby+entrance+street+view",  # Wynn
+    "vanderpumphotel": "https://www.google.com/maps/search/Vanderpump+Hotel+Las+Vegas+Designated+lower-level+valet+or+secondary+pickup+area+street+view",  # Vanderpump Hotel
+}
+
+
+def _sv_key(s):
+    return "".join(ch for ch in (s or "").lower() if ch.isalnum())
+
+def streetview_for(pickup_text):
+    """Find the Street View link for a pickup location by matching the venue name
+    at the start of the pickup address against the known venues."""
+    if not pickup_text:
+        return ""
+    key = _sv_key(pickup_text)
+    if not key:
+        return ""
+    # exact key match first
+    if key in STREETVIEW_LINKS:
+        return STREETVIEW_LINKS[key]
+    # otherwise, find the longest venue key that the pickup text starts with / contains
+    best = ""
+    for vkey, link in STREETVIEW_LINKS.items():
+        if key.startswith(vkey) or vkey in key:
+            if len(vkey) > len(best):
+                best, best_link = vkey, link
+    return STREETVIEW_LINKS.get(best, "") if best else ""
+
 def clean_phone(p):
     """Strip invisible Unicode marks (LRE/RLE/PDF etc. that come from iPhone
     copy-paste) and stray spaces/dashes, keeping a clean E.164-ish number."""
@@ -672,12 +734,27 @@ def _time_in_window(t_minutes, start_str, end_str):
 
 def get_scheduled_shifts(pickup_dt: datetime):
     """
-    Returns list of active Shifts that cover the given pickup datetime.
-    Specific-date shifts take priority; if any exist for that date, weekly are ignored.
-    Returns [] if no shifts configured (caller should fall back to nearest-car).
+    Returns list of "shifts" (real or synthesized) that cover the given pickup.
+    Direct 1:1 Driver→Car assignments (Driver Management) are always included as
+    pseudo-shifts. Specific-date shifts take priority over weekly ones.
+    Returns [] if nothing is configured (caller falls back to nearest-car).
     """
+    class _PseudoShift:
+        __slots__ = ("driver", "car", "start_time", "end_time", "specific_date", "day_of_week")
+        def __init__(self, driver, car):
+            self.driver = driver; self.car = car
+            self.start_time = ""; self.end_time = ""
+            self.specific_date = None; self.day_of_week = None
+
+    # Direct assignments always apply (no time window)
+    direct = []
+    for d in Driver.query.filter(Driver.assigned_car_id.isnot(None)).all():
+        car = Car.query.get(d.assigned_car_id)
+        if car:
+            direct.append(_PseudoShift(d, car))
+
     if pickup_dt is None:
-        return []
+        return direct
     date_str = pickup_dt.strftime("%m/%d/%Y")
     dow      = pickup_dt.weekday()  # 0=Mon..6=Sun
     t_min    = pickup_dt.hour * 60 + pickup_dt.minute
@@ -689,14 +766,14 @@ def get_scheduled_shifts(pickup_dt: datetime):
                 if s.specific_date and s.specific_date.strip() == date_str
                 and _time_in_window(t_min, s.start_time, s.end_time)]
     if specific:
-        return specific
+        return direct + specific
 
     # Otherwise weekly matches
     weekly = [s for s in all_active
               if s.specific_date in (None, "")
               and s.day_of_week == dow
               and _time_in_window(t_min, s.start_time, s.end_time)]
-    return weekly
+    return direct + weekly
 
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
 # ─── SIMPLE IN-MEMORY RATE LIMITER FOR LOGIN ──────────────────────────────────
@@ -1136,6 +1213,7 @@ def cadastrar_cep():
             _drv_time = ""
             if pickup_datetime and len(pickup_datetime.split(' ')) >= 3:
                 _p = pickup_datetime.split(' '); _drv_time = f"{_p[1]} {_p[2]}"
+            _drv_sv = streetview_for(endereco_completo)
             driver_sms = (
                 f"New ClubLifter pickup{' at ' + _drv_time if _drv_time else ''}\n"
                 f"Guest: {nome} ({guests} guest{'s' if (guests or 0) != 1 else ''})\n"
@@ -1143,6 +1221,7 @@ def cadastrar_cep():
                 f"Drop-off: {destination or 'N/A'}\n"
                 f"Distance: {distancia_arredondada} mi"
                 + (f"\nNotes: {details}" if details else "")
+                + (f"\nPickup spot: {_drv_sv}" if _drv_sv else "")
             )
             send_sms_bg(motorista_phone, driver_sms)
 
@@ -1161,12 +1240,14 @@ def cadastrar_cep():
             time_part = f"{parts[1]} {parts[2]}"
         # Only send the "ride booked" SMS when a real driver was assigned
         if not is_waitlist:
+            _sv = streetview_for(endereco_completo)
             sms_text = (
                 f"Hi {nome}! Your ClubLifter ride is booked. "
                 f"{melhor_v} will pick you up"
                 f"{' at ' + time_part if time_part else ''}"
                 f"{' in a ' + car_full if car_full and car_full != 'N/A' else ''}. "
                 f"See you soon!"
+                f"{chr(10) + 'Your pickup spot: ' + _sv if _sv else ''}"
             )
             fire_webhook({
                 "type":            "scheduled",
@@ -1178,6 +1259,7 @@ def cadastrar_cep():
                 "pickup_datetime": pickup_datetime,
                 "pickup_time":     time_part,
                 "destination":     destination,
+                "pickup_streetview": streetview_for(endereco_completo),
                 "message":         sms_text,
                 "customer_id":     customer.id,
             })
@@ -1767,12 +1849,48 @@ def delete_car(car_id):
 
 # ─── ADMIN: SHIFTS (driver schedule) ──────────────────────────────────────────
 @app.route('/admin/schedule')
-def admin_schedule():
+@app.route('/admin/driver-management')
+def admin_driver_management():
     if not session.get("logged") or not can_dispatch(): return redirect(url_for("login"))
-    return render_template('admin_schedule.html',
-                           shifts=Shift.query.all(),
-                           drivers=Driver.query.all(),
-                           cars=Car.query.all())
+    drivers = Driver.query.order_by(Driver.name).all()
+    cars = Car.query.filter_by(active=True).order_by(Car.name).all()
+    # Map for quick display of each driver's assigned car
+    car_by_id = {c.id: c for c in Car.query.all()}
+    rows = []
+    for d in drivers:
+        car = car_by_id.get(d.assigned_car_id) if d.assigned_car_id else None
+        rows.append({"driver": d, "car": car})
+    return render_template('admin_schedule.html', rows=rows, drivers=drivers, cars=cars)
+
+@app.route('/admin/driver-management/assign', methods=['POST'])
+def assign_car():
+    """Assign (or clear) a driver's car — 1:1."""
+    if not can_dispatch(): return jsonify({"success": False, "error": "Unauthorized"})
+    driver_id = request.form.get('driver_id')
+    car_id    = request.form.get('car_id', '').strip()
+    drv = Driver.query.get_or_404(int(driver_id))
+    if not car_id:
+        drv.assigned_car_id = None
+        db.session.commit()
+        return jsonify({"success": True, "car": None})
+    car = Car.query.get_or_404(int(car_id))
+    drv.assigned_car_id = car.id
+    db.session.commit()
+    return jsonify({"success": True, "car": car.car_string(), "car_id": car.id})
+
+@app.route('/admin/driver-management/toggle', methods=['POST'])
+def dm_toggle_available():
+    """Toggle a driver's available/busy status from Driver Management."""
+    if not can_dispatch(): return jsonify({"success": False, "error": "Unauthorized"})
+    drv = Driver.query.get_or_404(int(request.form.get('driver_id')))
+    drv.available = not drv.available
+    db.session.commit()
+    fire_webhook({
+        "type": "driver_availability_changed", "driver_name": drv.name,
+        "driver_phone": drv.phone, "available": drv.available,
+        "changed_by": session.get("username", ""), "source": "driver_management",
+    })
+    return jsonify({"success": True, "available": drv.available})
 
 @app.route('/admin/schedule/new', methods=['POST'])
 def new_shift():
@@ -1933,6 +2051,7 @@ def driver_dashboard():
             "picked_at": vegas_time(c.picked_up_at),
             "lat": p_lat, "lng": p_lng, "dist_mi": dist_mi,
             "car_string": c.car_string_val,
+            "streetview": streetview_for(c.endereco),
             "_dt": parse_pickup_datetime(c.pickup_datetime),
         })
 
@@ -2217,6 +2336,12 @@ def driver_scope(username):
         today = date.today()
         today_p = f"{today.month:02d}/{today.day:02d}/{today.year}"
         dow = today.weekday()
+        # Direct 1:1 car assignment
+        if drv.assigned_car_id:
+            ac = Car.query.get(drv.assigned_car_id)
+            if ac:
+                car_names.add(ac.name)
+                names.add(ac.name)
         shifts = (Shift.query.filter_by(driver_id=drv.id, active=True)
                   .filter((Shift.specific_date == today_p) | (Shift.day_of_week == dow)).all())
         for sh in shifts:
@@ -2800,9 +2925,13 @@ def _match_car(gps_name):
     return None
 
 def _driver_for_car_today(car, today_p):
-    """Driver assigned to this car today via shift (specific date wins over weekly)."""
+    """Driver assigned to this car: direct 1:1 assignment first, then today's shift."""
     if not car:
         return None
+    # Direct assignment (Driver Management) wins
+    direct = Driver.query.filter_by(assigned_car_id=car.id).first()
+    if direct:
+        return direct
     dow = date.today().weekday()
     sh = (Shift.query.filter_by(car_id=car.id, active=True)
           .filter(Shift.specific_date == today_p).first())
@@ -3754,6 +3883,7 @@ with app.app_context():
     safe_migrate("customer", "car_photo",       "ALTER TABLE customer ADD COLUMN car_photo VARCHAR(255) DEFAULT ''")
 
     safe_migrate("driver", "available", "ALTER TABLE driver ADD COLUMN available BOOLEAN DEFAULT 1")
+    safe_migrate("driver", "assigned_car_id", "ALTER TABLE driver ADD COLUMN assigned_car_id INTEGER DEFAULT NULL")
     safe_migrate("driver", "car_model", "ALTER TABLE driver ADD COLUMN car_model VARCHAR(100) DEFAULT ''")
     safe_migrate("driver", "car_color", "ALTER TABLE driver ADD COLUMN car_color VARCHAR(50) DEFAULT ''")
     safe_migrate("driver", "car_plate", "ALTER TABLE driver ADD COLUMN car_plate VARCHAR(30) DEFAULT ''")

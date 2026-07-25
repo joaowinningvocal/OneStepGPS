@@ -154,6 +154,7 @@
                         {% if p.destination %}<div class="pk-row"><span class="ic">🏢</span><span>{{ p.destination }}</span></div>{% endif %}
                         <div class="pk-row"><span class="ic">🎟️</span><span>{{ p.package or '—' }} · {{ p.guests or 0 }} guests</span></div>
                         {% if p.details %}<div class="pk-row"><span class="ic">📝</span><span>{{ p.details }}</span></div>{% endif %}
+                        {% if p.streetview %}<div class="pk-row"><span class="ic">👁️</span><a href="{{ p.streetview }}" target="_blank" rel="noopener" style="color:var(--acc);font-weight:600;">See pickup spot (Street View)</a></div>{% endif %}
 
                         <div class="pk-actions">
                             <button class="ab ab-enroute" onclick="sendEnroute({{ p.id }})">🚗 I'm Enroute</button>
