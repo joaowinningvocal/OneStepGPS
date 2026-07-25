@@ -1449,7 +1449,11 @@ def admin_users():
     if is_master():
         users = User.query.order_by(User.role, User.username).all()
     else:
-        users = User.query.filter(User.role.in_(allowed)).all()
+        visible = list(allowed)
+        # Club owners can also see (and manage) their peers
+        if session.get("role") == "club_owner" and "club_owner" not in visible:
+            visible.append("club_owner")
+        users = User.query.filter(User.role.in_(visible)).order_by(User.role, User.username).all()
     clubs  = Club.query.filter_by(active=True).all()
     return render_template('admin_users.html', users=users, clubs=clubs,
                            viewer_role=session.get("role"), creatable_roles=allowed)
@@ -1611,14 +1615,28 @@ def edit_user(user_id):
 @app.route('/admin/users/reset/<int:user_id>', methods=['POST'])
 def reset_password(user_id):
     if not can_create_accounts():
-        return jsonify({"success": False, "error": "Unauthorized"})
+        return jsonify({"success": False, "error": "Your role can't reset passwords."})
     user = User.query.get_or_404(user_id)
     allowed = creatable_roles()
-    if not is_master() and user.role not in allowed:
-        return jsonify({"success": False, "error": "Unauthorized"})
+    # You can reset anyone in your creatable set. Club owners can also reset each
+    # other (peers). Only master can reset a master.
+    role = session.get("role")
+    can_manage = (
+        is_master()
+        or user.role in allowed
+        or (role == "club_owner" and user.role == "club_owner")
+    )
+    if user.role == "master" and not is_master():
+        return jsonify({"success": False, "error": "Only a master can reset a master account's password."})
+    if not can_manage:
+        return jsonify({"success": False, "error": f"You can't manage a '{user.role}' account."})
     new_password = request.form.get('password', '').strip()
-    if not new_password: return jsonify({"success": False, "error": "Password cannot be empty"})
+    if not new_password:
+        return jsonify({"success": False, "error": "Password cannot be empty"})
+    if len(new_password) < 6:
+        return jsonify({"success": False, "error": "Password must be at least 6 characters."})
     user.set_password(new_password)
+    user.is_active = True   # in case it was an un-activated invite
     db.session.commit()
     return jsonify({"success": True})
 
