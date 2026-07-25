@@ -1054,9 +1054,17 @@ def cadastrar_cep():
                 mdrv = get_driver_record(manual_driver)
             if mdrv:
                 melhor_v = mdrv.name
-                # Their assigned car (1:1), then compute distance if GPS is available
+                # Find their car: 1:1 assignment first, then today's shift,
+                # then a Car whose name matches a live GPS vehicle for this driver.
                 if mdrv.assigned_car_id:
                     chosen_car = Car.query.get(mdrv.assigned_car_id)
+                if not chosen_car:
+                    dow = requested_dt.weekday()
+                    today_p = f"{requested_dt.month:02d}/{requested_dt.day:02d}/{requested_dt.year}"
+                    sh = (Shift.query.filter_by(driver_id=mdrv.id, active=True)
+                          .filter((Shift.specific_date == today_p) | (Shift.day_of_week == dow)).first())
+                    if sh:
+                        chosen_car = Car.query.get(sh.car_id)
                 if chosen_car:
                     coords = gps_by_name.get(chosen_car.name)
                     if coords:
@@ -3205,17 +3213,31 @@ def api_live_drivers():
             drv = _driver_for_car_today(car, today_p)
             driver_name = drv.name if drv else ""
 
+            # All the names a pickup's car_name could plausibly hold for THIS vehicle
             car_names = {gps_name}
             if car:
                 car_names.add(car.name)
 
+            # Names a pickup's motorista field could hold for this vehicle:
+            # the resolved driver, plus the GPS/car name itself (fallback assignment
+            # stores the car name in motorista when no driver is on the car).
+            driver_names = set(car_names)
+            if driver_name:
+                driver_names.add(driver_name)
+
             matched = [c for c in todays
-                       if (driver_name and c.motorista == driver_name)
+                       if (c.motorista and c.motorista in driver_names)
                        or (c.car_name and c.car_name in car_names)]
             for c in matched:
                 claimed.add(c.id)
             if not driver_name and matched:
-                driver_name = matched[0].motorista or ""
+                # Prefer a real person name over a car-name fallback
+                for c in matched:
+                    if c.motorista and c.motorista not in car_names:
+                        driver_name = c.motorista
+                        break
+                if not driver_name:
+                    driver_name = matched[0].motorista or ""
 
             queue, current, done = _build(matched)
             result.append({
