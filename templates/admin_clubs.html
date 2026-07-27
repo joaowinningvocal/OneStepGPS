@@ -190,52 +190,274 @@ async function delClub(id){if(!confirm('Delete this club?'))return;const d=await
 <script>
 function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.classList.toggle('open');}
 </script>
-<!-- Bug Report / Chat Widget -->
+<!-- Team Chat Widget -->
 <style>
-#bugFab{position:fixed;bottom:18px;left:18px;z-index:9997;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;cursor:pointer;box-shadow:0 6px 20px rgba(138,92,246,.5);display:flex;align-items:center;justify-content:center;font-size:1.4rem;transition:.2s;}
-#bugFab:hover{transform:scale(1.08);}
-#bugPanel{position:fixed;bottom:80px;left:18px;z-index:9997;width:320px;max-width:calc(100vw - 36px);background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:16px;box-shadow:0 16px 50px rgba(0,0,0,.6);padding:18px;display:none;}
-#bugPanel.open{display:block;}
-#bugPanel h4{font-family:'Syne',sans-serif;font-weight:800;font-size:1rem;color:#8a5cf6;margin:0 0 3px;}
-#bugPanel p{font-size:.76rem;color:#8892a0;margin:0 0 12px;}
-#bugPanel select,#bugPanel textarea{width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.1);color:#e8eaf0;border-radius:10px;padding:10px 12px;font-family:'DM Sans',sans-serif;font-size:.84rem;margin-bottom:10px;}
-#bugPanel textarea{min-height:90px;resize:vertical;}
-#bugPanel .bsend{width:100%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;color:#fff;border-radius:10px;padding:11px;font-weight:700;font-size:.85rem;cursor:pointer;font-family:'Syne',sans-serif;}
-#bugPanel .bclose{position:absolute;top:12px;right:14px;background:none;border:none;color:#5a6270;cursor:pointer;font-size:1.1rem;}
+#chatFab{position:fixed;bottom:18px;left:18px;z-index:9997;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;cursor:pointer;box-shadow:0 6px 20px rgba(138,92,246,.5);display:flex;align-items:center;justify-content:center;font-size:1.5rem;transition:.2s;}
+#chatFab:hover{transform:scale(1.08);}
+#chatBadge{position:absolute;top:-3px;right:-3px;min-width:20px;height:20px;border-radius:10px;background:#ef4444;color:#fff;font-size:.7rem;font-weight:800;display:none;align-items:center;justify-content:center;padding:0 5px;font-family:'DM Sans',sans-serif;border:2px solid #080b12;}
+#chatPanel{position:fixed;bottom:82px;left:18px;z-index:9997;width:370px;max-width:calc(100vw - 36px);height:520px;max-height:calc(100vh - 120px);background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:16px;box-shadow:0 16px 50px rgba(0,0,0,.6);display:none;flex-direction:column;overflow:hidden;}
+#chatPanel.open{display:flex;}
+.chat-head{display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid rgba(255,255,255,.07);background:#0d1117;}
+.chat-head .ttl{font-family:'Syne',sans-serif;font-weight:800;font-size:.98rem;color:#e8eaf0;flex:1;display:flex;align-items:center;gap:7px;}
+.chat-head .ttl .acc{color:#8a5cf6;}
+.chat-back{background:none;border:none;color:#8892a0;cursor:pointer;font-size:1rem;padding:2px 6px;display:none;}
+.chat-back.show{display:block;}
+.chat-x{background:none;border:none;color:#5a6270;cursor:pointer;font-size:1.15rem;padding:2px 4px;}
+.chat-tabs{display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,.07);}
+.chat-tab{flex:1;background:none;border:none;color:#8892a0;font-family:'Syne',sans-serif;font-weight:700;font-size:.8rem;padding:10px;cursor:pointer;border-bottom:2px solid transparent;position:relative;}
+.chat-tab.act{color:#8a5cf6;border-bottom-color:#8a5cf6;}
+.chat-tab .tb{position:absolute;top:6px;right:14px;min-width:16px;height:16px;border-radius:8px;background:#ef4444;color:#fff;font-size:.62rem;font-weight:800;display:none;align-items:center;justify-content:center;padding:0 4px;}
+.chat-body{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:9px;}
+.chat-msg{max-width:80%;padding:8px 11px;border-radius:12px;font-size:.84rem;line-height:1.4;word-wrap:break-word;}
+.chat-msg .who{font-size:.68rem;font-weight:700;color:#a78bfa;margin-bottom:2px;}
+.chat-msg .tm{font-size:.62rem;color:#5a6270;margin-top:3px;}
+.chat-msg.mine{align-self:flex-end;background:linear-gradient(135deg,#6d28d9,#8a5cf6);color:#fff;}
+.chat-msg.mine .who{display:none;}
+.chat-msg.mine .tm{color:rgba(255,255,255,.7);text-align:right;}
+.chat-msg.theirs{align-self:flex-start;background:#1a2130;color:#e8eaf0;}
+.chat-msg .mention{background:rgba(167,139,250,.3);color:#c4b5fd;border-radius:4px;padding:0 3px;font-weight:600;}
+.chat-list{flex:1;overflow-y:auto;padding:6px;}
+.chat-contact{display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:10px;cursor:pointer;transition:.15s;}
+.chat-contact:hover{background:#161d2e;}
+.chat-avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:.85rem;flex-shrink:0;font-family:'Syne',sans-serif;}
+.chat-contact .nm{flex:1;font-size:.86rem;color:#e8eaf0;}
+.chat-contact .cb{min-width:18px;height:18px;border-radius:9px;background:#ef4444;color:#fff;font-size:.66rem;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 5px;}
+.chat-foot{padding:10px;border-top:1px solid rgba(255,255,255,.07);display:flex;gap:8px;align-items:flex-end;position:relative;}
+.chat-foot textarea{flex:1;background:#0d1117;border:1px solid rgba(255,255,255,.1);color:#e8eaf0;border-radius:11px;padding:9px 12px;font-family:'DM Sans',sans-serif;font-size:.84rem;resize:none;max-height:90px;min-height:38px;}
+.chat-foot textarea:focus{outline:none;border-color:rgba(138,92,246,.5);}
+.chat-send{background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;color:#fff;border-radius:11px;width:38px;height:38px;cursor:pointer;font-size:1rem;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+.chat-send:disabled{opacity:.5;}
+.chat-empty{text-align:center;color:#5a6270;font-size:.82rem;padding:30px 16px;}
+.mention-pop{position:absolute;bottom:52px;left:10px;right:56px;background:#161d2e;border:1px solid rgba(138,92,246,.4);border-radius:10px;max-height:150px;overflow-y:auto;display:none;z-index:5;}
+.mention-pop.show{display:block;}
+.mention-item{padding:8px 12px;cursor:pointer;font-size:.82rem;color:#e8eaf0;}
+.mention-item:hover,.mention-item.sel{background:rgba(138,92,246,.2);}
 </style>
-<button id="bugFab" onclick="toggleBug()" title="Report an issue">💬</button>
-<div id="bugPanel">
-    <button class="bclose" onclick="toggleBug()">✕</button>
-    <h4>💬 Report an Issue</h4>
-    <p>Found a bug or have feedback? Let us know.</p>
-    <select id="bugCat">
-        <option value="bug">🐛 Bug / Something broken</option>
-        <option value="feature">💡 Feature request</option>
-        <option value="question">❓ Question</option>
-        <option value="general">💬 General feedback</option>
-    </select>
-    <textarea id="bugDesc" placeholder="Describe what happened or what you need…"></textarea>
-    <button class="bsend" onclick="sendBug()">Send</button>
+
+<button id="chatFab" onclick="chatToggle()" title="Team chat">💬<span id="chatBadge">0</span></button>
+<div id="chatPanel">
+    <div class="chat-head">
+        <button class="chat-back" id="chatBack" onclick="chatShowList()">‹</button>
+        <div class="ttl" id="chatTitle"><span class="acc">#</span> Team Chat</div>
+        <button class="chat-x" onclick="chatToggle()">✕</button>
+    </div>
+    <div class="chat-tabs" id="chatTabs">
+        <button class="chat-tab act" id="tabGeneral" onclick="chatOpenGeneral()"># General<span class="tb" id="tbGeneral"></span></button>
+        <button class="chat-tab" id="tabDM" onclick="chatShowList()">Direct<span class="tb" id="tbDM"></span></button>
+    </div>
+
+    <!-- General / DM conversation -->
+    <div class="chat-body" id="chatBody" style="display:flex;"></div>
+
+    <!-- Contact list for DMs -->
+    <div class="chat-list" id="chatList" style="display:none;"></div>
+
+    <div class="chat-foot" id="chatFoot">
+        <div class="mention-pop" id="mentionPop"></div>
+        <textarea id="chatInput" placeholder="Message… use @ to mention" rows="1"
+            oninput="chatOnInput()" onkeydown="chatKey(event)"></textarea>
+        <button class="chat-send" id="chatSendBtn" onclick="chatSend()">➤</button>
+    </div>
 </div>
 <script>
-function toggleBug(){document.getElementById('bugPanel').classList.toggle('open');}
-async function sendBug(){
-    const desc=document.getElementById('bugDesc').value.trim();
-    if(!desc){alert('Please describe the issue first.');return;}
-    const fd=new FormData();
-    fd.append('description',desc);
-    fd.append('category',document.getElementById('bugCat').value);
-    fd.append('page',window.location.pathname);
-    try{
-        const d=await(await fetch('/api/bug-report',{method:'POST',body:fd})).json();
-        if(d.success){document.getElementById('bugDesc').value='';toggleBug();
-            const t=document.getElementById('toast');
-            if(t){t.style.display='block';t.style.background='#16a34a';t.style.color='#fff';t.innerText='✅ Report sent — thank you!';setTimeout(()=>t.style.display='none',3000);}
-            else alert('Report sent — thank you!');
-        } else alert(d.error||'Could not send');
-    }catch(e){alert('Could not send report');}
-}
+(function(){
+    let CHAT_ME = null;
+    let mode = 'general';       // 'general' | 'dm' | 'list'
+    let dmUser = null;
+    let lastId = 0;
+    let users = [];
+    let pollTimer = null;
+    let mentionUsers = [], mentionIdx = 0, mentionStart = -1;
+
+    window.chatToggle = function(){
+        const p = document.getElementById('chatPanel');
+        p.classList.toggle('open');
+        if(p.classList.contains('open')){
+            chatOpenGeneral();
+            startPoll();
+        } else {
+            stopPoll();
+        }
+    };
+
+    function startPoll(){ stopPoll(); pollTimer = setInterval(tick, 3500); }
+    function stopPoll(){ if(pollTimer) clearInterval(pollTimer); pollTimer=null; }
+
+    function tick(){
+        if(!document.getElementById('chatPanel').classList.contains('open')) return;
+        if(mode === 'list'){ loadContacts(); return; }
+        pollMessages();
+        loadContacts(); // keep badges fresh
+    }
+
+    function esc(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+    function renderBody(b){
+        let h = esc(b);
+        h = h.replace(/@([A-Za-z0-9._-]+)/g, '<span class="mention">@$1</span>');
+        return h;
+    }
+
+    function initials(name){ return (name||'?').slice(0,2).toUpperCase(); }
+
+    window.chatOpenGeneral = function(){
+        mode='general'; dmUser=null; lastId=0;
+        document.getElementById('tabGeneral').classList.add('act');
+        document.getElementById('tabDM').classList.remove('act');
+        document.getElementById('chatBack').classList.remove('show');
+        document.getElementById('chatTitle').innerHTML='<span class="acc">#</span> General';
+        document.getElementById('chatBody').style.display='flex';
+        document.getElementById('chatList').style.display='none';
+        document.getElementById('chatFoot').style.display='flex';
+        document.getElementById('chatBody').innerHTML='<div class="chat-empty">Loading…</div>';
+        pollMessages(true);
+    };
+
+    window.chatShowList = function(){
+        mode='list'; dmUser=null;
+        document.getElementById('tabGeneral').classList.remove('act');
+        document.getElementById('tabDM').classList.add('act');
+        document.getElementById('chatBack').classList.remove('show');
+        document.getElementById('chatTitle').innerHTML='<span class="acc">✉</span> Direct Messages';
+        document.getElementById('chatBody').style.display='none';
+        document.getElementById('chatList').style.display='block';
+        document.getElementById('chatFoot').style.display='none';
+        loadContacts(true);
+    };
+
+    window.chatOpenDM = function(u){
+        mode='dm'; dmUser=u; lastId=0;
+        document.getElementById('chatBack').classList.add('show');
+        document.getElementById('chatTitle').innerHTML='<span class="acc">@</span> '+esc(u);
+        document.getElementById('chatBody').style.display='flex';
+        document.getElementById('chatList').style.display='none';
+        document.getElementById('chatFoot').style.display='flex';
+        document.getElementById('chatBody').innerHTML='<div class="chat-empty">Loading…</div>';
+        pollMessages(true);
+    };
+
+    async function pollMessages(reset){
+        try{
+            const q = mode==='dm' ? `dm=${encodeURIComponent(dmUser)}` : 'channel=general';
+            const url = `/api/chat/messages?${q}${reset?'':`&after=${lastId}`}`;
+            const d = await (await fetch(url)).json();
+            if(d.error) return;
+            CHAT_ME = d.me;
+            const body = document.getElementById('chatBody');
+            if(reset){ body.innerHTML=''; }
+            if(reset && (!d.messages || !d.messages.length)){
+                body.innerHTML='<div class="chat-empty">No messages yet.<br>Say hi 👋</div>';
+            }
+            const wasBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 60;
+            (d.messages||[]).forEach(m=>{
+                if(document.querySelector(`[data-mid="${m.id}"]`)) return;
+                if(body.querySelector('.chat-empty')) body.innerHTML='';
+                const mine = m.sender===CHAT_ME;
+                const el=document.createElement('div');
+                el.className='chat-msg '+(mine?'mine':'theirs');
+                el.setAttribute('data-mid',m.id);
+                el.innerHTML=`<div class="who">${esc(m.sender)}</div><div>${renderBody(m.body)}</div><div class="tm">${esc(m.created_at)}</div>`;
+                body.appendChild(el);
+                if(m.id>lastId) lastId=m.id;
+            });
+            if(reset || wasBottom) body.scrollTop = body.scrollHeight;
+        }catch(e){}
+    }
+
+    async function loadContacts(silent){
+        try{
+            const d = await (await fetch('/api/chat/contacts')).json();
+            if(d.error) return;
+            CHAT_ME = d.me; users = d.users||[];
+            // badges
+            const total = d.total_unread||0;
+            const badge=document.getElementById('chatBadge');
+            badge.style.display = total>0 ? 'flex':'none';
+            badge.innerText = total>99?'99+':total;
+            const tg=document.getElementById('tbGeneral');
+            tg.style.display = d.general_unread>0?'flex':'none'; tg.innerText=d.general_unread;
+            const td=document.getElementById('tbDM');
+            const dmTotal=Object.values(d.dm_unread||{}).reduce((a,b)=>a+b,0);
+            td.style.display = dmTotal>0?'flex':'none'; td.innerText=dmTotal;
+
+            if(mode==='list' && !silent || (mode==='list' && document.getElementById('chatList').children.length===0)){
+                const list=document.getElementById('chatList');
+                if(!users.length){ list.innerHTML='<div class="chat-empty">No other users yet.</div>'; return; }
+                list.innerHTML = users.map(u=>{
+                    const n=(d.dm_unread||{})[u]||0;
+                    return `<div class="chat-contact" onclick="chatOpenDM('${u.replace(/'/g,"\\'")}')">
+                        <div class="chat-avatar">${initials(u)}</div>
+                        <div class="nm">${esc(u)}</div>
+                        ${n?`<div class="cb">${n}</div>`:''}
+                    </div>`;
+                }).join('');
+            }
+        }catch(e){}
+    }
+
+    window.chatSend = async function(){
+        const inp=document.getElementById('chatInput');
+        const body=inp.value.trim();
+        if(!body) return;
+        const btn=document.getElementById('chatSendBtn'); btn.disabled=true;
+        const fd=new FormData(); fd.append('body',body);
+        if(mode==='dm') fd.append('dm',dmUser);
+        try{
+            const d=await(await fetch('/api/chat/send',{method:'POST',body:fd})).json();
+            if(d.success){ inp.value=''; inp.style.height='38px'; await pollMessages(); }
+        }catch(e){}
+        btn.disabled=false; inp.focus();
+    };
+
+    window.chatKey = function(e){
+        const pop=document.getElementById('mentionPop');
+        if(pop.classList.contains('show')){
+            if(e.key==='ArrowDown'){e.preventDefault();mentionIdx=Math.min(mentionIdx+1,mentionUsers.length-1);drawMentions();return;}
+            if(e.key==='ArrowUp'){e.preventDefault();mentionIdx=Math.max(mentionIdx-1,0);drawMentions();return;}
+            if(e.key==='Enter'||e.key==='Tab'){e.preventDefault();pickMention(mentionUsers[mentionIdx]);return;}
+            if(e.key==='Escape'){pop.classList.remove('show');return;}
+        }
+        if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); chatSend(); }
+    };
+
+    window.chatOnInput = function(){
+        const inp=document.getElementById('chatInput');
+        inp.style.height='38px'; inp.style.height=Math.min(inp.scrollHeight,90)+'px';
+        // mention detection
+        const val=inp.value, pos=inp.selectionStart;
+        const upto=val.slice(0,pos);
+        const m=upto.match(/@([A-Za-z0-9._-]*)$/);
+        const pop=document.getElementById('mentionPop');
+        if(m){
+            mentionStart=pos-m[0].length;
+            const q=m[1].toLowerCase();
+            mentionUsers=users.filter(u=>u.toLowerCase().includes(q)).slice(0,6);
+            mentionIdx=0;
+            if(mentionUsers.length){ drawMentions(); pop.classList.add('show'); }
+            else pop.classList.remove('show');
+        } else pop.classList.remove('show');
+    };
+
+    function drawMentions(){
+        const pop=document.getElementById('mentionPop');
+        pop.innerHTML=mentionUsers.map((u,i)=>`<div class="mention-item ${i===mentionIdx?'sel':''}" onclick="window._pickMention('${u.replace(/'/g,"\\'")}')">@${esc(u)}</div>`).join('');
+    }
+    window._pickMention=function(u){ pickMention(u); };
+    function pickMention(u){
+        if(!u) return;
+        const inp=document.getElementById('chatInput');
+        const val=inp.value, pos=inp.selectionStart;
+        inp.value = val.slice(0,mentionStart) + '@'+u+' ' + val.slice(pos);
+        document.getElementById('mentionPop').classList.remove('show');
+        inp.focus();
+        const np=mentionStart+u.length+2; inp.setSelectionRange(np,np);
+    }
+
+    // initial badge load so the count shows before opening
+    document.addEventListener('DOMContentLoaded', ()=>loadContacts(true));
+    setInterval(()=>{ if(!document.getElementById('chatPanel').classList.contains('open')) loadContacts(true); }, 15000);
+})();
 </script>
+
 
 <!-- PWA Install Banner (logged-in users only) -->
 <div id="pwaInstall" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9996;max-width:440px;width:calc(100% - 32px);background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:14px;padding:13px 15px;box-shadow:0 12px 40px rgba(0,0,0,.6);display:none;align-items:center;gap:12px;">

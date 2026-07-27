@@ -293,6 +293,29 @@ class Car(db.Model):
             "active": self.active, "car_string": self.car_string()
         }
 
+class ChatMessage(db.Model):
+    """A chat message. channel='general' for the shared channel, or a DM key
+    'dm:userA|userB' (usernames sorted) for a direct conversation."""
+    id         = db.Column(db.Integer, primary_key=True)
+    channel    = db.Column(db.String(120), index=True, default="general")
+    sender     = db.Column(db.String(120), index=True)      # username
+    body       = db.Column(db.Text, default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "channel": self.channel, "sender": self.sender,
+            "body": self.body, "created_at": vegas_time(self.created_at),
+            "ts": self.created_at.isoformat() if self.created_at else "",
+        }
+
+class ChatRead(db.Model):
+    """Tracks the last message id each user has seen per channel (for unread badges)."""
+    id            = db.Column(db.Integer, primary_key=True)
+    username      = db.Column(db.String(120), index=True)
+    channel       = db.Column(db.String(120), index=True)
+    last_read_id  = db.Column(db.Integer, default=0)
+
 class DriverStop(db.Model):
     """A period where a vehicle stayed in the same place long enough to count as a stop.
     Built from the GPS samples the tracker already polls every couple of minutes."""
@@ -1363,27 +1386,121 @@ def admin_today():
     )
 
 # ─── API: LAST CLIENT (for AI voice calls) ────────────────────────────────────
-@app.route('/api/bug-report', methods=['POST'])
-def bug_report():
-    """Any logged-in user can submit a bug report / message → fires webhook."""
+# ─── CHAT ─────────────────────────────────────────────────────────────────────
+def _dm_channel(a_user, b_user):
+    """Deterministic channel key for a DM between two usernames."""
+    a, b = sorted([a_user, b_user])
+    return f"dm:{a}|{b}"
+
+def _extract_mentions(body):
+    import re
+    return set(re.findall(r'@([A-Za-z0-9._-]+)', body or ""))
+
+@app.route('/api/chat/messages')
+def chat_messages():
+    """Fetch messages for a channel. ?channel=general or ?dm=<username>.
+    ?after=<id> returns only newer messages (for polling)."""
+    if not session.get("logged"):
+        return jsonify({"error": "Unauthorized"}), 401
+    me = session.get("username", "")
+    dm_user = (request.args.get('dm', '') or "").strip()
+    if dm_user:
+        if not User.query.filter_by(username=dm_user).first():
+            return jsonify({"error": "User not found"}), 404
+        channel = _dm_channel(me, dm_user)
+    else:
+        channel = "general"
+    try:
+        after = int(request.args.get('after', 0))
+    except ValueError:
+        after = 0
+
+    q = ChatMessage.query.filter_by(channel=channel)
+    if after:
+        q = q.filter(ChatMessage.id > after)
+    msgs = q.order_by(ChatMessage.id).limit(200).all()
+
+    # Mark as read up to the latest message in this channel
+    if msgs:
+        last_id = msgs[-1].id
+        rd = ChatRead.query.filter_by(username=me, channel=channel).first()
+        if not rd:
+            rd = ChatRead(username=me, channel=channel, last_read_id=last_id)
+            db.session.add(rd)
+        elif last_id > rd.last_read_id:
+            rd.last_read_id = last_id
+        db.session.commit()
+
+    return jsonify({"messages": [m.to_dict() for m in msgs], "channel": channel, "me": me})
+
+@app.route('/api/chat/send', methods=['POST'])
+def chat_send():
     if not session.get("logged"):
         return jsonify({"success": False, "error": "Unauthorized"})
-    description = (request.form.get('description', '') or "").strip()
-    category    = (request.form.get('category', '') or "general").strip()
-    if not description:
-        return jsonify({"success": False, "error": "Description is required"})
-    if len(description) > 2000:
-        description = description[:2000]
-    fire_webhook({
-        "type":        "bug_report",
-        "category":    category,
-        "description": description,
-        "username":    session.get("username", ""),
-        "role":        session.get("role", ""),
-        "page":        request.form.get('page', ''),
-        "timestamp":   datetime.utcnow().isoformat(),
+    me = session.get("username", "")
+    body = (request.form.get('body', '') or "").strip()
+    dm_user = (request.form.get('dm', '') or "").strip()
+    if not body:
+        return jsonify({"success": False, "error": "Message is empty"})
+    if len(body) > 2000:
+        body = body[:2000]
+    if dm_user:
+        if not User.query.filter_by(username=dm_user).first():
+            return jsonify({"success": False, "error": "User not found"})
+        channel = _dm_channel(me, dm_user)
+    else:
+        channel = "general"
+
+    msg = ChatMessage(channel=channel, sender=me, body=body)
+    db.session.add(msg)
+    db.session.commit()
+
+    # Notify @mentioned users via webhook (Make can route to SMS/email if desired)
+    mentions = _extract_mentions(body)
+    if mentions:
+        valid = [u.username for u in User.query.filter(User.username.in_(mentions)).all()]
+        if valid:
+            fire_webhook({
+                "type":       "chat_mention",
+                "from":       me,
+                "mentioned":  valid,
+                "channel":    "general" if channel == "general" else "dm",
+                "message":    body[:300],
+            })
+    return jsonify({"success": True, "message": msg.to_dict()})
+
+@app.route('/api/chat/contacts')
+def chat_contacts():
+    """List users to DM, plus unread counts per channel for the badge."""
+    if not session.get("logged"):
+        return jsonify({"error": "Unauthorized"}), 401
+    me = session.get("username", "")
+    users = [u.username for u in User.query.order_by(User.username).all() if u.username != me]
+
+    # Unread in general
+    def unread_for(channel):
+        rd = ChatRead.query.filter_by(username=me, channel=channel).first()
+        last_read = rd.last_read_id if rd else 0
+        return (ChatMessage.query.filter(ChatMessage.channel == channel,
+                                         ChatMessage.id > last_read,
+                                         ChatMessage.sender != me).count())
+
+    general_unread = unread_for("general")
+    dm_unread = {}
+    total_dm = 0
+    for u in users:
+        ch = _dm_channel(me, u)
+        n = unread_for(ch)
+        if n:
+            dm_unread[u] = n
+            total_dm += n
+
+    return jsonify({
+        "me": me, "users": users,
+        "general_unread": general_unread,
+        "dm_unread": dm_unread,
+        "total_unread": general_unread + total_dm,
     })
-    return jsonify({"success": True})
 
 @app.route('/api/last-client')
 @require_api_key
