@@ -256,6 +256,8 @@ function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.c
     <div class="chat-tabs" id="chatTabs">
         <button class="chat-tab act" id="tabGeneral" onclick="chatOpenGeneral()"># General<span class="tb" id="tbGeneral"></span></button>
         <button class="chat-tab" id="tabDM" onclick="chatShowList()">Direct<span class="tb" id="tbDM"></span></button>
+{% if session.get('role') in ['master','club_owner'] %}        <button class="chat-tab" id="tabAdmin" onclick="chatShowDMAdmin()" title="View all direct messages">👁 All DMs</button>
+        {% endif %}
     </div>
 
     <!-- General / DM conversation -->
@@ -263,6 +265,9 @@ function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.c
 
     <!-- Contact list for DMs -->
     <div class="chat-list" id="chatList" style="display:none;"></div>
+
+    <!-- Admin: all DM conversations (master/club_owner only) -->
+    <div class="chat-list" id="chatAdminList" style="display:none;"></div>
 
     <div class="chat-foot" id="chatFoot">
         <div class="mention-pop" id="mentionPop"></div>
@@ -325,6 +330,7 @@ function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.c
     };
 
     window.chatShowList = function(){
+        if(mode==='admin-view'){ chatShowDMAdmin(); return; }
         mode='list'; dmUser=null;
         document.getElementById('tabGeneral').classList.remove('act');
         document.getElementById('tabDM').classList.add('act');
@@ -463,6 +469,60 @@ function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.c
         inp.focus();
         const np=mentionStart+u.length+2; inp.setSelectionRange(np,np);
     }
+
+
+    // ── Admin DM oversight (master / club_owner) ──
+    window.chatShowDMAdmin = function(){
+        mode='admin'; dmUser=null;
+        document.getElementById('tabGeneral').classList.remove('act');
+        document.getElementById('tabDM').classList.remove('act');
+        var ta=document.getElementById('tabAdmin'); if(ta) ta.classList.add('act');
+        document.getElementById('chatBack').classList.remove('show');
+        document.getElementById('chatTitle').innerHTML='<span class="acc">\u{1F441}</span> All Direct Messages';
+        document.getElementById('chatBody').style.display='none';
+        document.getElementById('chatList').style.display='none';
+        var al=document.getElementById('chatAdminList'); al.style.display='block';
+        document.getElementById('chatFoot').style.display='none';
+        al.innerHTML='<div class="chat-empty">Loading…</div>';
+        loadDMAdmin();
+    };
+    async function loadDMAdmin(){
+        try{
+            const d=await(await fetch('/api/chat/dm-overview')).json();
+            const al=document.getElementById('chatAdminList');
+            if(d.error){ al.innerHTML='<div class="chat-empty">Not authorized.</div>'; return; }
+            if(!d.conversations || !d.conversations.length){ al.innerHTML='<div class="chat-empty">No direct messages yet.</div>'; return; }
+            al.innerHTML=d.conversations.map(c=>`
+                <div class="chat-contact" onclick="chatViewDMAdmin('${c.channel.replace(/'/g,"\\'")}','${c.participants.join(' & ').replace(/'/g,"\\'")}')">
+                    <div class="chat-avatar">\u{1F4AC}</div>
+                    <div class="nm"><div style="font-weight:700;">${esc(c.participants.join(' & '))}</div>
+                        <div style="font-size:.72rem;color:#8892a0;">${esc(c.last_sender)}: ${esc(c.last_body)}</div></div>
+                    <div style="font-size:.66rem;color:#5a6270;">${esc(c.last_at)}</div>
+                </div>`).join('');
+        }catch(e){}
+    }
+    window.chatViewDMAdmin = async function(channel, title){
+        mode='admin-view';
+        document.getElementById('chatBack').classList.add('show');
+        document.getElementById('chatBack').setAttribute('data-admin','1');
+        document.getElementById('chatTitle').innerHTML='<span class="acc">\u{1F441}</span> '+esc(title);
+        document.getElementById('chatAdminList').style.display='none';
+        const body=document.getElementById('chatBody');
+        body.style.display='flex'; body.innerHTML='<div class="chat-empty">Loading…</div>';
+        try{
+            const d=await(await fetch('/api/chat/dm-view?channel='+encodeURIComponent(channel))).json();
+            if(d.error){ body.innerHTML='<div class="chat-empty">'+esc(d.error)+'</div>'; return; }
+            body.innerHTML='';
+            if(!d.messages.length){ body.innerHTML='<div class="chat-empty">No messages.</div>'; return; }
+            d.messages.forEach(m=>{
+                const el=document.createElement('div');
+                el.className='chat-msg theirs';
+                el.innerHTML=`<div class="who">${esc(m.sender)}</div><div>${renderBody(m.body)}</div><div class="tm">${esc(m.created_at)}</div>`;
+                body.appendChild(el);
+            });
+            body.scrollTop=body.scrollHeight;
+        }catch(e){ body.innerHTML='<div class="chat-empty">Could not load.</div>'; }
+    };
 
     // initial badge load so the count shows before opening
     document.addEventListener('DOMContentLoaded', ()=>loadContacts(true));

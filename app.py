@@ -1469,6 +1469,50 @@ def chat_send():
             })
     return jsonify({"success": True, "message": msg.to_dict()})
 
+@app.route('/api/chat/dm-overview')
+def chat_dm_overview():
+    """Master / club owner oversight: list every DM conversation with its participants
+    and last message. Does not touch read state."""
+    if not session.get("logged") or session.get("role") not in ("master", "club_owner"):
+        return jsonify({"error": "Unauthorized"}), 401
+    # Distinct DM channels
+    channels = (db.session.query(ChatMessage.channel)
+                .filter(ChatMessage.channel.like("dm:%"))
+                .distinct().all())
+    convos = []
+    for (ch,) in channels:
+        try:
+            pair = ch[3:].split("|")
+        except Exception:
+            continue
+        last = (ChatMessage.query.filter_by(channel=ch)
+                .order_by(ChatMessage.id.desc()).first())
+        count = ChatMessage.query.filter_by(channel=ch).count()
+        convos.append({
+            "channel": ch,
+            "participants": pair,
+            "count": count,
+            "last_sender": last.sender if last else "",
+            "last_body": (last.body[:80] if last else ""),
+            "last_at": vegas_time(last.created_at) if last else "",
+            "last_id": last.id if last else 0,
+        })
+    convos.sort(key=lambda c: c["last_id"], reverse=True)
+    return jsonify({"conversations": convos})
+
+@app.route('/api/chat/dm-view')
+def chat_dm_view():
+    """Master / club owner: read a specific DM conversation (?channel=dm:a|b)."""
+    if not session.get("logged") or session.get("role") not in ("master", "club_owner"):
+        return jsonify({"error": "Unauthorized"}), 401
+    channel = (request.args.get('channel', '') or "").strip()
+    if not channel.startswith("dm:"):
+        return jsonify({"error": "Invalid channel"}), 400
+    msgs = (ChatMessage.query.filter_by(channel=channel)
+            .order_by(ChatMessage.id).limit(500).all())
+    pair = channel[3:].split("|")
+    return jsonify({"messages": [m.to_dict() for m in msgs], "participants": pair})
+
 @app.route('/api/chat/contacts')
 def chat_contacts():
     """List users to DM, plus unread counts per channel for the badge."""
