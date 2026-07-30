@@ -3724,6 +3724,39 @@ def toggle_priority(customer_id):
         })
     return jsonify({"success": True, "priority": c.priority})
 
+@app.route('/admin/guestlist/reschedule/<int:customer_id>', methods=['POST'])
+def reschedule_pickup(customer_id):
+    """Change the pickup date/time of an existing ride. Accepts loose date formats
+    (2- or 4-digit year) and re-arms proximity alerts so they fire correctly."""
+    if not can_dispatch():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    c = Customer.query.get_or_404(customer_id)
+    raw = (request.form.get('pickup_datetime', '') or "").strip()
+    if not raw:
+        return jsonify({"success": False, "error": "Pickup date/time is required"})
+    normalized = normalize_pickup_datetime(raw)
+    if parse_pickup_datetime(normalized) is None:
+        return jsonify({"success": False, "error": "Couldn't read that date/time. Use MM/DD/YYYY HH:MM AM/PM."})
+    old = c.pickup_datetime
+    c.pickup_datetime = normalized
+    # Re-arm proximity alerts so 1km/500m/arrived fire again for the new time
+    c.notified_15km = False
+    c.notified_10km = False
+    c.notified_5km = False
+    db.session.commit()
+    fire_webhook({
+        "type":            "pickup_rescheduled",
+        "customer_id":     c.id,
+        "customer_name":   c.nome,
+        "customer_phone":  c.phone,
+        "old_datetime":    old,
+        "new_datetime":    normalized,
+        "driver_name":     c.motorista,
+        "destination":     c.destination,
+        "changed_by":      session.get("username", ""),
+    })
+    return jsonify({"success": True, "pickup_datetime": normalized})
+
 @app.route('/admin/guestlist/dispatch/<int:customer_id>', methods=['POST'])
 def update_dispatch_status(customer_id):
     if not can_dispatch():
