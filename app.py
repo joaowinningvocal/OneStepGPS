@@ -3,6 +3,7 @@ import os
 import json
 import base64
 import threading
+from sqlalchemy import func
 import time
 import requests
 import urllib.parse
@@ -399,6 +400,10 @@ class Customer(db.Model):
     picked_up_at    = db.Column(db.DateTime, nullable=True)            # when the driver collected the guest
     dropped_off_at  = db.Column(db.DateTime, nullable=True)            # when the guest was dropped at the venue
     dropoff_verified = db.Column(db.Boolean, default=False)            # GPS confirmed arrival at the property
+    # Frozen snapshot of WHO actually did the ride (captured at pickup/dropoff time).
+    # These never change afterwards, even if the driver later switches cars.
+    completed_driver = db.Column(db.String(120), default="")          # driver who actually did it
+    completed_car    = db.Column(db.String(200), default="")          # car they were in at the time
     dropoff_distance_mi = db.Column(db.Float, default=0.0)             # car-to-venue distance at drop-off
     promoter        = db.Column(db.String(80), default="")             # NEW: which promoter created this
     # Pickup status: 'scheduled', 'picked_up'
@@ -712,15 +717,52 @@ def vegas_datetime(dt):
     except Exception:
         return (dt - timedelta(hours=7)).strftime("%m/%d/%Y %I:%M %p")
 
+def normalize_pickup_datetime(dt_str):
+    """Normalize a pickup datetime the user typed into the canonical
+    'MM/DD/YYYY HH:MM AM/PM' form. Accepts 2- or 4-digit years (26 → 2026),
+    single-digit months/days, and a few common separators. Returns the
+    normalized string (or the original stripped input if it can't be parsed)."""
+    if not dt_str:
+        return ""
+    s = str(dt_str).strip()
+    import re
+    # Split date and time (time is the part with a colon and/or AM/PM)
+    m = re.match(r'^\s*([\d]{1,2})[/\-.]([\d]{1,2})[/\-.]([\d]{2,4})\s+(.*)$', s)
+    if not m:
+        return s
+    mm, dd, yy, tpart = m.groups()
+    mm, dd = int(mm), int(dd)
+    yy = int(yy)
+    if yy < 100:                      # 26 → 2026
+        yy += 2000
+    # Parse the time portion (handles "8 PM", "08:00 PM", "20:00")
+    tpart = tpart.strip().upper().replace(".", "")
+    tm = None
+    for fmt in ("%I:%M %p", "%I %p", "%H:%M", "%I:%M%p", "%I%p"):
+        try:
+            tm = datetime.strptime(tpart, fmt)
+            break
+        except Exception:
+            continue
+    if tm is None:
+        # keep the time text as-is if unparseable
+        return f"{mm:02d}/{dd:02d}/{yy} {tpart}"
+    return f"{mm:02d}/{dd:02d}/{yy} {tm.strftime('%I:%M %p')}"
+
 def parse_pickup_datetime(dt_str):
     """
-    Parse pickup_datetime string like '04/20/2026 08:00 PM'
-    Returns a datetime object or None.
+    Parse pickup_datetime string like '04/20/2026 08:00 PM'.
+    Tolerant of 2-digit years and loose formats. Returns a datetime or None.
     """
-    try:
-        return datetime.strptime(dt_str.strip(), "%m/%d/%Y %I:%M %p")
-    except Exception:
+    if not dt_str:
         return None
+    normalized = normalize_pickup_datetime(dt_str)
+    for fmt in ("%m/%d/%Y %I:%M %p", "%m/%d/%Y %H:%M", "%m/%d/%y %I:%M %p"):
+        try:
+            return datetime.strptime(normalized.strip(), fmt)
+        except Exception:
+            continue
+    return None
 
 def driver_is_busy(driver_name: str, pickup_dt: datetime) -> bool:
     """
@@ -832,9 +874,10 @@ def login():
             return render_template('login.html',
                 error="Too many login attempts. Please wait a few minutes and try again.")
 
-        username = request.form.get('username')
-        password = request.form.get('password')
-        user = User.query.filter_by(username=username).first()
+        username = (request.form.get('username') or '').strip()
+        password = request.form.get('password') or ''
+        # Case-insensitive username match (so "Tj.Madzhary" logs in as "tj.madzhary")
+        user = User.query.filter(func.lower(User.username) == username.lower()).first()
         if user and getattr(user, 'is_active', True) is False:
             return render_template('login.html', error="This account hasn't been activated yet. Please use the setup link that was emailed to you.")
         if user and user.check_password(password):
@@ -965,7 +1008,7 @@ def cadastrar_cep():
         guests = int(request.form.get('guests', 0) or 0)
     except (ValueError, TypeError):
         guests = 1
-    pickup_datetime   = request.form.get('pickup_datetime', '').strip()
+    pickup_datetime   = normalize_pickup_datetime(request.form.get('pickup_datetime', '').strip())
     destination       = request.form.get('destination', '').strip()
     needs_transport   = request.form.get('needs_transport', 'true').lower() == 'true'
     force_waitlist    = request.form.get('force_waitlist', 'false').lower() == 'true'
@@ -977,6 +1020,45 @@ def cadastrar_cep():
     except Exception:
         extra_phones = []
     all_phones = ([client_phone] if client_phone else []) + extra_phones
+
+    # ── DUPLICATE RIDE CHECK ──────────────────────────────────────────────
+    # Warn (once) if this name OR phone already has a ride, unless the user
+    # confirms. Skip if force_duplicate=true is sent.
+    force_duplicate = request.form.get('force_duplicate', 'false').lower() == 'true'
+    if not force_duplicate:
+        norm_new_phone = clean_phone(client_phone)
+        name_l = nome.lower()
+        dup = None
+        # Look at recent rides (any status) for a name or phone match
+        for existing in Customer.query.order_by(Customer.id.desc()).limit(500).all():
+            name_match = existing.nome and existing.nome.lower() == name_l
+            phone_match = False
+            if norm_new_phone:
+                ex_phones = [clean_phone(existing.phone)] + [clean_phone(p) for p in existing.get_phones()]
+                phone_match = norm_new_phone in [p for p in ex_phones if p]
+            if name_match or phone_match:
+                dup = existing
+                break
+        if dup:
+            return jsonify({
+                "success": False,
+                "duplicate": True,
+                "message": (
+                    f"A ride for {dup.nome} already exists"
+                    + (f" on {dup.pickup_datetime}" if dup.pickup_datetime else "")
+                    + (f" to {dup.destination}" if dup.destination else "")
+                    + f" (matched by {'name' if dup.nome.lower()==name_l else 'phone'}). "
+                    "Schedule this one anyway?"
+                ),
+                "existing": {
+                    "name": dup.nome,
+                    "phone": dup.phone,
+                    "pickup_datetime": dup.pickup_datetime,
+                    "destination": dup.destination,
+                    "driver": dup.completed_driver or dup.motorista,
+                    "status": dup.status,
+                },
+            })
 
     try:
         # ── WALK-IN PATH (no transport): skip geocoding, GPS, driver assignment ──
@@ -2354,6 +2436,11 @@ def mark_picked_up(customer_id):
         return jsonify({"success": False, "error": "Not your customer"})
     customer.status = "picked_up"
     customer.picked_up_at = datetime.utcnow()
+    # Freeze who actually did this ride (never changes if they switch cars later)
+    if not customer.completed_driver:
+        customer.completed_driver = customer.motorista or session.get("username", "")
+    if not customer.completed_car:
+        customer.completed_car = customer.car_string_val or customer.car_name or ""
     db.session.commit()
     fire_webhook({
         "type":           "picked_up",
@@ -2378,6 +2465,11 @@ def driver_dropoff(customer_id):
 
     c.status = "dropped_off"
     c.dropped_off_at = datetime.utcnow()
+    # Freeze who did the ride (in case pickup wasn't explicitly marked first)
+    if not c.completed_driver:
+        c.completed_driver = c.motorista or session.get("username", "")
+    if not c.completed_car:
+        c.completed_car = c.car_string_val or c.car_name or ""
     if not c.picked_up_at:
         c.picked_up_at = c.dropped_off_at
     c.club_status = "arrived"
@@ -3566,7 +3658,8 @@ def export_guestlist():
         t_part = " ".join(parts[1:3]) if len(parts) >= 3 else ""
         w.writerow([
             d_part, t_part, c.nome, c.phone, c.guests, c.package,
-            c.endereco, c.destination, c.motorista, c.car_string_val,
+            c.endereco, c.destination,
+            (c.completed_driver or c.motorista), (c.completed_car or c.car_string_val),
             vegas_datetime(c.picked_up_at), vegas_datetime(c.dropped_off_at),
             ("Yes" if c.dropoff_verified else ("No" if c.dropped_off_at else "")),
             (c.dropoff_distance_mi or "") if c.dropped_off_at else "",
@@ -4107,6 +4200,8 @@ with app.app_context():
     safe_migrate("customer", "picked_up_at",    "ALTER TABLE customer ADD COLUMN picked_up_at DATETIME")
     safe_migrate("customer", "dropped_off_at",  "ALTER TABLE customer ADD COLUMN dropped_off_at DATETIME")
     safe_migrate("customer", "dropoff_verified","ALTER TABLE customer ADD COLUMN dropoff_verified BOOLEAN DEFAULT 0")
+    safe_migrate("customer", "completed_driver","ALTER TABLE customer ADD COLUMN completed_driver VARCHAR(120) DEFAULT ''")
+    safe_migrate("customer", "completed_car",   "ALTER TABLE customer ADD COLUMN completed_car VARCHAR(200) DEFAULT ''")
     safe_migrate("customer", "dropoff_distance_mi", "ALTER TABLE customer ADD COLUMN dropoff_distance_mi FLOAT DEFAULT 0")
     safe_migrate("customer", "car_name",        "ALTER TABLE customer ADD COLUMN car_name VARCHAR(100) DEFAULT ''")
     safe_migrate("customer", "car_string_val",  "ALTER TABLE customer ADD COLUMN car_string_val VARCHAR(200) DEFAULT ''")

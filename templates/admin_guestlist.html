@@ -287,7 +287,7 @@
                         <td>
                             {% if c.needs_transport %}
                               <div class="ride-cell">
-                                <div class="ride-drv">{{ c.motorista or '—' }}</div>
+                                <div class="ride-drv">{{ (c.completed_driver if c.completed_driver else c.motorista) or '—' }}</div>
                                 {% if c.picked_up_at %}<div class="ride-line">🚗 {{ vt(c.picked_up_at) }}</div>{% endif %}
                                 {% if c.dropped_off_at %}
                                   <div class="ride-line drop">🏁 {{ vt(c.dropped_off_at) }}

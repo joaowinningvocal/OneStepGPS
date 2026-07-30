@@ -714,6 +714,26 @@ async function submitSchedule(fd) {
             return;
         }
 
+        // DUPLICATE RIDE → ask to confirm
+        if (!d.success && d.duplicate) {
+            st.innerHTML="<span style='color:var(--gold)'>⚠️ Possible duplicate</span>";
+            const ex = d.existing || {};
+            const detail = d.message + "\n\n" +
+                `Existing: ${ex.name||''}` +
+                (ex.pickup_datetime ? ` — ${ex.pickup_datetime}` : '') +
+                (ex.destination ? ` → ${ex.destination}` : '') +
+                (ex.driver ? `\nDriver: ${ex.driver}` : '') +
+                (ex.status ? `\nStatus: ${ex.status}` : '');
+            if (confirm(detail)) {
+                fd.set('force_duplicate', 'true');
+                st.innerHTML="<span style='color:#60a5fa'>⏳ Scheduling…</span>";
+                return await submitSchedule(fd);
+            } else {
+                st.innerHTML="<span style='color:var(--muted)'>Cancelled — no ride scheduled.</span>";
+                return;
+            }
+        }
+
         // NO DRIVER AVAILABLE → ask whether to waitlist
         if (!d.success && d.no_driver) {
             st.innerHTML="<span style='color:var(--gold)'>⚠️ All drivers busy</span>";
