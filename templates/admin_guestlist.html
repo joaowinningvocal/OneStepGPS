@@ -86,19 +86,11 @@
         .prio-star.on{color:#fbbf24;text-shadow:0 0 8px rgba(251,191,36,.5);}
         .prio-row{background:rgba(251,191,36,.05);}
         .prio-row td:first-child{border-left:3px solid #fbbf24;}
-        .b-time{background:rgba(59,130,246,.1);color:var(--b);border:1px solid rgba(59,130,246,.4);padding:3px 9px;border-radius:7px;-webkit-text-decoration:none!important;text-decoration:none!important;}
-        /* Kill iOS/Safari automatic data-detector styling (the blue underline on times) */
-        .b-time, .b-time *, .edit-time, .edit-time *{
-            color:var(--b)!important;
-            text-decoration:none!important;
-            -webkit-text-decoration:none!important;
-            pointer-events:auto;
-        }
-        .b-time a, .edit-time a{color:inherit!important;text-decoration:none!important;}
-        .edit-time{cursor:pointer;transition:.15s;position:relative;}
+        .b-time{background:rgba(59,130,246,.1);color:var(--b);border:1px solid rgba(59,130,246,.4);padding:3px 9px;border-radius:7px;white-space:nowrap;display:inline-block;text-decoration:none;-webkit-text-decoration:none;}
+        .edit-time{cursor:pointer;transition:.15s;position:relative;white-space:nowrap;}
         .edit-time:hover{background:rgba(59,130,246,.28);border-color:var(--b);}
-        .edit-time::after{content:'✎';margin-left:4px;font-size:.72rem;opacity:.65;}
-        .edit-time:hover::after{opacity:1;}
+        .edit-time::after{content:'✎';margin-left:5px;font-size:.72rem;opacity:0;transition:.15s;}
+        .edit-time:hover::after{opacity:.9;}
         .rt-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9998;align-items:center;justify-content:center;padding:18px;}
         .rt-modal.open{display:flex;}
         .rt-card{background:var(--s,#0f1420);border:1px solid rgba(138,92,246,.45);border-radius:16px;padding:22px;max-width:420px;width:100%;display:flex;flex-direction:column;gap:12px;}
@@ -282,7 +274,7 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Date</th><th>Time</th><th>Name</th><th>Phones</th><th>Type</th>
+                        <th style="min-width:110px;">Date</th><th style="min-width:96px;">Time</th><th>Name</th><th>Phones</th><th>Type</th>
                         <th>Destination</th><th>Ride</th><th>Dispatch</th><th>Status</th><th></th>
                     </tr>
                 </thead>
@@ -290,7 +282,7 @@
                     {% for c in customers %}
                     <tr id="row-{{ c.id }}" class="main-row{{ ' prio-row' if c.priority else '' }}">
                         <td><span class="b-date">{{ c.pickup_datetime.split(' ')[0] if c.pickup_datetime else '—' }}</span></td>
-                        <td><span class="b-time edit-time" onclick="editTime({{ c.id }}, '{{ c.pickup_datetime|e }}')" title="Click to change pickup time">{% if c.pickup_datetime and c.pickup_datetime.split(' ')|length >= 3 %}{{ c.pickup_datetime.split(' ')[1] }}&#8203;&nbsp;{{ c.pickup_datetime.split(' ')[2] }}{% else %}—{% endif %}</span></td>
+                        <td><span class="b-time edit-time" onclick="editTime({{ c.id }}, '{{ c.pickup_datetime|e }}')" title="Click to change pickup time">{{ c.pickup_datetime.split(' ')[1] ~ ' ' ~ c.pickup_datetime.split(' ')[2] if c.pickup_datetime and c.pickup_datetime.split(' ')|length >= 3 else '—' }}</span></td>
                         <td class="name name-click">
                             <button class="prio-star {{ 'on' if c.priority else '' }}" id="prio-{{ c.id }}" onclick="event.stopPropagation();togglePriority({{ c.id }})" title="Mark as priority">★</button>
                             <span onclick="toggleDetails({{ c.id }})" style="cursor:pointer;"><span class="caret" id="caret-{{ c.id }}">▸</span> {{ c.nome }}</span>
