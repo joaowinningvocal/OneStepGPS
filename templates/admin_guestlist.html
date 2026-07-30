@@ -19,7 +19,7 @@
 
         *{margin:0;padding:0;box-sizing:border-box;}
         body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;padding:14px;}
-        .wrap{max-width:1300px;margin:0 auto;}
+        .wrap{max-width:1600px;margin:0 auto;padding:0 12px;}
         .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;margin-bottom:18px;background:var(--s);border:1px solid var(--bd);border-radius:14px;gap:10px;flex-wrap:wrap;}
         .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:var(--acc);}
         .brand span{color:var(--t);}
@@ -59,8 +59,9 @@
         /* TABLE */
         .card{background:var(--s);border:1px solid var(--bd);border-radius:14px;overflow:hidden;}
         .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
-        table{width:100%;border-collapse:collapse;font-size:.83rem;min-width:900px;}
-        thead th{color:var(--m2);font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.7px;padding:11px 13px;border-bottom:1px solid var(--bd);white-space:nowrap;background:rgba(255,255,255,.02);}
+        table{width:100%;border-collapse:collapse;font-size:.82rem;min-width:0;table-layout:auto;}
+        tbody td{padding:9px 8px;}
+        thead th{color:var(--m2);font-weight:600;font-size:.66rem;text-transform:uppercase;letter-spacing:.5px;padding:10px 8px;border-bottom:1px solid var(--bd);white-space:nowrap;background:rgba(255,255,255,.02);}
         tbody td{padding:10px 13px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--m2);vertical-align:middle;}
         tbody tr:last-child td{border-bottom:none;}
         tbody tr:hover td{background:rgba(138,92,246,.04);}
@@ -86,8 +87,10 @@
         .prio-row{background:rgba(251,191,36,.05);}
         .prio-row td:first-child{border-left:3px solid #fbbf24;}
         .b-time{background:rgba(59,130,246,.1);color:var(--b);border:1px solid rgba(59,130,246,.4);padding:3px 9px;border-radius:7px;}
-        .edit-time{cursor:pointer;transition:.15s;}
-        .edit-time:hover{background:rgba(59,130,246,.25);border-color:var(--b);}
+        .edit-time{cursor:pointer;transition:.15s;position:relative;}
+        .edit-time:hover{background:rgba(59,130,246,.28);border-color:var(--b);}
+        .edit-time::after{content:'✎';margin-left:4px;font-size:.72rem;opacity:.65;}
+        .edit-time:hover::after{opacity:1;}
         .rt-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9998;align-items:center;justify-content:center;padding:18px;}
         .rt-modal.open{display:flex;}
         .rt-card{background:var(--s,#0f1420);border:1px solid rgba(138,92,246,.45);border-radius:16px;padding:22px;max-width:420px;width:100%;display:flex;flex-direction:column;gap:12px;}
@@ -111,7 +114,7 @@
 
         /* Dispatch buttons */
         .dispatch-group{display:inline-flex;background:var(--s2);padding:2px;border-radius:8px;border:1px solid var(--bd);gap:1px;}
-        .dsb{padding:5px 9px;border-radius:6px;font-size:.68rem;font-weight:600;border:none;background:none;color:var(--m2);cursor:pointer;transition:.15s;white-space:nowrap;}
+        .dsb{padding:4px 7px;border-radius:6px;font-size:.65rem;font-weight:600;border:none;background:none;color:var(--m2);cursor:pointer;transition:.15s;white-space:nowrap;}
         .dsb:hover{color:var(--t);}
         .dsb.act-sent{background:rgba(251,191,36,.22);color:var(--gold);}
         .dsb.act-confirmed{background:rgba(59,130,246,.22);color:var(--b);}
@@ -279,7 +282,7 @@
                     {% for c in customers %}
                     <tr id="row-{{ c.id }}" class="main-row{{ ' prio-row' if c.priority else '' }}">
                         <td><span class="b-date">{{ c.pickup_datetime.split(' ')[0] if c.pickup_datetime else '—' }}</span></td>
-                        <td><span class="b-time edit-time" onclick="editTime({{ c.id }}, '{{ c.pickup_datetime|e }}')" title="Click to change pickup time">{{ c.pickup_datetime.split(' ')[1] ~ ' ' ~ c.pickup_datetime.split(' ')[2] if c.pickup_datetime and c.pickup_datetime.split(' ')|length >= 3 else '—' }} ✎</span></td>
+                        <td><span class="b-time edit-time" onclick="editTime({{ c.id }}, '{{ c.pickup_datetime|e }}')" title="Click to change pickup time">{{ c.pickup_datetime.split(' ')[1] ~ ' ' ~ c.pickup_datetime.split(' ')[2] if c.pickup_datetime and c.pickup_datetime.split(' ')|length >= 3 else '—' }}</span></td>
                         <td class="name name-click">
                             <button class="prio-star {{ 'on' if c.priority else '' }}" id="prio-{{ c.id }}" onclick="event.stopPropagation();togglePriority({{ c.id }})" title="Mark as priority">★</button>
                             <span onclick="toggleDetails({{ c.id }})" style="cursor:pointer;"><span class="caret" id="caret-{{ c.id }}">▸</span> {{ c.nome }}</span>
