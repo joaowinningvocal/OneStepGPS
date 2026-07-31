@@ -288,10 +288,16 @@ async function sendEnroute(id){
     toast(d.success?'🚗 Customer notified you are enroute':(d.error||'Error'), d.success);
 }
 
-// ---- Start Call (Aloware 3-way) ----
+// ---- Start Call (Twilio masked call — rings your phone first) ----
 async function startCall(id){
-    const d=await(await fetch(`/driver/startcall/${id}`,{method:'POST'})).json();
-    toast(d.success?'📞 Connecting your call...':(d.error||'Error'), d.success);
+    const btn=event&&event.target?event.target:null;
+    if(btn){ btn.disabled=true; }
+    toast('📞 Starting call…');
+    try{
+        const d=await(await fetch(`/driver/startcall/${id}`,{method:'POST'})).json();
+        toast(d.success?(d.message||'📞 Answer your phone to connect'):(d.error||'Error'), d.success);
+    }catch(e){ toast('Call failed. Try again.', false); }
+    if(btn){ setTimeout(()=>btn.disabled=false, 3000); }
 }
 
 // ---- Switch Car ----

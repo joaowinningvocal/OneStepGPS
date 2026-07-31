@@ -42,6 +42,9 @@ TWILIO_AUTH_TOKEN  = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
 # Use EITHER a plain sender number OR a Messaging Service SID (recommended)
 TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
 TWILIO_MESSAGING_SERVICE_SID = os.environ.get("TWILIO_MESSAGING_SERVICE_SID", "").strip()
+# Voice number for masked driver↔customer calls. Falls back to the SMS number.
+TWILIO_VOICE_NUMBER = os.environ.get("TWILIO_VOICE_NUMBER", "").strip() or TWILIO_FROM_NUMBER
+CALLS_ENABLED = os.environ.get("CALLS_ENABLED", "true").strip().lower() not in ("false", "0", "no")
 # Master switch — set SMS_ENABLED=false to mute all outgoing SMS (useful for testing)
 SMS_ENABLED = os.environ.get("SMS_ENABLED", "true").strip().lower() not in ("false", "0", "no")
 
@@ -2797,29 +2800,91 @@ def driver_customsg(customer_id):
 
 @app.route('/driver/startcall/<int:customer_id>', methods=['POST'])
 def driver_startcall(customer_id):
-    """Start Call → notifies the call center (Aloware) to bridge a 3-way call
-    between driver and customer, masking the customer's number from the driver."""
+    """Start a MASKED call between driver and customer via Twilio.
+
+    Flow: Twilio calls the DRIVER's phone first. When they answer, the TwiML at
+    /twiml/connect-customer dials the CUSTOMER and bridges them. The customer sees
+    only the Twilio number; the driver never sees the customer's real number.
+    """
     if not session.get("logged") or session.get("role") != "driver":
         return jsonify({"success": False, "error": "Unauthorized"})
     c = Customer.query.get_or_404(customer_id)
     if not _driver_owns(c):
         return jsonify({"success": False, "error": "Not your pickup"})
+
+    driver_phone = clean_phone(c.motorista_phone or "")
+    if not driver_phone:
+        # Fall back to the driver's own profile phone
+        drv = get_driver_record(session.get("username"))
+        driver_phone = clean_phone(drv.phone) if drv and drv.phone else ""
+    customer_phone = clean_phone(c.phone or "")
+
+    if not driver_phone:
+        return jsonify({"success": False, "error": "No phone on file for you. Ask an admin to add it."})
+    if not customer_phone:
+        return jsonify({"success": False, "error": "No phone on file for this guest."})
+    if not (twilio_configured() and TWILIO_VOICE_NUMBER):
+        return jsonify({"success": False, "error": "Calling isn't configured. Contact an admin."})
+    if not CALLS_ENABLED:
+        return jsonify({"success": False, "error": "Calling is temporarily disabled."})
+
+    # TwiML URL that will connect the customer once the driver answers
+    import urllib.parse as _up
+    connect_url = (f"{PUBLIC_BASE_URL}/twiml/connect-customer"
+                   f"?cust={_up.quote(customer_phone)}&name={_up.quote(c.nome or 'your guest')}")
+    try:
+        resp = requests.post(
+            f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Calls.json",
+            data={
+                "To":   driver_phone,          # ring the driver first
+                "From": TWILIO_VOICE_NUMBER,   # masked number
+                "Url":  connect_url,           # what happens when driver answers
+            },
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+            timeout=10,
+        )
+        if resp.status_code >= 400:
+            print(f"[CALL] Twilio error {resp.status_code}: {resp.text[:200]}", flush=True)
+            return jsonify({"success": False, "error": "Couldn't start the call. Try again."})
+    except Exception as e:
+        print(f"[CALL] failed: {e}", flush=True)
+        return jsonify({"success": False, "error": "Call service unavailable."})
+
     fire_webhook({
-        "type":            "aloware",
+        "type":            "masked_call_started",
         "customer_id":     c.id,
         "customer_name":   c.nome,
-        "customer_phone":  c.phone,
-        "customer_phones": c.get_phones(),
         "driver_name":     c.motorista,
-        "driver_phone":    c.motorista_phone,
-        "pickup_address":  c.endereco,
-        "destination":     c.destination,
         "pickup_datetime": c.pickup_datetime,
-        "car":             c.car_string_val,
-        "package":         c.package,
-        "guests":          c.guests,
     })
-    return jsonify({"success": True})
+    return jsonify({"success": True, "message": "Calling your phone now — answer to connect."})
+
+@app.route('/twiml/connect-customer', methods=['GET', 'POST'])
+def twiml_connect_customer():
+    """TwiML returned when the driver answers: greet, then dial the customer.
+    The customer's number is passed as a query param (from our own server), never
+    exposed to the driver's device."""
+    cust = clean_phone(request.args.get('cust', ''))
+    name = request.args.get('name', 'your guest')
+    # Basic XML escaping for the spoken name
+    safe_name = (name.replace('&', 'and').replace('<', '').replace('>', '').replace('"', ''))
+    if not cust:
+        xml = ('<?xml version="1.0" encoding="UTF-8"?>'
+               '<Response><Say>Sorry, we could not find the guest number. Goodbye.</Say>'
+               '<Hangup/></Response>')
+        return app.response_class(xml, mimetype='text/xml')
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Response>'
+        f'<Say voice="alice">Connecting you to {safe_name}. Please hold.</Say>'
+        f'<Dial callerId="{TWILIO_VOICE_NUMBER}" timeout="30">'
+        f'<Number>{cust}</Number>'
+        '</Dial>'
+        '<Say voice="alice">The call could not be completed. Goodbye.</Say>'
+        '<Hangup/>'
+        '</Response>'
+    )
+    return app.response_class(xml, mimetype='text/xml')
 
 @app.route('/driver/cars')
 def driver_cars():
