@@ -1031,9 +1031,21 @@ def cadastrar_cep():
     if not force_duplicate:
         norm_new_phone = clean_phone(client_phone)
         name_l = nome.lower()
+        # The day this new ride is for (compare against existing rides' day)
+        new_dt = parse_pickup_datetime(pickup_datetime)
+        new_day = new_dt.date() if new_dt else None
         dup = None
-        # Look at recent rides (any status) for a name or phone match
+        # Look at recent rides for a name or phone match ON THE SAME DAY (or future).
+        # Past rides (e.g. the guest rode last night) must NOT trigger a warning.
         for existing in Customer.query.order_by(Customer.id.desc()).limit(500).all():
+            ex_dt = parse_pickup_datetime(existing.pickup_datetime)
+            ex_day = ex_dt.date() if ex_dt else None
+            # Skip if we can compare days and the existing ride is on a different day
+            if new_day and ex_day and ex_day != new_day:
+                continue
+            # Also skip rides already completed (picked up / dropped off)
+            if existing.status in ("dropped_off",):
+                continue
             name_match = existing.nome and existing.nome.lower() == name_l
             phone_match = False
             if norm_new_phone:
@@ -1393,6 +1405,8 @@ def cadastrar_cep():
                 f"{' in a ' + car_full if car_full and car_full != 'N/A' else ''}. "
                 f"See you soon!"
                 f"{chr(10) + 'Your pickup spot: ' + _sv if _sv else ''}"
+                f"{chr(10)}Heads up: your driver may call from this number to reach you — "
+                f"please keep an eye out and answer so they can find you."
             )
             fire_webhook({
                 "type":            "scheduled",
@@ -1638,6 +1652,122 @@ def last_client():
     if not c:
         return jsonify({"error": "No clients found"})
     return jsonify(c.to_dict())
+
+# ─── AI AGENT APIs ────────────────────────────────────────────────────────────
+def _safe_int(v, default=0):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+def _find_customer_by_phone(phone):
+    """Find the most recent ride whose main or extra phone matches (ignoring
+    formatting, country code, and invisible characters). Returns a Customer or None."""
+    def _last10(p):
+        d = ''.join(ch for ch in clean_phone(p) if ch.isdigit())
+        return d[-10:] if len(d) >= 10 else d
+    target = _last10(phone or "")
+    if not target:
+        return None
+    for c in Customer.query.order_by(Customer.id.desc()).limit(1000).all():
+        candidates = [_last10(c.phone)] + [_last10(p) for p in c.get_phones()]
+        if target in [p for p in candidates if p]:
+            return c
+    return None
+
+@app.route('/api/ai/lookup', methods=['GET'])
+@require_api_key
+def ai_lookup():
+    """AI agent: look up a booking by the caller's phone number.
+    GET /api/ai/lookup?phone=+17025307390
+    Returns the most recent matching ride, or found=false."""
+    phone = request.args.get('phone', '') or request.args.get('from', '')
+    c = _find_customer_by_phone(phone)
+    if not c:
+        return jsonify({"found": False, "message": "No booking found for that phone number."})
+    return jsonify({
+        "found": True,
+        "customer_id":     c.id,
+        "name":            c.nome,
+        "phone":           c.phone,
+        "pickup_datetime": c.pickup_datetime,
+        "pickup_location": c.endereco,
+        "destination":     c.destination,
+        "status":          c.status,
+        "driver_name":     c.completed_driver or c.motorista,
+        "driver_assigned": bool(c.motorista and c.motorista not in ("", "Unavailable", "Waitlist")),
+        "car":             c.completed_car or c.car_string_val,
+        "guests":          c.guests,
+        "package":         c.package,
+    })
+
+@app.route('/api/ai/request-driver-call', methods=['POST'])
+@require_api_key
+def ai_request_driver_call():
+    """AI agent: the customer asked to speak with their driver. This starts a
+    MASKED Twilio call — Twilio rings the DRIVER first, then bridges the customer.
+    Neither party sees the other's real number.
+
+    POST JSON or form:
+      { "phone": "+17025307390" }           (the customer's number)
+      or { "customer_id": 123 }
+    """
+    data = request.get_json(silent=True) or request.form
+    cust = None
+    if data.get("customer_id"):
+        cust = Customer.query.get(_safe_int(data.get("customer_id")))
+    if not cust and data.get("phone"):
+        cust = _find_customer_by_phone(data.get("phone"))
+    if not cust:
+        return jsonify({"success": False, "error": "No booking found for that customer."})
+
+    # Resolve driver phone
+    driver_phone = clean_phone(cust.motorista_phone or "")
+    if not driver_phone and cust.motorista:
+        drv = get_driver_record(cust.motorista)
+        driver_phone = clean_phone(drv.phone) if drv and drv.phone else ""
+    customer_phone = clean_phone(cust.phone or "")
+
+    if not (cust.motorista and cust.motorista not in ("", "Unavailable", "Waitlist")):
+        return jsonify({"success": False, "error": "No driver is assigned to this ride yet."})
+    if not driver_phone:
+        return jsonify({"success": False, "error": "No phone number on file for the driver."})
+    if not customer_phone:
+        return jsonify({"success": False, "error": "No phone number on file for the customer."})
+    if not (twilio_configured() and TWILIO_VOICE_NUMBER):
+        return jsonify({"success": False, "error": "Calling is not configured."})
+    if not CALLS_ENABLED:
+        return jsonify({"success": False, "error": "Calling is temporarily disabled."})
+
+    import urllib.parse as _up
+    connect_url = (f"{PUBLIC_BASE_URL}/twiml/connect-customer"
+                   f"?cust={_up.quote(customer_phone)}&name={_up.quote(cust.nome or 'your guest')}")
+    try:
+        resp = requests.post(
+            f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Calls.json",
+            data={"To": driver_phone, "From": TWILIO_VOICE_NUMBER, "Url": connect_url},
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN), timeout=10)
+        if resp.status_code >= 400:
+            print(f"[AI-CALL] Twilio error {resp.status_code}: {resp.text[:200]}", flush=True)
+            return jsonify({"success": False, "error": "Could not start the call."})
+    except Exception as e:
+        print(f"[AI-CALL] failed: {e}", flush=True)
+        return jsonify({"success": False, "error": "Call service unavailable."})
+
+    fire_webhook({
+        "type":          "masked_call_started",
+        "source":        "ai_agent",
+        "customer_id":   cust.id,
+        "customer_name": cust.nome,
+        "driver_name":   cust.motorista,
+    })
+    return jsonify({
+        "success": True,
+        "message": f"We're asking {cust.motorista} to call you right now. "
+                   "Please keep your phone nearby and answer when it rings.",
+        "driver_name": cust.motorista,
+    })
+
 
 @app.route('/api/sms-test', methods=['GET', 'POST'])
 def sms_test():
@@ -3162,7 +3292,9 @@ def api_v1_schedule():
         time_part = f"{parts[1]} {parts[2]}"
     sms_text = (f"Hi {name}! Your ClubLifter ride is booked. {a['driver_name']} will pick you up"
                 f"{' at ' + time_part if time_part else ''}"
-                f"{' in a ' + car_string if car_string else ''}. See you soon!")
+                f"{' in a ' + car_string if car_string else ''}. See you soon!"
+                f"{chr(10)}Heads up: your driver may call from this number to reach you — "
+                f"please keep an eye out and answer so they can find you.")
     fire_webhook({
         "type": "scheduled", "source": "cartvip",
         "customer_name": name, "customer_phone": client_phone,
