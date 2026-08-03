@@ -8,6 +8,10 @@ import time
 import requests
 import urllib.parse
 from datetime import datetime, date, timedelta
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -1701,6 +1705,33 @@ def ai_lookup():
         "package":         c.package,
     })
 
+@app.route('/api/ai/update-notes', methods=['POST'])
+@require_api_key
+def ai_update_notes():
+    """AI agent: add or replace the notes/details on an existing ride.
+    POST JSON:
+      { "phone": "+17025307390", "notes": "Guest is at the north entrance" }
+      or { "customer_id": 123, "notes": "...", "append": true }
+    append=true adds to existing notes instead of replacing."""
+    data = request.get_json(silent=True) or request.form
+    notes = (data.get("notes") or data.get("details") or "").strip()
+    if not notes:
+        return jsonify({"success": False, "error": "notes is required"})
+    cust = None
+    if data.get("customer_id"):
+        cust = Customer.query.get(_safe_int(data.get("customer_id")))
+    if not cust and data.get("phone"):
+        cust = _find_customer_by_phone(data.get("phone"))
+    if not cust:
+        return jsonify({"success": False, "error": "No booking found for that customer."})
+    append = str(data.get("append", "")).lower() in ("true", "1", "yes")
+    if append and cust.details:
+        cust.details = f"{cust.details} | {notes}"[:500]
+    else:
+        cust.details = notes[:500]
+    db.session.commit()
+    return jsonify({"success": True, "customer_id": cust.id, "notes": cust.details})
+
 @app.route('/api/ai/request-driver-call', methods=['POST'])
 @require_api_key
 def ai_request_driver_call():
@@ -2412,15 +2443,38 @@ def driver_dashboard():
     today_p  = f"{today.month:02d}/{today.day:02d}/{today.year}"
     today_str = today_np
 
-    # Today's pickups for this driver. Matched by any of the driver's identities
-    # (username / Driver record name) OR the car they're assigned to today, so a
-    # pickup still shows up when `motorista` holds the car name or a variant.
+    # Grace window: an unfinished ride from a previous day stays visible until
+    # GRACE_HOURS after its scheduled pickup time (handles ~midnight pickups),
+    # then it drops off the driver's board so stale rides don't pile up.
+    GRACE_HOURS = 4
+    if ZoneInfo:
+        now_vegas = datetime.now(ZoneInfo("America/Los_Angeles")).replace(tzinfo=None)
+    else:
+        now_vegas = datetime.utcnow() - timedelta(hours=7)
+
+    def _visible_to_driver(c):
+        dt_txt = c.pickup_datetime or ""
+        is_today = (today_np in dt_txt or today_p in dt_txt)
+        # Completed rides only show for today (history clears next day)
+        if c.status == "dropped_off":
+            return is_today
+        if is_today:
+            return True
+        # Not today: only keep if it's recent and still unfinished
+        pdt = parse_pickup_datetime(dt_txt)
+        if not pdt:
+            return False
+        # visible only within the grace window after the scheduled time
+        return now_vegas <= (pdt + timedelta(hours=GRACE_HOURS))
+
+    # Pickups for this driver. Matched by any of the driver's identities
+    # (username / Driver record name) OR the car they're assigned to today.
     names, car_names = driver_scope(driver_name)
     all_customers = Customer.query.order_by(Customer.pickup_datetime).all()
     my_customers  = [c for c in all_customers
-                     if (today_np in (c.pickup_datetime or "") or today_p in (c.pickup_datetime or ""))
-                     and ((c.motorista and c.motorista in names)
-                          or (c.car_name and c.car_name in car_names))]
+                     if ((c.motorista and c.motorista in names)
+                          or (c.car_name and c.car_name in car_names))
+                     and _visible_to_driver(c)]
 
     # Get driver availability status (loose match on the Driver record)
     driver_profile = Driver.query.filter_by(name=driver_name).first()
@@ -2430,6 +2484,13 @@ def driver_dashboard():
             if driver_profile:
                 break
     driver_available = driver_profile.available if driver_profile else True
+
+    # The driver's currently assigned car (1:1), shown next to Switch Car
+    current_car = None
+    if driver_profile and driver_profile.assigned_car_id:
+        _car = Car.query.get(driver_profile.assigned_car_id)
+        if _car:
+            current_car = _car.car_string() if hasattr(_car, 'car_string') else _car.name
 
     # Driver's live car GPS (for the map) — look up by the car on their pickups or shift
     car_lat = car_lng = None
@@ -2555,6 +2616,7 @@ def driver_dashboard():
         driver_name=driver_name,
         driver_available=driver_available,
         today_str=today_str,
+        current_car=current_car,
         car_lat=car_lat, car_lng=car_lng
     )
 
@@ -3236,7 +3298,7 @@ def api_v1_schedule():
     if not isinstance(extra_phones, list):
         extra_phones = []
     all_phones = ([client_phone] if client_phone else []) + [p for p in extra_phones if p]
-    details     = (data.get("details") or "").strip()
+    details     = (data.get("details") or data.get("notes") or "").strip()
     package     = (data.get("package") or "").strip()
     guests      = int(data.get("guests") or 0)
     destination = (data.get("destination") or "").strip()
@@ -4114,6 +4176,98 @@ def detect_driver_stops():
             anchor["stop_id"] = st.id
             print(f"[STOPS] {name} parked at {st.address[:60]} ({minutes} min)", flush=True)
 
+def auto_dropoff_at_venue():
+    """Automatically mark picked-up rides as dropped off when the driver's car
+    reaches the destination club. Lazy drivers often forget to tap 'Dropped Off',
+    so if a car carrying a picked-up guest is within ~0.25mi of that guest's
+    destination venue, we close the ride and freeze the snapshot."""
+    # Only consider rides already picked up but not yet dropped off
+    active = Customer.query.filter(
+        Customer.status == "picked_up",
+        Customer.needs_transport == True
+    ).all()
+    if not active:
+        return
+
+    # One GPS pull for everyone
+    try:
+        headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+        res = requests.get("https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
+                           headers=headers_api, timeout=8).json()
+        lista = res if isinstance(res, list) else [res]
+    except Exception as e:
+        print(f"[AUTO-DROPOFF] GPS fetch failed: {e}", flush=True)
+        return
+    gps = {}
+    for v in lista:
+        nm = v.get('display_name', '')
+        lat = v.get('lat') or v.get('last_tap', {}).get('lat')
+        lng = v.get('lng') or v.get('last_tap', {}).get('lng')
+        if nm and lat and lng:
+            gps[_norm_name(nm)] = (lat, lng)
+
+    # Cache venue coordinates so we don't geocode the same club repeatedly
+    venue_coords = {}
+    def _venue_latlng(club):
+        if club.id in venue_coords:
+            return venue_coords[club.id]
+        coords = None
+        try:
+            encoded = urllib.parse.quote(club.address)
+            geo = requests.get(
+                f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1",
+                headers={'User-Agent': 'ClubLifter_AutoDropoff'}, timeout=8).json()
+            if geo:
+                coords = (float(geo[0]['lat']), float(geo[0]['lon']))
+        except Exception:
+            coords = None
+        venue_coords[club.id] = coords
+        return coords
+
+    closed = 0
+    for c in active:
+        if not c.car_name or not c.destination:
+            continue
+        car_ll = gps.get(_norm_name(c.car_name))
+        if not car_ll:
+            continue
+        club = Club.query.filter_by(name=c.destination).first()
+        if not club or not club.address:
+            continue
+        venue_ll = _venue_latlng(club)
+        if not venue_ll:
+            continue
+        try:
+            dist_mi = round(calcular_distancia(float(car_ll[0]), float(car_ll[1]),
+                                               venue_ll[0], venue_ll[1]), 2)
+        except Exception:
+            continue
+        if dist_mi <= 0.25:   # arrived at the venue
+            c.status = "dropped_off"
+            c.club_status = "arrived"
+            c.dropped_off_at = datetime.utcnow()
+            c.dropoff_verified = True
+            c.dropoff_distance_mi = dist_mi
+            if not c.completed_driver:
+                c.completed_driver = c.motorista or ""
+            if not c.completed_car:
+                c.completed_car = c.car_string_val or c.car_name or ""
+            db.session.commit()
+            closed += 1
+            fire_webhook({
+                "type":               "dropped_off",
+                "source":             "auto",
+                "customer_id":        c.id,
+                "customer_name":      c.nome,
+                "driver_name":        c.completed_driver,
+                "destination":        c.destination,
+                "verified_at_venue":  True,
+                "distance_to_venue_mi": dist_mi,
+            })
+            print(f"[AUTO-DROPOFF] {c.nome} auto-completed at {c.destination} ({dist_mi}mi)", flush=True)
+    if closed:
+        print(f"[AUTO-DROPOFF] closed {closed} ride(s)", flush=True)
+
 def distance_tracker_loop():
     """
     Runs in background. Every 2 minutes checks all 'scheduled' customers
@@ -4129,6 +4283,12 @@ def distance_tracker_loop():
                     detect_driver_stops()
                 except Exception as e:
                     print(f"[STOPS] detection error: {e}", flush=True)
+
+                # ── Auto-close rides when the car reaches the venue ──
+                try:
+                    auto_dropoff_at_venue()
+                except Exception as e:
+                    print(f"[AUTO-DROPOFF] error: {e}", flush=True)
 
                 # ── Purge "I'm here" photos older than 24h ──
                 try:

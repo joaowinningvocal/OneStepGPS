@@ -126,7 +126,10 @@
         <button class="toggle-btn {{ 'toggle-busy' if driver_available else 'toggle-avail' }}" id="availBtn" onclick="toggleAvail()">
             {{ 'Set Busy' if driver_available else "I'm Available" }}
         </button>
-        <button class="toggle-btn" style="background:linear-gradient(135deg,#0ea5e9,#0369a1);margin-left:8px;" onclick="openCarSwitch()">🚗 Switch Car</button>
+        <div style="display:flex;align-items:center;gap:8px;margin-left:8px;flex-wrap:wrap;">
+            {% if current_car %}<span style="font-size:.8rem;color:var(--m2,#8892a0);">🚘 Current: <b style="color:var(--t,#e8eaf0);">{{ current_car }}</b></span>{% else %}<span style="font-size:.8rem;color:#fbbf24;">⚠️ No car assigned</span>{% endif %}
+            <button class="toggle-btn" style="background:linear-gradient(135deg,#0ea5e9,#0369a1);" onclick="openCarSwitch()">🚗 Switch Car</button>
+        </div>
     </div>
 
     <div class="layout">
