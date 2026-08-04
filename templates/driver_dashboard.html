@@ -157,6 +157,10 @@
                         {% if p.destination %}<div class="pk-row"><span class="ic">🏢</span><span>{{ p.destination }}</span></div>{% endif %}
                         <div class="pk-row"><span class="ic">🎟️</span><span>{{ p.package or '—' }} · {{ p.guests or 0 }} guests</span></div>
                         {% if p.details %}<div class="pk-row"><span class="ic">📝</span><span>{{ p.details }}</span></div>{% endif %}
+                        <div class="pk-row" id="dnrow-{{ p.id }}"><span class="ic">🗒️</span><span style="flex:1;">
+                            <span id="dntext-{{ p.id }}" style="color:{{ '#e8eaf0' if p.driver_notes else '#5a6270' }};">{{ p.driver_notes or 'No driver notes' }}</span>
+                            <button onclick="editDriverNotes({{ p.id }})" style="margin-left:6px;background:none;border:none;color:var(--acc,#8a5cf6);cursor:pointer;font-size:.78rem;font-weight:600;">✎ {{ 'Edit' if p.driver_notes else 'Add note' }}</button>
+                        </span></div>
                         {% if p.streetview %}<div class="pk-row"><span class="ic">👁️</span><a href="{{ p.streetview }}" target="_blank" rel="noopener" style="color:var(--acc);font-weight:600;">See pickup spot (Street View)</a></div>{% endif %}
 
                         <div class="pk-actions">
@@ -303,7 +307,24 @@ async function startCall(id){
     if(btn){ setTimeout(()=>btn.disabled=false, 3000); }
 }
 
-// ---- Switch Car ----
+// ---- Driver Notes ----
+async function editDriverNotes(id){
+    const cur = document.getElementById('dntext-'+id).innerText;
+    const existing = cur === 'No driver notes' ? '' : cur;
+    const notes = prompt('Your note for this guest:', existing);
+    if(notes === null) return;  // cancelled
+    const fd = new FormData(); fd.append('driver_notes', notes.trim());
+    try{
+        const d = await(await fetch(`/driver/notes/${id}`,{method:'POST',body:fd})).json();
+        if(d.success){
+            const el = document.getElementById('dntext-'+id);
+            el.innerText = d.driver_notes || 'No driver notes';
+            el.style.color = d.driver_notes ? '#e8eaf0' : '#5a6270';
+            toast('Note saved');
+        } else { toast(d.error||'Error', false); }
+    }catch(e){ toast('Could not save note', false); }
+}
+
 async function openCarSwitch(){
     document.getElementById('carModal').classList.add('open');
     const list=document.getElementById('carList');

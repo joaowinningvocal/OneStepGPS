@@ -388,6 +388,7 @@ class Customer(db.Model):
     phones_json     = db.Column(db.Text, default="[]")                # JSON array of additional phones
     endereco        = db.Column(db.String(500))
     details         = db.Column(db.String(500), default="")
+    driver_notes    = db.Column(db.String(500), default="")            # notes the driver adds themselves
     motorista       = db.Column(db.String(100))
     motorista_phone = db.Column(db.String(20), default="")
     car_name        = db.Column(db.String(100), default="")   # GPS display_name of assigned car
@@ -1703,6 +1704,8 @@ def ai_lookup():
         "car":             c.completed_car or c.car_string_val,
         "guests":          c.guests,
         "package":         c.package,
+        "notes":           c.details,
+        "driver_notes":    c.driver_notes,
     })
 
 @app.route('/api/ai/update-notes', methods=['POST'])
@@ -2537,6 +2540,7 @@ def driver_dashboard():
         pickups.append({
             "id": c.id, "nome": c.nome, "endereco": c.endereco, "destination": c.destination,
             "package": c.package, "guests": c.guests, "details": c.details,
+            "driver_notes": c.driver_notes,
             "time": time_part, "status": c.status,
             "dispatch_status": c.dispatch_status,
             "dropped_at": vegas_time(c.dropped_off_at),
@@ -2619,6 +2623,19 @@ def driver_dashboard():
         current_car=current_car,
         car_lat=car_lat, car_lng=car_lng
     )
+
+@app.route('/driver/notes/<int:customer_id>', methods=['POST'])
+def driver_save_notes(customer_id):
+    """Driver adds/updates their own notes on a pickup (separate from dispatch notes)."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"})
+    c = Customer.query.get_or_404(customer_id)
+    if not _driver_owns(c):
+        return jsonify({"success": False, "error": "Not your pickup"})
+    notes = (request.form.get('driver_notes', '') or "").strip()[:500]
+    c.driver_notes = notes
+    db.session.commit()
+    return jsonify({"success": True, "driver_notes": c.driver_notes})
 
 @app.route('/driver/pickup/<int:customer_id>', methods=['POST'])
 def mark_picked_up(customer_id):
@@ -3910,7 +3927,8 @@ def export_guestlist():
     w.writerow(["Date", "Scheduled Time", "Guest", "Phone", "Guests", "Package",
                 "Pickup Address", "Destination", "Driver", "Car",
                 "Picked Up At", "Dropped Off At", "Arrived At Property",
-                "Distance To Venue (mi)", "Status", "Priority", "Promoter"])
+                "Distance To Venue (mi)", "Status", "Priority", "Promoter",
+                "Notes", "Driver Notes"])
     for c in rows:
         parts = (c.pickup_datetime or "").split(" ")
         d_part = parts[0] if parts else ""
@@ -3923,6 +3941,7 @@ def export_guestlist():
             ("Yes" if c.dropoff_verified else ("No" if c.dropped_off_at else "")),
             (c.dropoff_distance_mi or "") if c.dropped_off_at else "",
             c.status, ("Yes" if getattr(c, 'priority', False) else "No"), c.promoter or "",
+            c.details or "", c.driver_notes or "",
         ])
     out = buf.getvalue()
     fname = f"clublifter_guestlist_{'all' if view_all else filter_date_iso}.csv"
@@ -4592,6 +4611,7 @@ with app.app_context():
     safe_migrate("customer", "dropoff_verified","ALTER TABLE customer ADD COLUMN dropoff_verified BOOLEAN DEFAULT 0")
     safe_migrate("customer", "completed_driver","ALTER TABLE customer ADD COLUMN completed_driver VARCHAR(120) DEFAULT ''")
     safe_migrate("customer", "completed_car",   "ALTER TABLE customer ADD COLUMN completed_car VARCHAR(200) DEFAULT ''")
+    safe_migrate("customer", "driver_notes",     "ALTER TABLE customer ADD COLUMN driver_notes VARCHAR(500) DEFAULT ''")
     safe_migrate("customer", "dropoff_distance_mi", "ALTER TABLE customer ADD COLUMN dropoff_distance_mi FLOAT DEFAULT 0")
     safe_migrate("customer", "car_name",        "ALTER TABLE customer ADD COLUMN car_name VARCHAR(100) DEFAULT ''")
     safe_migrate("customer", "car_string_val",  "ALTER TABLE customer ADD COLUMN car_string_val VARCHAR(200) DEFAULT ''")
