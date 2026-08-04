@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="google" content="notranslate">
+    <meta name="format-detection" content="telephone=no,date=no,address=no,email=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClubLifter — Analytics</title>
+    <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        :root{--bg:#080b12;--s:#0f1420;--s2:#161d2e;--s3:#0d1117;--bd:rgba(255,255,255,.07);--bhi:rgba(138,92,246,.45);--acc:#8a5cf6;--acc2:#6d28d9;--g:#22c55e;--r:#ef4444;--gold:#fbbf24;--b:#3b82f6;--t:#e8eaf0;--m:#5a6270;--m2:#8892a0;}
+        *{margin:0;padding:0;box-sizing:border-box;text-decoration:none;}
+        body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;padding:14px;}
+        .wrap{max-width:1500px;margin:0 auto;}
+        .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 18px;margin-bottom:14px;background:var(--s);border:1px solid var(--bd);border-radius:14px;flex-wrap:wrap;}
+        .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:var(--acc);}
+        .brand span{color:var(--t);}
+        .pills{display:flex;gap:7px;flex-wrap:wrap;}
+        .pill{font-size:.76rem;font-weight:600;color:var(--m2);padding:7px 13px;border-radius:20px;border:1px solid var(--bd);}
+        .pill:hover{color:var(--t);border-color:var(--bhi);}
+        .pill.act{color:#fff;background:linear-gradient(135deg,var(--acc),var(--acc2));border-color:transparent;}
+        h1{font-family:'Syne',sans-serif;font-size:1.35rem;margin-bottom:3px;}
+        .sub{font-size:.82rem;color:var(--m2);margin-bottom:16px;}
+        .section-t{font-family:'Syne',sans-serif;font-size:.95rem;font-weight:700;color:var(--m2);text-transform:uppercase;letter-spacing:.06em;margin:20px 0 10px;}
+        .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;}
+        .card{background:var(--s);border:1px solid var(--bd);border-radius:14px;padding:18px;}
+        .card .v{font-family:'Syne',sans-serif;font-size:1.8rem;font-weight:800;line-height:1;}
+        .card .l{font-size:.74rem;color:var(--m2);margin-top:7px;text-transform:uppercase;letter-spacing:.5px;}
+        .card .sub2{font-size:.72rem;color:var(--m);margin-top:5px;}
+        .v.rev{color:var(--g);} .v.acc{color:var(--acc);} .v.gold{color:var(--gold);} .v.blue{color:var(--b);} .v.red{color:var(--r);}
+        .two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;}
+        @media(max-width:800px){.two{grid-template-columns:1fr;}}
+        .bars{display:flex;align-items:flex-end;gap:3px;height:150px;padding-top:10px;}
+        .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end;}
+        .bar{width:100%;background:linear-gradient(180deg,var(--acc),var(--acc2));border-radius:4px 4px 0 0;min-height:2px;transition:.3s;}
+        .bar-col:hover .bar{background:linear-gradient(180deg,#a78bfa,var(--acc));}
+        .bar-lbl{font-size:.6rem;color:var(--m);white-space:nowrap;transform:rotate(-45deg);transform-origin:center;height:16px;}
+        .rank{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--bd);}
+        .rank:last-child{border-bottom:none;}
+        .rank .n{width:22px;height:22px;border-radius:6px;background:var(--s2);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.78rem;color:var(--acc);}
+        .rank .nm{flex:1;font-size:.86rem;}
+        .rank .ct{font-weight:700;color:var(--m2);font-size:.82rem;}
+        .empty{color:var(--m);font-size:.82rem;padding:20px;text-align:center;}
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="topbar">
+        <div class="brand">Club<span>Lifter</span></div>
+        <div class="pills">
+            <a href="/admin/today" class="pill">Today</a>
+            <a href="/admin/analytics" class="pill act">Analytics</a>
+            <a href="/admin/guestlist" class="pill">Guest List</a>
+            <a href="/admin/tracking" class="pill">Tracking</a>
+            <a href="/" class="pill">← Dashboard</a>
+        </div>
+    </div>
+
+    <h1>Analytics</h1>
+    <div class="sub">Performance overview across your operation.</div>
+
+    <div class="section-t">Bookings & Revenue</div>
+    <div class="grid">
+        <div class="card"><div class="v acc">{{ stats.day_count }}</div><div class="l">Bookings Today</div><div class="sub2">{{ stats.day_guests }} guests</div></div>
+        <div class="card"><div class="v rev">${{ "%.0f"|format(stats.day_revenue) }}</div><div class="l">Revenue Today</div></div>
+        <div class="card"><div class="v acc">{{ stats.week_count }}</div><div class="l">Bookings This Week</div><div class="sub2">{{ stats.week_guests }} guests</div></div>
+        <div class="card"><div class="v rev">${{ "%.0f"|format(stats.week_revenue) }}</div><div class="l">Revenue This Week</div></div>
+        <div class="card"><div class="v acc">{{ stats.month_count }}</div><div class="l">Bookings This Month</div><div class="sub2">{{ stats.month_guests }} guests</div></div>
+        <div class="card"><div class="v rev">${{ "%.0f"|format(stats.month_revenue) }}</div><div class="l">Revenue This Month</div></div>
+    </div>
+
+    <div class="section-t">Operations</div>
+    <div class="grid">
+        <div class="card"><div class="v blue">{{ stats.total_pickups }}</div><div class="l">Total Pickups</div></div>
+        <div class="card"><div class="v blue">{{ stats.total_dropoffs }}</div><div class="l">Total Deliveries</div></div>
+        <div class="card"><div class="v gold">{{ stats.completion_rate }}%</div><div class="l">Completion Rate</div><div class="sub2">picked up → delivered</div></div>
+        <div class="card"><div class="v gold">{{ stats.avg_ride_min }}<span style="font-size:1rem;"> min</span></div><div class="l">Avg Time to Club</div><div class="sub2">pickup → dropoff</div></div>
+        <div class="card"><div class="v acc">{{ stats.busiest_hour }}</div><div class="l">Peak Hour</div></div>
+        <div class="card"><div class="v red">{{ stats.reported_count }}</div><div class="l">Reported Guests</div></div>
+    </div>
+
+    <div class="two">
+        <div class="card">
+            <div class="section-t" style="margin-top:0;">Peak Hours</div>
+            {% set maxc = (peak_series | map(attribute='count') | max) or 1 %}
+            <div class="bars">
+                {% for h in peak_series %}
+                <div class="bar-col" title="{{ h.hour }}: {{ h.count }} pickups">
+                    <div class="bar" style="height:{{ (h.count / maxc * 100) if maxc else 0 }}%;"></div>
+                    <div class="bar-lbl">{{ h.hour }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="card">
+            <div class="section-t" style="margin-top:0;">Top Destinations</div>
+            {% if top_dests %}
+                {% for d in top_dests %}
+                <div class="rank"><div class="n">{{ loop.index }}</div><div class="nm">{{ d.name }}</div><div class="ct">{{ d.count }} rides</div></div>
+                {% endfor %}
+            {% else %}<div class="empty">No data yet.</div>{% endif %}
+        </div>
+    </div>
+
+    <div class="two">
+        <div class="card">
+            <div class="section-t" style="margin-top:0;">Top Drivers</div>
+            {% if top_drivers %}
+                {% for d in top_drivers %}
+                <div class="rank"><div class="n">{{ loop.index }}</div><div class="nm">{{ d.name }}</div><div class="ct">{{ d.count }} completed</div></div>
+                {% endfor %}
+            {% else %}<div class="empty">No completed rides yet.</div>{% endif %}
+        </div>
+        <div class="card">
+            <div class="section-t" style="margin-top:0;">All-Time</div>
+            <div class="rank"><div class="nm">Total rides booked</div><div class="ct">{{ stats.total_rides }}</div></div>
+            <div class="rank"><div class="nm">Total pickups</div><div class="ct">{{ stats.total_pickups }}</div></div>
+            <div class="rank"><div class="nm">Total deliveries</div><div class="ct">{{ stats.total_dropoffs }}</div></div>
+            <div class="rank"><div class="nm">Avg time to club</div><div class="ct">{{ stats.avg_ride_min }} min</div></div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

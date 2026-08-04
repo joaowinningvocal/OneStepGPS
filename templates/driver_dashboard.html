@@ -162,6 +162,10 @@
                             <button onclick="editDriverNotes({{ p.id }})" style="margin-left:6px;background:none;border:none;color:var(--acc,#8a5cf6);cursor:pointer;font-size:.78rem;font-weight:600;">✎ {{ 'Edit' if p.driver_notes else 'Add note' }}</button>
                         </span></div>
                         {% if p.streetview %}<div class="pk-row"><span class="ic">👁️</span><a href="{{ p.streetview }}" target="_blank" rel="noopener" style="color:var(--acc);font-weight:600;">See pickup spot (Street View)</a></div>{% endif %}
+                        <div class="pk-row" id="reprow-{{ p.id }}">
+                            {% if p.reported %}<span class="ic">🚩</span><span style="color:#ef4444;flex:1;">Reported: {{ p.report_reason }} <button onclick="reportCustomer({{ p.id }}, true)" style="margin-left:6px;background:none;border:none;color:var(--m2,#8892a0);cursor:pointer;font-size:.75rem;">clear</button></span>
+                            {% else %}<span class="ic">🚩</span><button onclick="reportCustomer({{ p.id }}, false)" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:.8rem;font-weight:600;">Report this customer</button>{% endif %}
+                        </div>
 
                         <div class="pk-actions">
                             <button class="ab ab-enroute" onclick="sendEnroute({{ p.id }})">🚗 I'm Enroute</button>
@@ -305,6 +309,24 @@ async function startCall(id){
         toast(d.success?(d.message||'📞 Answer your phone to connect'):(d.error||'Error'), d.success);
     }catch(e){ toast('Call failed. Try again.', false); }
     if(btn){ setTimeout(()=>btn.disabled=false, 3000); }
+}
+
+// ---- Report Customer ----
+async function reportCustomer(id, isClear){
+    const fd = new FormData();
+    if(isClear){
+        if(!confirm('Remove the report on this guest?')) return;
+        fd.append('clear','true');
+    } else {
+        const reason = prompt('What happened? (no-show, rude, wrong address, etc.)');
+        if(reason === null || !reason.trim()) return;
+        fd.append('reason', reason.trim());
+    }
+    try{
+        const d = await(await fetch(`/driver/report/${id}`,{method:'POST',body:fd})).json();
+        if(d.success){ toast(isClear?'Report cleared':'Customer reported'); setTimeout(()=>location.reload(),600); }
+        else toast(d.error||'Error', false);
+    }catch(e){ toast('Could not submit report', false); }
 }
 
 // ---- Driver Notes ----

@@ -205,7 +205,7 @@
     </div>
 
     <div class="mobile-menu" id="mobileMenu">
-        <a href="/admin/today">Today</a>
+        <a href="/admin/today">Today</a><a href="/admin/analytics">Analytics</a>
         <a href="/admin/tracking">Tracking</a>{% if session.get('role') in ['master','club_owner'] %}<a href="/admin/driver-tracking">Driver Tracking</a>{% endif %}
         <a href="/admin/guestlist" class="act">Guest List</a>
         {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages">Packages</a>{% endif %}
@@ -285,7 +285,7 @@
                         <td><span class="b-time edit-time" onclick="editTime({{ c.id }}, '{{ c.pickup_datetime|e }}')" title="Click to change pickup time">{{ c.pickup_datetime.split(' ')[1] ~ ' ' ~ c.pickup_datetime.split(' ')[2] if c.pickup_datetime and c.pickup_datetime.split(' ')|length >= 3 else '—' }}</span></td>
                         <td class="name name-click">
                             <button class="prio-star {{ 'on' if c.priority else '' }}" id="prio-{{ c.id }}" onclick="event.stopPropagation();togglePriority({{ c.id }})" title="Mark as priority">★</button>
-                            <span onclick="toggleDetails({{ c.id }})" style="cursor:pointer;"><span class="caret" id="caret-{{ c.id }}">▸</span> {{ c.nome }}</span>
+                            <span onclick="toggleDetails({{ c.id }})" style="cursor:pointer;"><span class="caret" id="caret-{{ c.id }}">▸</span> {{ c.nome }}{% if c.reported %} <span title="Reported by {{ c.reported_by }}: {{ c.report_reason }}" style="cursor:help;">🚩</span>{% endif %}</span>
                         </td>
                         <td style="font-size:.78rem;">
                             {% for p in c.get_phones() %}
@@ -347,6 +347,8 @@
                                     <div class="detail-item"><span class="dlabel">🚘 Driver</span><span class="dval">{{ c.motorista or '—' }}{% if c.motorista_phone %} · {{ c.motorista_phone }}{% endif %}</span></div>
                                     <div class="detail-item"><span class="dlabel">🚗 Car</span><span class="dval">{{ c.car_string_val or '—' }}</span></div>
                                     <div class="detail-item"><span class="dlabel">📝 Notes</span><span class="dval">{{ c.details or '—' }}</span></div>
+                                    <div class="detail-item"><span class="dlabel">🗒️ Driver Notes</span><span class="dval">{{ c.driver_notes or '—' }}</span></div>
+                                    {% if c.reported %}<div class="detail-item"><span class="dlabel" style="color:#ef4444;">🚩 Reported</span><span class="dval" style="color:#ef4444;">{{ c.report_reason }} <span style="color:var(--m2);font-size:.78rem;">— by {{ c.reported_by }}</span></span></div>{% endif %}
                                     {% if c.needs_transport %}
                                     <div class="detail-item"><span class="dlabel">⏱️ ETA to club</span><span class="dval" id="eta-{{ c.id }}"><button class="eta-btn" onclick="loadEta({{ c.id }})">Check ETA</button></span></div>
                                     {% endif %}

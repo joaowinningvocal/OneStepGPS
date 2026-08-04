@@ -389,6 +389,10 @@ class Customer(db.Model):
     endereco        = db.Column(db.String(500))
     details         = db.Column(db.String(500), default="")
     driver_notes    = db.Column(db.String(500), default="")            # notes the driver adds themselves
+    reported        = db.Column(db.Boolean, default=False)             # driver flagged an issue with this guest
+    report_reason   = db.Column(db.String(500), default="")           # what the driver reported
+    reported_by     = db.Column(db.String(120), default="")           # which driver reported
+    reported_at     = db.Column(db.DateTime, nullable=True)
     motorista       = db.Column(db.String(100))
     motorista_phone = db.Column(db.String(20), default="")
     car_name        = db.Column(db.String(100), default="")   # GPS display_name of assigned car
@@ -440,6 +444,9 @@ class Customer(db.Model):
             "id": self.id, "nome": self.nome, "phone": self.phone,
             "phones": self.get_phones(),
             "endereco": self.endereco, "details": self.details,
+            "driver_notes": self.driver_notes,
+            "reported": self.reported, "report_reason": self.report_reason,
+            "reported_by": self.reported_by,
             "motorista": self.motorista, "motorista_phone": self.motorista_phone,
             "distancia": self.distancia, "package": self.package,
             "guests": self.guests, "pickup_datetime": self.pickup_datetime,
@@ -1454,6 +1461,89 @@ def cadastrar_cep():
         return jsonify({"success": False, "error": f"{type(e).__name__}: {str(e)}"})
 
 # ─── ADMIN: TODAY'S SCHEDULE ──────────────────────────────────────────────────
+@app.route('/admin/analytics')
+def admin_analytics():
+    if not session.get("logged") or not can_dispatch():
+        return redirect(url_for("login"))
+
+    from collections import Counter
+    today = vegas_today()
+    now = datetime.utcnow()
+    week_ago  = now - timedelta(days=7)
+    month_start = datetime(today.year, today.month, 1)
+    day_start = datetime(today.year, today.month, today.day) - timedelta(hours=7)  # ~Vegas midnight in UTC
+
+    all_c = Customer.query.all()
+    pkg_price = {p.name: (p.price or 0) for p in Package.query.all()}
+
+    def revenue(rows):
+        return sum(pkg_price.get(c.package, 0) for c in rows)
+
+    day_rows   = [c for c in all_c if c.created_at and c.created_at >= day_start]
+    week_rows  = [c for c in all_c if c.created_at and c.created_at >= week_ago]
+    month_rows = [c for c in all_c if c.created_at and c.created_at >= month_start]
+
+    # Averages: completion + time-to-venue
+    completed = [c for c in all_c if c.picked_up_at and c.dropped_off_at]
+    ride_minutes = []
+    for c in completed:
+        try:
+            mins = (c.dropped_off_at - c.picked_up_at).total_seconds() / 60
+            if 0 < mins < 240:   # ignore absurd outliers
+                ride_minutes.append(mins)
+        except Exception:
+            pass
+    avg_ride_min = round(sum(ride_minutes) / len(ride_minutes), 1) if ride_minutes else 0
+
+    total_pickups = len([c for c in all_c if c.picked_up_at])
+    total_dropoffs = len([c for c in all_c if c.dropped_off_at])
+
+    # Peak hours (by pickup time)
+    hour_counts = Counter()
+    for c in all_c:
+        dt = parse_pickup_datetime(c.pickup_datetime)
+        if dt:
+            hour_counts[dt.hour] += 1
+    # Build a 24h series (as label + count), nightlife-friendly ordering 6PM→5AM
+    order = list(range(18, 24)) + list(range(0, 18))
+    peak_series = []
+    for h in order:
+        label = f"{(h%12) or 12}{'AM' if h<12 else 'PM'}"
+        peak_series.append({"hour": label, "count": hour_counts.get(h, 0)})
+    busiest_hour = max(hour_counts.items(), key=lambda x: x[1])[0] if hour_counts else None
+    busiest_label = (f"{(busiest_hour%12) or 12}{'AM' if busiest_hour<12 else 'PM'}"
+                     if busiest_hour is not None else "—")
+
+    # Top destinations
+    dest_counts = Counter(c.destination for c in all_c if c.destination)
+    top_dests = [{"name": k, "count": v} for k, v in dest_counts.most_common(6)]
+
+    # Top drivers (by completed rides)
+    drv_counts = Counter((c.completed_driver or c.motorista) for c in completed
+                         if (c.completed_driver or c.motorista))
+    top_drivers = [{"name": k, "count": v} for k, v in drv_counts.most_common(6)]
+
+    # Reports
+    reported_count = len([c for c in all_c if c.reported])
+
+    stats = {
+        "day_count": len(day_rows), "day_revenue": revenue(day_rows),
+        "day_guests": sum(c.guests or 0 for c in day_rows),
+        "week_count": len(week_rows), "week_revenue": revenue(week_rows),
+        "week_guests": sum(c.guests or 0 for c in week_rows),
+        "month_count": len(month_rows), "month_revenue": revenue(month_rows),
+        "month_guests": sum(c.guests or 0 for c in month_rows),
+        "total_pickups": total_pickups, "total_dropoffs": total_dropoffs,
+        "avg_ride_min": avg_ride_min,
+        "completion_rate": (round(100 * total_dropoffs / total_pickups) if total_pickups else 0),
+        "busiest_hour": busiest_label,
+        "reported_count": reported_count,
+        "total_rides": len(all_c),
+    }
+    return render_template('admin_analytics.html',
+        stats=stats, peak_series=peak_series,
+        top_dests=top_dests, top_drivers=top_drivers)
+
 @app.route('/admin/today')
 def admin_today():
     if not session.get("logged") or not can_dispatch():
@@ -1471,6 +1561,13 @@ def admin_today():
                        if today_np in (c.pickup_datetime or "")
                        or today_p in (c.pickup_datetime or "")]
 
+    # "Today" shows only pickups scheduled by the LOGGED-IN user by default.
+    # ?scope=all shows everyone's (handy for managers).
+    me = session.get("username", "")
+    scope = request.args.get('scope', 'mine')
+    if scope != 'all':
+        today_customers = [c for c in today_customers if (c.promoter or "") == me]
+
     month_start = datetime(today.year, today.month, 1)
     month_customers = Customer.query.filter(Customer.created_at >= month_start).all()
     month_count = len(month_customers)
@@ -1486,7 +1583,8 @@ def admin_today():
         month_count=month_count,
         month_revenue=month_revenue,
         month_guests=month_guests,
-        today=today
+        today=today,
+        scope=scope
     )
 
 # ─── API: LAST CLIENT (for AI voice calls) ────────────────────────────────────
@@ -1706,6 +1804,8 @@ def ai_lookup():
         "package":         c.package,
         "notes":           c.details,
         "driver_notes":    c.driver_notes,
+        "reported":        c.reported,
+        "report_reason":   c.report_reason,
     })
 
 @app.route('/api/ai/update-notes', methods=['POST'])
@@ -2541,6 +2641,9 @@ def driver_dashboard():
             "id": c.id, "nome": c.nome, "endereco": c.endereco, "destination": c.destination,
             "package": c.package, "guests": c.guests, "details": c.details,
             "driver_notes": c.driver_notes,
+            "reported": c.reported, "report_reason": c.report_reason,
+            "reported": c.reported, "report_reason": c.report_reason,
+            "reported_by": c.reported_by,
             "time": time_part, "status": c.status,
             "dispatch_status": c.dispatch_status,
             "dropped_at": vegas_time(c.dropped_off_at),
@@ -2623,6 +2726,42 @@ def driver_dashboard():
         current_car=current_car,
         car_lat=car_lat, car_lng=car_lng
     )
+
+@app.route('/driver/report/<int:customer_id>', methods=['POST'])
+def driver_report_customer(customer_id):
+    """Driver flags an issue with a guest (no-show, rude, wrong address, etc).
+    Stored on the ride and surfaced in the guest list + API."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"})
+    c = Customer.query.get_or_404(customer_id)
+    if not _driver_owns(c):
+        return jsonify({"success": False, "error": "Not your pickup"})
+    reason = (request.form.get('reason', '') or "").strip()[:500]
+    clear = str(request.form.get('clear', '')).lower() in ('true', '1', 'yes')
+    if clear:
+        c.reported = False
+        c.report_reason = ""
+        c.reported_by = ""
+        c.reported_at = None
+        db.session.commit()
+        return jsonify({"success": True, "reported": False})
+    if not reason:
+        return jsonify({"success": False, "error": "Please describe the issue."})
+    c.reported = True
+    c.report_reason = reason
+    c.reported_by = session.get("username", "")
+    c.reported_at = datetime.utcnow()
+    db.session.commit()
+    fire_webhook({
+        "type":          "customer_reported",
+        "customer_id":   c.id,
+        "customer_name": c.nome,
+        "reason":        reason,
+        "reported_by":   c.reported_by,
+        "pickup_datetime": c.pickup_datetime,
+        "destination":   c.destination,
+    })
+    return jsonify({"success": True, "reported": True, "reason": reason})
 
 @app.route('/driver/notes/<int:customer_id>', methods=['POST'])
 def driver_save_notes(customer_id):
@@ -3928,7 +4067,7 @@ def export_guestlist():
                 "Pickup Address", "Destination", "Driver", "Car",
                 "Picked Up At", "Dropped Off At", "Arrived At Property",
                 "Distance To Venue (mi)", "Status", "Priority", "Promoter",
-                "Notes", "Driver Notes"])
+                "Notes", "Driver Notes", "Reported", "Report Reason", "Reported By"])
     for c in rows:
         parts = (c.pickup_datetime or "").split(" ")
         d_part = parts[0] if parts else ""
@@ -3942,6 +4081,7 @@ def export_guestlist():
             (c.dropoff_distance_mi or "") if c.dropped_off_at else "",
             c.status, ("Yes" if getattr(c, 'priority', False) else "No"), c.promoter or "",
             c.details or "", c.driver_notes or "",
+            ("Yes" if c.reported else "No"), c.report_reason or "", c.reported_by or "",
         ])
     out = buf.getvalue()
     fname = f"clublifter_guestlist_{'all' if view_all else filter_date_iso}.csv"
@@ -4612,6 +4752,10 @@ with app.app_context():
     safe_migrate("customer", "completed_driver","ALTER TABLE customer ADD COLUMN completed_driver VARCHAR(120) DEFAULT ''")
     safe_migrate("customer", "completed_car",   "ALTER TABLE customer ADD COLUMN completed_car VARCHAR(200) DEFAULT ''")
     safe_migrate("customer", "driver_notes",     "ALTER TABLE customer ADD COLUMN driver_notes VARCHAR(500) DEFAULT ''")
+    safe_migrate("customer", "reported",         "ALTER TABLE customer ADD COLUMN reported BOOLEAN DEFAULT 0")
+    safe_migrate("customer", "report_reason",    "ALTER TABLE customer ADD COLUMN report_reason VARCHAR(500) DEFAULT ''")
+    safe_migrate("customer", "reported_by",      "ALTER TABLE customer ADD COLUMN reported_by VARCHAR(120) DEFAULT ''")
+    safe_migrate("customer", "reported_at",      "ALTER TABLE customer ADD COLUMN reported_at DATETIME")
     safe_migrate("customer", "dropoff_distance_mi", "ALTER TABLE customer ADD COLUMN dropoff_distance_mi FLOAT DEFAULT 0")
     safe_migrate("customer", "car_name",        "ALTER TABLE customer ADD COLUMN car_name VARCHAR(100) DEFAULT ''")
     safe_migrate("customer", "car_string_val",  "ALTER TABLE customer ADD COLUMN car_string_val VARCHAR(200) DEFAULT ''")
