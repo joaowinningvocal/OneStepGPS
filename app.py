@@ -1043,20 +1043,50 @@ def cadastrar_cep():
     if not force_duplicate:
         norm_new_phone = clean_phone(client_phone)
         name_l = nome.lower()
-        # The day this new ride is for (compare against existing rides' day)
-        new_dt = parse_pickup_datetime(pickup_datetime)
-        new_day = new_dt.date() if new_dt else None
         dup = None
         # Look at recent rides for a name or phone match ON THE SAME DAY (or future).
         # Past rides (e.g. the guest rode last night) must NOT trigger a warning.
+        def _ride_day(dt_txt):
+            """Best-effort date extraction. Tries the normal parser, then a
+            DD/MM fallback (some legacy rides were stored day-first), then a
+            raw date-token compare. Returns a date or None."""
+            if not dt_txt:
+                return None
+            d = parse_pickup_datetime(dt_txt)
+            if d:
+                return d.date()
+            # Fallback: pull the first token and try both orders
+            token = dt_txt.strip().split(" ")[0]
+            import re as _re
+            m = _re.match(r'^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$', token)
+            if m:
+                x, y, yy = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                if yy < 100:
+                    yy += 2000
+                from datetime import date as _date
+                # If first number > 12 it must be the day (DD/MM)
+                try:
+                    if x > 12:
+                        return _date(yy, y, x)
+                    return _date(yy, x, y)   # assume MM/DD
+                except ValueError:
+                    try:
+                        return _date(yy, y, x)
+                    except ValueError:
+                        return None
+            return None
+
+        new_day = _ride_day(pickup_datetime)
+
         for existing in Customer.query.order_by(Customer.id.desc()).limit(500).all():
-            ex_dt = parse_pickup_datetime(existing.pickup_datetime)
-            ex_day = ex_dt.date() if ex_dt else None
-            # Skip if we can compare days and the existing ride is on a different day
-            if new_day and ex_day and ex_day != new_day:
-                continue
-            # Also skip rides already completed (picked up / dropped off)
+            # Skip rides already completed
             if existing.status in ("dropped_off",):
+                continue
+            ex_day = _ride_day(existing.pickup_datetime)
+            # Only treat as a possible duplicate when we can CONFIRM the same day.
+            # If either date is unknown, or they differ, do NOT warn (avoids
+            # flagging month-old rides just because the name matches).
+            if not new_day or not ex_day or ex_day != new_day:
                 continue
             name_match = existing.nome and existing.nome.lower() == name_l
             phone_match = False
