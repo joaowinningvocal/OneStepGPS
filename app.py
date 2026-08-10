@@ -2964,6 +2964,14 @@ def report_problem():
             })
             reassigned.append({"customer": customer.nome, "new_driver": new_driver.name})
 
+    # Give the driver who went unavailable a short heads-up of what left them
+    if reassigned and driver_profile and driver_profile.phone:
+        names = ", ".join(r["customer"] for r in reassigned[:5])
+        more = f" +{len(reassigned)-5} more" if len(reassigned) > 5 else ""
+        send_sms_bg(driver_profile.phone,
+            f"ClubLifter: {len(reassigned)} pickup(s) were moved to other drivers "
+            f"and are no longer yours ({names}{more}).")
+
     return jsonify({
         "success": True,
         "disabled": True,
@@ -3856,6 +3864,21 @@ def reassign_pickup(customer_id):
             f"ClubLifter: pickup reassigned to you.\n"
             f"Guest: {c.nome}\nPickup: {c.endereco}\n"
             f"Time: {c.pickup_datetime}\nDrop-off: {c.destination or 'N/A'}")
+
+    # Let the PREVIOUS driver know the ride was taken off them
+    if previous and previous != drv.name:
+        _time_txt = ""
+        _parts = (c.pickup_datetime or "").split(" ")
+        if len(_parts) >= 3:
+            _time_txt = f"{_parts[1]} {_parts[2]}"
+        prev_drv = Driver.query.filter_by(name=previous).first()
+        prev_phone = prev_drv.phone if prev_drv and prev_drv.phone else ""
+        if prev_phone:
+            send_sms_bg(prev_phone,
+                f"ClubLifter: {c.nome}"
+                f"{(' (' + _time_txt + ')') if _time_txt else ''} "
+                f"was reassigned to another driver and is no longer yours.")
+
     return jsonify({"success": True, "driver": drv.name,
                     "car": c.car_string_val or "", "previous": previous})
 
@@ -4147,6 +4170,21 @@ def delete_guest(customer_id):
     if not can_dispatch():
         return jsonify({"success": False, "error": "Unauthorized"})
     customer = Customer.query.get_or_404(customer_id)
+
+    # If a driver still had this pickup pending, let them know it's cancelled
+    if customer.motorista and customer.status in ("scheduled", "picked_up") and customer.needs_transport:
+        drv = Driver.query.filter_by(name=customer.motorista).first()
+        prev_phone = drv.phone if drv and drv.phone else (customer.motorista_phone or "")
+        if prev_phone:
+            _time_txt = ""
+            _parts = (customer.pickup_datetime or "").split(" ")
+            if len(_parts) >= 3:
+                _time_txt = f"{_parts[1]} {_parts[2]}"
+            send_sms_bg(clean_phone(prev_phone),
+                f"ClubLifter: {customer.nome}"
+                f"{(' (' + _time_txt + ')') if _time_txt else ''} "
+                f"was cancelled and is no longer on your list.")
+
     db.session.delete(customer)
     db.session.commit()
     return jsonify({"success": True})
