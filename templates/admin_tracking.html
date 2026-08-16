@@ -61,6 +61,9 @@
         .cbox.idle{color:var(--m);}
         /* Queue */
         .queue-wrap{margin-top:10px;border-top:1px solid var(--bd);padding-top:8px;}
+        .plvl{font-size:.58rem;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;letter-spacing:.4px;vertical-align:middle;}
+        .plvl-high{background:rgba(239,68,68,.18);color:#f87171;border:1px solid rgba(239,68,68,.4);}
+        .plvl-med{background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.35);}
         .qtoggle{display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-size:.72rem;font-weight:700;color:var(--m2);text-transform:uppercase;letter-spacing:.4px;padding:3px 0;}
         .qtoggle:hover{color:var(--t);}
         .qcaret{transition:transform .2s;}
@@ -233,9 +236,15 @@ async function loadDrivers(fit=false){
                 const rows = d.queue.map((q,i)=>{
                     const cls = q.status==='picked_up' ? 'q-done' : (q.is_current ? 'q-now' : '');
                     const mark = q.status==='picked_up' ? '✅' : (q.is_current ? '▶' : (i+1));
+                    const plvl = q.priority_level || 'low';
+                    const pbadge = ({
+                        high:   '<span class="plvl plvl-high">HIGH</span>',
+                        medium: '<span class="plvl plvl-med">MED</span>',
+                        low:    ''
+                    })[plvl] || '';
                     return `<div class="qrow ${cls}">
                         <span class="qn">${mark}</span>
-                        <span class="qname">${q.priority?'<span class="qstar">★</span>':''}${q.customer_name}</span>
+                        <span class="qname">${q.priority?'<span class="qstar">★</span>':''}${q.customer_name}${pbadge}</span>
                         <span class="qmeta">${q.pickup_time||'—'}${q.guests?' · '+q.guests+'g':''}</span>
                         <span class="qacts">
                           <button class="qbtn" title="Reassign to another driver" onclick="event.stopPropagation();openReassign(${q.customer_id},'${(q.customer_name||'').replace(/'/g,"\\'")}','${(d.driver_name||'').replace(/'/g,"\\'")}')">⇄</button>

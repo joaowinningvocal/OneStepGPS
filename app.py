@@ -1171,34 +1171,46 @@ def cadastrar_cep():
         # Parse the requested pickup time for availability checking
         requested_dt = parse_pickup_datetime(pickup_datetime)
 
+        def _safe_json_get(url, headers=None, timeout=8, default=None):
+            """GET a URL and parse JSON, returning `default` on any failure
+            (empty body, non-JSON response, rate-limit page, network error)."""
+            try:
+                r = requests.get(url, headers=headers or {}, timeout=timeout)
+                if not r.text or not r.text.strip():
+                    return default
+                return r.json()
+            except Exception as _e:
+                print(f"[BOOKING] request failed ({url[:60]}): {_e}", flush=True)
+                return default
+
         # 1. GEOCODING — use the clean street address (geocode_address), not the
         # descriptive valet text, so Nominatim can resolve it.
         encoded = urllib.parse.quote(geocode_address)
-        geo_res = requests.get(
+        geo_res = _safe_json_get(
             f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1&addressdetails=1",
-            headers={'User-Agent': 'ClubLifter_LasVegas_App'}, timeout=8
-        ).json()
+            headers={'User-Agent': 'ClubLifter_LasVegas_App'}, default=[])
 
         # Fallback: if the clean address failed, try the full text
         if not geo_res and geocode_address != endereco_completo:
             encoded2 = urllib.parse.quote(endereco_completo)
-            geo_res = requests.get(
+            geo_res = _safe_json_get(
                 f"https://nominatim.openstreetmap.org/search?q={encoded2}&format=json&limit=1&addressdetails=1",
-                headers={'User-Agent': 'ClubLifter_LasVegas_App'}, timeout=8
-            ).json()
+                headers={'User-Agent': 'ClubLifter_LasVegas_App'}, default=[])
 
         if not geo_res:
             return jsonify({"success": False, "error": "Address not found on global map."})
 
-        lat_cli = float(geo_res[0]['lat'])
-        lng_cli = float(geo_res[0]['lon'])
+        try:
+            lat_cli = float(geo_res[0]['lat'])
+            lng_cli = float(geo_res[0]['lon'])
+        except (KeyError, IndexError, ValueError, TypeError):
+            return jsonify({"success": False, "error": "Could not read coordinates for that address. Try a nearby landmark."})
 
         # 2. GET ALL VEHICLES FROM ONESTEPGPS (live coords keyed by display_name)
         headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-        res_v = requests.get(
+        res_v = _safe_json_get(
             "https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
-            headers=headers_api, timeout=8
-        ).json()
+            headers=headers_api, default=[])
 
         lista = res_v if isinstance(res_v, list) else [res_v]
         gps_by_name = {}
@@ -1836,6 +1848,8 @@ def ai_lookup():
         "driver_notes":    c.driver_notes,
         "reported":        c.reported,
         "report_reason":   c.report_reason,
+        "priority_level":  priority_level(c),
+        "package_price":   _package_price(c.package),
     })
 
 @app.route('/api/ai/update-notes', methods=['POST'])
@@ -2672,8 +2686,9 @@ def driver_dashboard():
             "package": c.package, "guests": c.guests, "details": c.details,
             "driver_notes": c.driver_notes,
             "reported": c.reported, "report_reason": c.report_reason,
-            "reported": c.reported, "report_reason": c.report_reason,
             "reported_by": c.reported_by,
+            "priority": bool(getattr(c, 'priority', False)),
+            "priority_level": priority_level(c),
             "time": time_part, "status": c.status,
             "dispatch_status": c.dispatch_status,
             "dropped_at": vegas_time(c.dropped_off_at),
@@ -3412,6 +3427,60 @@ def api_clubs():
 # CARTVIP INTEGRATION API (v1) — external partners POST here with X-API-Key
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _package_price(pkg_name):
+    """Look up a package's price by name (0 if unknown / free)."""
+    if not pkg_name:
+        return 0
+    p = Package.query.filter_by(name=pkg_name).first()
+    return (p.price or 0) if p else 0
+
+def priority_level(customer):
+    """Human-readable priority tier for a ride, by package price.
+      manual star  → 'starred' (always wins)
+      $300+        → 'high'
+      $1–$299      → 'medium'
+      free ($0)    → 'low'
+    """
+    if getattr(customer, 'priority', False):
+        return 'starred'
+    price = _package_price(customer.package)
+    if price >= 300:
+        return 'high'
+    if price > 0:
+        return 'medium'
+    return 'low'
+
+# Anti-starvation: a ride waiting longer than this many minutes is bumped up so
+# cheap/free guests are never stuck behind an endless stream of pricier ones.
+PRIORITY_WAIT_ESCALATE_MIN = 15
+
+def priority_sort_key(customer, now=None):
+    """Sort key for scheduling order. Lower tuple = served first.
+    Order: (1) manual star, (2) package price tier, (3) how long they've waited.
+    But once a ride has waited > PRIORITY_WAIT_ESCALATE_MIN, it jumps to the top
+    tier so it can't be starved by a stream of higher-priced bookings."""
+    if now is None:
+        now = datetime.utcnow()
+    starred = 0 if getattr(customer, 'priority', False) else 1
+    price = _package_price(customer.package)
+
+    waited_min = 0
+    if customer.created_at:
+        try:
+            waited_min = max(0, (now - customer.created_at).total_seconds() / 60)
+        except Exception:
+            waited_min = 0
+    escalated = waited_min > PRIORITY_WAIT_ESCALATE_MIN
+    pdt = parse_pickup_datetime(customer.pickup_datetime) or datetime.max
+    created = customer.created_at or datetime.max
+
+    # band 0 = escalated long-waiters (served first, longest wait first)
+    # band 1 = everyone else, ordered by package price (higher = earlier)
+    # All tuples are the same shape (5 elements) so they compare cleanly.
+    if escalated:
+        return (starred, 0, -waited_min, pdt, created)
+    return (starred, 1, -price, pdt, created)
+
 def _assign_driver_and_car(lat_cli, lng_cli, requested_dt):
     """Shared driver/car assignment logic. Returns dict with assignment details."""
     headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
@@ -3446,7 +3515,8 @@ def _assign_driver_and_car(lat_cli, lng_cli, requested_dt):
             if best is None or dist < best[1]:
                 best = (drv, dist, coords, car)
         if best:
-            melhor_v, menor_d, motorista_coords, chosen_car = best
+            best_drv, menor_d, motorista_coords, chosen_car = best
+            melhor_v = best_drv.name   # store the NAME, not the Driver object
 
     if melhor_v == "Unavailable":
         candidates = []
@@ -3498,19 +3568,22 @@ def api_v1_schedule():
     destination = (data.get("destination") or "").strip()
 
     requested_dt = parse_pickup_datetime(pickup_datetime)
+    # Normalize the stored date so 2-digit years / loose formats are consistent
+    pickup_datetime = normalize_pickup_datetime(pickup_datetime) or pickup_datetime
 
-    # Geocode
+    # Geocode (tolerant of empty / non-JSON / rate-limit responses)
     try:
         encoded = urllib.parse.quote(pickup_address)
-        geo = requests.get(
+        _r = requests.get(
             f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1",
-            headers={'User-Agent': 'ClubLifter_CartVIP'}, timeout=10
-        ).json()
+            headers={'User-Agent': 'ClubLifter_CartVIP'}, timeout=10)
+        geo = _r.json() if (_r.text and _r.text.strip()) else []
         if not geo:
             return jsonify({"success": False, "error": "Address not found"}), 422
         lat_cli, lng_cli = float(geo[0]['lat']), float(geo[0]['lon'])
     except Exception as e:
-        return jsonify({"success": False, "error": f"Geocoding failed: {e}"}), 500
+        print(f"[API/schedule] geocode failed: {e}", flush=True)
+        return jsonify({"success": False, "error": "Could not resolve that pickup address."}), 502
 
     a = _assign_driver_and_car(lat_cli, lng_cli, requested_dt)
     chosen_car = a["car"]
@@ -3932,11 +4005,15 @@ def api_live_drivers():
                 "guests":          c.guests or 0,
                 "status":          c.status,
                 "priority":        bool(getattr(c, 'priority', False)),
+                "priority_level":  priority_level(c),
                 "is_current":      False,
             }
 
         def _build(matched):
-            matched.sort(key=lambda c: (parse_pickup_datetime(c.pickup_datetime) or datetime.max))
+            # Order by priority (manual star → package price → wait time) so the
+            # driver's "next pickup" reflects who should be served first.
+            _now = datetime.utcnow()
+            matched.sort(key=lambda c: priority_sort_key(c, _now))
             queue, current, done = [], None, 0
             for c in matched:
                 it = _item(c)
