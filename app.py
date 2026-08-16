@@ -3437,13 +3437,16 @@ def _package_price(pkg_name):
 def priority_level(customer):
     """Human-readable priority tier for a ride, by package price.
       manual star  → 'starred' (always wins)
-      $300+        → 'high'
+      $1000+       → 'vip'
+      $300–$999    → 'high'
       $1–$299      → 'medium'
-      free ($0)    → 'low'
+      free ($0)    → 'low'  (no tag shown)
     """
     if getattr(customer, 'priority', False):
         return 'starred'
     price = _package_price(customer.package)
+    if price >= 1000:
+        return 'vip'
     if price >= 300:
         return 'high'
     if price > 0:
