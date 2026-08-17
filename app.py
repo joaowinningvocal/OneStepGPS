@@ -2607,11 +2607,16 @@ def driver_dashboard():
             return is_today
         if is_today:
             return True
-        # Not today: only keep if it's recent and still unfinished
+        # Not today: figure out if it's PAST or FUTURE.
         pdt = parse_pickup_datetime(dt_txt)
         if not pdt:
             return False
-        # visible only within the grace window after the scheduled time
+        # Future rides (tomorrow, next week, next month) must NOT show today —
+        # the driver only sees today's board.
+        if pdt > now_vegas:
+            return False
+        # Past & unfinished: keep only within the grace window after the
+        # scheduled time (handles ~midnight pickups that ran a bit late).
         return now_vegas <= (pdt + timedelta(hours=GRACE_HOURS))
 
     # Pickups for this driver. Matched by any of the driver's identities
