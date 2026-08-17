@@ -471,10 +471,16 @@ const HOTELS=[
     {name:"Wynn",addr:"3131 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Main Valet entrance and South Gate/Tour Lobby entrance"},
     {name:"Vanderpump Hotel",addr:"3535 S Las Vegas Blvd, Las Vegas, NV 89109",spot:"Designated lower-level valet or secondary pickup area"},
 ];
+// Saved custom locations (added by dispatchers) — merged into the dropdown
+const SAVED_LOCATIONS=[
+    {% for l in saved_locations %}{name:"{{ l.name|replace('"','\\"') }}",addr:"{{ l.address|replace('"','\\"') }}",spot:"",saved:true},
+    {% endfor %}
+];
+SAVED_LOCATIONS.forEach(l=>HOTELS.unshift(l));
 function renderH(list){
     document.getElementById('hotelList').innerHTML=list.map(h=>`
         <div class="hopt" data-hname="${(h.name||'').replace(/"/g,'&quot;')}" data-haddr="${(h.addr||'').replace(/"/g,'&quot;')}" data-hspot="${(h.spot||'').replace(/"/g,'&quot;')}" onclick="selHfromEl(this)">
-            <div class="hn">${h.name}</div><div class="ha">${h.addr}</div>
+            <div class="hn">${h.saved?'📍 ':''}${h.name}${h.saved?' <span style="font-size:.62rem;color:var(--accent);font-weight:700;">SAVED</span>':''}</div><div class="ha">${h.addr}</div>
         </div>`).join('');
 }
 function selHfromEl(el){
@@ -546,6 +552,34 @@ function applyCustom(){
     document.getElementById('addrVal').value=full;
     document.getElementById('geoVal').value=full;
     document.getElementById('customF').classList.remove('show');
+    // Offer to save this custom address for reuse
+    openSaveLocation(full);
+}
+
+// ── SAVE CUSTOM LOCATION ─────────────────────────────────────────────────────
+function openSaveLocation(address){
+    document.getElementById('saveLocAddr').innerText=address;
+    document.getElementById('saveLocAddrHidden').value=address;
+    document.getElementById('saveLocName').value='';
+    document.getElementById('saveLocModal').classList.add('show');
+    setTimeout(()=>document.getElementById('saveLocName').focus(),80);
+}
+function closeSaveLocation(){
+    document.getElementById('saveLocModal').classList.remove('show');
+}
+async function confirmSaveLocation(){
+    const name=document.getElementById('saveLocName').value.trim();
+    const address=document.getElementById('saveLocAddrHidden').value;
+    if(!name){document.getElementById('saveLocName').focus();return;}
+    const fd=new FormData();fd.append('name',name);fd.append('address',address);
+    try{
+        const d=await(await fetch('/admin/locations/save',{method:'POST',body:fd})).json();
+        if(d.success){
+            // add to the in-memory list so it's usable immediately
+            HOTELS.unshift({name:name,addr:address,spot:'',saved:true});
+            closeSaveLocation();
+        }else{alert(d.error||'Could not save location');}
+    }catch(e){alert('Could not save location');}
 }
 document.addEventListener('click',e=>{
     const w=document.querySelector('.addr-wrap');
@@ -1236,5 +1270,34 @@ document.getElementById('valetModal').addEventListener('click',function(e){if(e.
 })();
 </script>
 
+<div id="saveLocModal" class="slm-overlay">
+    <div class="slm-box">
+        <div class="slm-title">📍 Save this location?</div>
+        <div class="slm-sub">Give it a name to reuse it from the dropdown later.</div>
+        <div class="slm-addr" id="saveLocAddr"></div>
+        <input type="hidden" id="saveLocAddrHidden">
+        <input id="saveLocName" class="slm-input" placeholder="Location name (e.g. The D)" maxlength="120" onkeydown="if(event.key==='Enter')confirmSaveLocation()">
+        <div class="slm-actions">
+            <button class="slm-btn slm-skip" onclick="closeSaveLocation()">Not now</button>
+            <button class="slm-btn slm-save" onclick="confirmSaveLocation()">Save location</button>
+        </div>
+    </div>
+</div>
+<style>
+.slm-overlay{display:none;position:fixed;inset:0;background:rgba(4,6,12,.72);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:20px;}
+.slm-overlay.show{display:flex;}
+.slm-box{background:var(--surface,#0f1420);border:1px solid var(--border-hi,rgba(138,92,246,.45));border-radius:16px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6);}
+.slm-title{font-family:'Syne',sans-serif;font-weight:800;font-size:1.15rem;color:var(--text,#e8eaf0);margin-bottom:4px;}
+.slm-sub{font-size:.82rem;color:var(--muted2,#8892a0);margin-bottom:14px;}
+.slm-addr{background:var(--surface2,#161d2e);border:1px solid var(--border,rgba(255,255,255,.07));border-radius:9px;padding:10px 12px;font-size:.82rem;color:var(--text,#e8eaf0);margin-bottom:12px;word-break:break-word;}
+.slm-input{width:100%;background:var(--surface2,#161d2e);border:1px solid var(--border-hi,rgba(138,92,246,.45));border-radius:10px;padding:11px 13px;color:var(--text,#e8eaf0);font-size:.9rem;font-family:'DM Sans',sans-serif;margin-bottom:16px;box-sizing:border-box;}
+.slm-input:focus{outline:none;border-color:var(--accent,#8a5cf6);}
+.slm-actions{display:flex;gap:10px;justify-content:flex-end;}
+.slm-btn{padding:10px 18px;border-radius:10px;font-weight:700;font-size:.84rem;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;}
+.slm-skip{background:transparent;border:1px solid var(--border,rgba(255,255,255,.12));color:var(--muted2,#8892a0);}
+.slm-skip:hover{color:var(--text,#e8eaf0);}
+.slm-save{background:linear-gradient(135deg,var(--accent,#8a5cf6),var(--accent2,#6d28d9));color:#fff;}
+.slm-save:hover{filter:brightness(1.1);}
+</style>
 </body>
 </html>

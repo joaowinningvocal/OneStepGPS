@@ -217,6 +217,18 @@ class Setting(db.Model):
     key   = db.Column(db.String(80), nullable=False, unique=True)
     value = db.Column(db.String(255), default="")
 
+class SavedLocation(db.Model):
+    """A reusable pickup location the dispatcher saved (e.g. 'The D' → full address).
+    Shows up in the pickup-address dropdown so it can be picked again quickly."""
+    id      = db.Column(db.Integer, primary_key=True)
+    name    = db.Column(db.String(120), nullable=False, unique=True)   # e.g. "The D"
+    address = db.Column(db.String(255), default="")                    # full geocodable address
+    active  = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {"id": self.id, "name": self.name, "address": self.address}
+
 def get_setting(key, default=""):
     s = Setting.query.filter_by(key=key).first()
     return s.value if s else default
@@ -947,7 +959,9 @@ def index():
             clubs = Club.query.filter_by(active=True).all()  # fallback: all clubs
         customers = Customer.query.filter_by(promoter=session.get("username")).order_by(Customer.id.desc()).all()
 
-    return render_template('index.html', clientes=customers, packages=packages, clubs=clubs)
+    saved_locations = SavedLocation.query.filter_by(active=True).order_by(SavedLocation.name).all()
+    return render_template('index.html', clientes=customers, packages=packages, clubs=clubs,
+                           saved_locations=saved_locations)
 
 @app.route('/promoter/dashboard')
 def promoter_dashboard():
@@ -4294,6 +4308,97 @@ def toggle_priority(customer_id):
             "flagged_by":      session.get("username", ""),
         })
     return jsonify({"success": True, "priority": c.priority})
+
+@app.route('/admin/locations', methods=['GET'])
+def list_saved_locations():
+    """Return saved pickup locations for the dropdown."""
+    if not can_dispatch():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    locs = SavedLocation.query.filter_by(active=True).order_by(SavedLocation.name).all()
+    return jsonify({"success": True, "locations": [l.to_dict() for l in locs]})
+
+@app.route('/admin/locations/save', methods=['POST'])
+def save_location():
+    """Save a custom pickup location under a friendly name for reuse."""
+    if not can_dispatch():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    name = (request.form.get('name') or "").strip()
+    address = (request.form.get('address') or "").strip()
+    if not name or not address:
+        return jsonify({"success": False, "error": "Name and address are required."})
+    existing = SavedLocation.query.filter(func.lower(SavedLocation.name) == name.lower()).first()
+    if existing:
+        existing.address = address
+        existing.active = True
+    else:
+        db.session.add(SavedLocation(name=name, address=address))
+    db.session.commit()
+    return jsonify({"success": True, "name": name, "address": address})
+
+@app.route('/admin/locations/delete/<int:loc_id>', methods=['POST'])
+def delete_location(loc_id):
+    if not can_dispatch():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    loc = SavedLocation.query.get_or_404(loc_id)
+    db.session.delete(loc)
+    db.session.commit()
+    return jsonify({"success": True})
+
+@app.route('/admin/guestlist/edit/<int:customer_id>', methods=['POST'])
+def edit_customer(customer_id):
+    """Edit a ride's details — name, phone, pickup address, destination, guests,
+    package, notes, and date/time. Only sends the fields that changed."""
+    if not can_dispatch():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    c = Customer.query.get_or_404(customer_id)
+    f = request.form
+
+    # Simple text fields
+    if 'nome' in f:
+        v = (f.get('nome') or "").strip()
+        if v:
+            c.nome = v
+    if 'phone' in f:
+        c.phone = clean_phone(f.get('phone') or "")
+    if 'endereco' in f:
+        c.endereco = (f.get('endereco') or "").strip()
+    if 'destination' in f:
+        c.destination = (f.get('destination') or "").strip()
+    if 'package' in f:
+        c.package = (f.get('package') or "").strip()
+    if 'details' in f:
+        c.details = (f.get('details') or "").strip()[:500]
+    if 'guests' in f:
+        try:
+            c.guests = int(f.get('guests') or 0)
+        except (TypeError, ValueError):
+            pass
+
+    # Date/time (optional here — reschedule route also exists)
+    if f.get('pickup_datetime'):
+        normalized = normalize_pickup_datetime(f.get('pickup_datetime').strip())
+        if parse_pickup_datetime(normalized) is None:
+            return jsonify({"success": False, "error": "Couldn't read that date/time."})
+        if normalized != c.pickup_datetime:
+            c.pickup_datetime = normalized
+            # Re-arm proximity alerts for the new time
+            c.notified_15km = c.notified_10km = c.notified_5km = False
+
+    db.session.commit()
+    fire_webhook({
+        "type":          "pickup_edited",
+        "customer_id":   c.id,
+        "customer_name": c.nome,
+        "changed_by":    session.get("username", ""),
+    })
+    return jsonify({
+        "success": True,
+        "customer": {
+            "id": c.id, "nome": c.nome, "phone": c.phone, "endereco": c.endereco,
+            "destination": c.destination, "package": c.package, "guests": c.guests,
+            "details": c.details, "pickup_datetime": c.pickup_datetime,
+        }
+    })
 
 @app.route('/admin/guestlist/reschedule/<int:customer_id>', methods=['POST'])
 def reschedule_pickup(customer_id):

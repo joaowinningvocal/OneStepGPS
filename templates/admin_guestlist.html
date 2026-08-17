@@ -353,6 +353,9 @@
                                     <div class="detail-item"><span class="dlabel">⏱️ ETA to club</span><span class="dval" id="eta-{{ c.id }}"><button class="eta-btn" onclick="loadEta({{ c.id }})">Check ETA</button></span></div>
                                     {% endif %}
                                 </div>
+                                <div style="margin-top:14px;text-align:right;">
+                                    <button class="edit-btn-full" onclick='openEdit({{ c.id }}, {{ {"nome": c.nome, "phone": c.phone or "", "endereco": c.endereco or "", "destination": c.destination or "", "package": c.package or "", "guests": c.guests or 0, "details": c.details or "", "pickup_datetime": c.pickup_datetime or ""}|tojson }})'>✏️ Edit reservation</button>
+                                </div>
                             </div>
                         </td>
                     </tr>
@@ -904,5 +907,82 @@ function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.c
         </div>
     </div>
 </div>
+<div id="editModal" class="em-overlay">
+    <div class="em-box">
+        <div class="em-title">✏️ Edit Reservation</div>
+        <input type="hidden" id="edit-id">
+        <div class="em-grid">
+            <div class="em-field"><label>Guest Name</label><input id="edit-nome" class="em-input"></div>
+            <div class="em-field"><label>Phone</label><input id="edit-phone" class="em-input" placeholder="+1 702..."></div>
+            <div class="em-field em-full"><label>Pickup Address</label><input id="edit-endereco" class="em-input" placeholder="Full street address"></div>
+            <div class="em-field"><label>Destination</label>
+                <select id="edit-destination" class="em-input">
+                    <option value="">—</option>
+                    {% for c in clubs %}<option value="{{ c.name }}">{{ c.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="em-field"><label>Guests</label><input id="edit-guests" class="em-input" type="number" min="0"></div>
+            <div class="em-field"><label>Date & Time</label><input id="edit-datetime" class="em-input" placeholder="MM/DD/YYYY HH:MM PM"></div>
+            <div class="em-field"><label>Package</label><input id="edit-package" class="em-input"></div>
+            <div class="em-field em-full"><label>Notes</label><input id="edit-details" class="em-input" placeholder="Dispatch notes"></div>
+        </div>
+        <div class="em-actions">
+            <button class="em-btn em-cancel" onclick="closeEdit()">Cancel</button>
+            <button class="em-btn em-save" onclick="saveEdit()">Save changes</button>
+        </div>
+    </div>
+</div>
+<style>
+.em-overlay{display:none;position:fixed;inset:0;background:rgba(4,6,12,.72);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:20px;}
+.em-overlay.show{display:flex;}
+.em-box{background:var(--s,#0f1420);border:1px solid var(--bhi,rgba(138,92,246,.45));border-radius:16px;padding:24px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6);max-height:90vh;overflow-y:auto;}
+.em-title{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:var(--t,#e8eaf0);margin-bottom:16px;}
+.em-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.em-field{display:flex;flex-direction:column;gap:5px;}
+.em-field.em-full{grid-column:1/-1;}
+.em-field label{font-size:.72rem;color:var(--m2,#8892a0);font-weight:600;text-transform:uppercase;letter-spacing:.4px;}
+.em-input{background:var(--s2,#161d2e);border:1px solid var(--bd,rgba(255,255,255,.07));border-radius:9px;padding:10px 12px;color:var(--t,#e8eaf0);font-size:.88rem;font-family:'DM Sans',sans-serif;box-sizing:border-box;width:100%;}
+.em-input:focus{outline:none;border-color:var(--acc,#8a5cf6);}
+.em-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;}
+.em-btn{padding:10px 20px;border-radius:10px;font-weight:700;font-size:.85rem;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;}
+.em-cancel{background:transparent;border:1px solid var(--bd,rgba(255,255,255,.12));color:var(--m2,#8892a0);}
+.em-cancel:hover{color:var(--t,#e8eaf0);}
+.em-save{background:linear-gradient(135deg,var(--acc,#8a5cf6),var(--acc2,#6d28d9));color:#fff;}
+.em-save:hover{filter:brightness(1.1);}
+.edit-btn-full{background:linear-gradient(135deg,var(--acc,#8a5cf6),var(--acc2,#6d28d9));color:#fff;border:none;border-radius:9px;padding:9px 16px;font-weight:700;font-size:.82rem;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.edit-btn-full:hover{filter:brightness(1.1);}
+</style>
+<script>
+function openEdit(id, data){
+    document.getElementById('edit-id').value=id;
+    document.getElementById('edit-nome').value=data.nome||'';
+    document.getElementById('edit-phone').value=data.phone||'';
+    document.getElementById('edit-endereco').value=data.endereco||'';
+    document.getElementById('edit-destination').value=data.destination||'';
+    document.getElementById('edit-guests').value=data.guests||0;
+    document.getElementById('edit-datetime').value=data.pickup_datetime||'';
+    document.getElementById('edit-package').value=data.package||'';
+    document.getElementById('edit-details').value=data.details||'';
+    document.getElementById('editModal').classList.add('show');
+}
+function closeEdit(){document.getElementById('editModal').classList.remove('show');}
+async function saveEdit(){
+    const id=document.getElementById('edit-id').value;
+    const fd=new FormData();
+    fd.append('nome',document.getElementById('edit-nome').value);
+    fd.append('phone',document.getElementById('edit-phone').value);
+    fd.append('endereco',document.getElementById('edit-endereco').value);
+    fd.append('destination',document.getElementById('edit-destination').value);
+    fd.append('guests',document.getElementById('edit-guests').value);
+    fd.append('pickup_datetime',document.getElementById('edit-datetime').value);
+    fd.append('package',document.getElementById('edit-package').value);
+    fd.append('details',document.getElementById('edit-details').value);
+    try{
+        const d=await(await fetch(`/admin/guestlist/edit/${id}`,{method:'POST',body:fd})).json();
+        if(d.success){location.reload();}
+        else{alert(d.error||'Could not save changes');}
+    }catch(e){alert('Could not save changes');}
+}
+</script>
 </body>
 </html>
