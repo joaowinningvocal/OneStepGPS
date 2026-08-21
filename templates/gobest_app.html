@@ -316,23 +316,40 @@ async function detectAndLoad(coords, announce){
 async function loadClubs(coords, state, detected){
   const list = document.getElementById('clubList');
   list.innerHTML = '<div class="spinner"></div>';
-  let data;
+  let data, showingOtherAreas = false;
   try{
     const r = await fetch(`${API_BASE}/api/app/clubs?state=${encodeURIComponent(state||'')}&lat=${coords.lat}&lng=${coords.lng}`);
     data = await r.json();
   }catch(e){ data = {clubs:[]}; }
 
-  const clubs = data.clubs || [];
+  let clubs = data.clubs || [];
+
+  // If there are no clubs in the user's state, show all GoBest clubs (with
+  // distance) so they can still discover venues elsewhere.
+  if(!clubs.length){
+    try{
+      const r2 = await fetch(`${API_BASE}/api/app/clubs?lat=${coords.lat}&lng=${coords.lng}`);
+      const d2 = await r2.json();
+      clubs = d2.clubs || [];
+      showingOtherAreas = clubs.length > 0;
+    }catch(e){}
+  }
+
   document.getElementById('clubCount').innerText = clubs.length ? `${clubs.length} found` : '';
 
   if(!clubs.length){
-    document.getElementById('heroSub').innerText = detected && detected.has_clubs===false
-      ? `No GoBest clubs in ${state||'this area'} yet — we're expanding fast.`
-      : 'No clubs nearby right now.';
-    list.innerHTML = `<div class="empty-state"><div class="ico">🍸</div><p>No GoBest venues here yet.<br>Check back soon — we're growing.</p></div>`;
+    document.getElementById('heroSub').innerText = 'No GoBest clubs available yet — we\'re expanding fast.';
+    list.innerHTML = `<div class="empty-state"><div class="ico">🍸</div><p>No GoBest venues yet.<br>Check back soon — we're growing.</p></div>`;
     return;
   }
-  document.getElementById('heroSub').innerText = `${clubs.length} GoBest ${clubs.length===1?'club':'clubs'} ready to welcome you. Scan a QR at any venue for a free drink.`;
+
+  // Update the section label + hero copy depending on whether these are local
+  document.querySelector('.section-label h2').innerText = showingOtherAreas ? 'GoBest clubs' : 'Clubs near you';
+  if(showingOtherAreas){
+    document.getElementById('heroSub').innerText = `No clubs in ${state||'your area'} yet, but here's where GoBest is live. Visit any venue and scan for a free drink.`;
+  }else{
+    document.getElementById('heroSub').innerText = `${clubs.length} GoBest ${clubs.length===1?'club':'clubs'} ready to welcome you. Scan a QR at any venue for a free drink.`;
+  }
 
   list.innerHTML = clubs.map(c=>`
     <div class="club" onclick="previewClub(${c.id})">
@@ -389,15 +406,42 @@ async function simulateTravel(){
 // ══════════════════════════════════════════════════════════════════
 //  SCANNER
 // ══════════════════════════════════════════════════════════════════
-function openScanner(){ showScreen('scan'); }
-function closeScanner(){ showScreen('home'); }
+let _camStream = null;
+async function openScanner(){
+  showScreen('scan');
+  // Try to start the device camera so the demo shows a live feed in the browser.
+  // In the native build this is replaced by the barcode-scanner plugin.
+  try{
+    _camStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }, audio: false
+    });
+    const v = document.getElementById('qr-video');
+    v.srcObject = _camStream;
+    await v.play();
+  }catch(e){
+    // Camera blocked or unavailable (e.g. desktop without permission) —
+    // the scan frame + simulate button still work.
+    console.log('camera unavailable:', e);
+  }
+}
+function closeScanner(){
+  if(_camStream){ _camStream.getTracks().forEach(t=>t.stop()); _camStream=null; }
+  const v=document.getElementById('qr-video'); if(v) v.srcObject=null;
+  showScreen('home');
+}
 
 async function simulateScan(){
-  // For the POC, redeem against the first club in the current state
+  // For the POC, redeem against a club in the current state; if none, fall back
+  // to any GoBest club so the demo always works.
   let clubId = null;
   try{
-    const r = await fetch(`${API_BASE}/api/app/clubs?state=${encodeURIComponent(currentState||'')}`);
-    const d = await r.json();
+    let r = await fetch(`${API_BASE}/api/app/clubs?state=${encodeURIComponent(currentState||'')}`);
+    let d = await r.json();
+    if(!(d.clubs && d.clubs.length)){
+      // no clubs in this state — grab any GoBest club
+      r = await fetch(`${API_BASE}/api/app/clubs`);
+      d = await r.json();
+    }
     if(d.clubs && d.clubs.length) clubId = d.clubs[0].id;
   }catch(e){}
   if(!clubId){ document.getElementById('scanFail').classList.add('show'); return; }

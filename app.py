@@ -5066,6 +5066,8 @@ HUSTLER_ADDRESS = "6007 Dean Martin Dr, Las Vegas, NV 89118"
 VENUES = {
     "Hustler Las Vegas": {
         "address": HUSTLER_ADDRESS,
+        "gobest": {"state": "Nevada", "lat": 36.0665, "lng": -115.1830,
+                   "free_drink": "House margarita"},
         # (name, checkout_url, price, max_guests, description)
         "packages": [
             ("Free Ride and Entry Pass", "https://app.cartvip.com/vegashustlerclub/package/free-ride-and-entry-pass-32/checkout",
@@ -5086,6 +5088,8 @@ VENUES = {
     },
     "Kings of Hustler": {
         "address": HUSTLER_ADDRESS,   # same venue address
+        "gobest": {"state": "Nevada", "lat": 36.0955, "lng": -115.1761,
+                   "free_drink": "Well cocktail"},
         "packages": [
             ("Free Ride and Free Entry", "https://app.cartvip.com/kingsofhustler/package/free-ride-and-free-entry-40/checkout",
              0.0, 1, "Free VIP transportation and free entry."),
@@ -5124,6 +5128,20 @@ def seed_venues():
             elif club.address != info["address"]:
                 club.address = info["address"]
                 print(f"[SEED] club address updated: {club_name}", flush=True)
+
+            # ── GoBest / app fields — set coordinates, state, and free drink so
+            # the venues show up in the GoBest app. Only fills when empty so any
+            # manual edits on the Clubs screen are preserved.
+            gb = info.get("gobest")
+            if gb:
+                if club.lat is None or club.lng is None:
+                    club.lat = gb["lat"]; club.lng = gb["lng"]
+                if not club.state:
+                    club.state = gb["state"]
+                if not club.free_drink:
+                    club.free_drink = gb["free_drink"]
+                if club.gobest is None:
+                    club.gobest = True
 
             for pkg_name, url, price, max_guests, desc in info["packages"]:
                 # Match by checkout_url first (stable), then by name as a fallback
