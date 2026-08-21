@@ -207,9 +207,19 @@ class Club(db.Model):
     name    = db.Column(db.String(100), nullable=False, unique=True)
     address = db.Column(db.String(255), default="")
     active  = db.Column(db.Boolean, default=True)
+    # App / GoBest fields
+    state       = db.Column(db.String(40), default="")     # e.g. "Nevada", "California"
+    lat         = db.Column(db.Float, nullable=True)
+    lng         = db.Column(db.Float, nullable=True)
+    photo_url   = db.Column(db.String(400), default="")
+    free_drink  = db.Column(db.String(200), default="")    # e.g. "House margarita"
+    gobest      = db.Column(db.Boolean, default=True)       # part of the GoBest network
 
     def to_dict(self):
-        return {"id": self.id, "name": self.name, "address": self.address, "active": self.active}
+        return {"id": self.id, "name": self.name, "address": self.address, "active": self.active,
+                "state": self.state, "lat": self.lat, "lng": self.lng,
+                "photo_url": self.photo_url, "free_drink": self.free_drink,
+                "gobest": self.gobest}
 
 class Setting(db.Model):
     """Generic key-value store for app settings (e.g. the global API key)."""
@@ -933,6 +943,13 @@ def logout():
     return redirect(url_for('login'))
 
 # ─── MAIN (PROMOTER/ADMIN DASHBOARD) ─────────────────────────────────────────
+@app.route('/app')
+def gobest_app():
+    """Serve the GoBest consumer app as a web page — used for demos and testing
+    without a native build. The same HTML is bundled into the native app via
+    Capacitor. No login required; it only calls the public /api/app/* endpoints."""
+    return render_template('gobest_app.html')
+
 @app.route('/')
 def index():
     if not session.get("logged"):
@@ -1812,6 +1829,123 @@ def last_client():
         return jsonify({"error": "No clients found"})
     return jsonify(c.to_dict())
 
+# ─── GOBEST APP APIs ──────────────────────────────────────────────────────────
+# US state centroids (lat, lng) — used as a fallback to figure out which state a
+# coordinate is in without an external call, and to sanity-check reverse geocoding.
+US_STATES = {
+    "Nevada": (39.5, -116.9), "California": (36.7, -119.7), "Arizona": (34.2, -111.6),
+    "Utah": (39.3, -111.7), "Texas": (31.5, -99.3), "New Mexico": (34.5, -106.1),
+    "Florida": (27.8, -81.7), "New York": (42.9, -75.5),
+}
+
+def _haversine_mi(lat1, lng1, lat2, lng2):
+    from math import radians, sin, cos, sqrt, atan2
+    R = 3958.8
+    dlat = radians(lat2 - lat1); dlng = radians(lng2 - lng1)
+    a = sin(dlat/2)**2 + cos(radians(lat1))*cos(radians(lat2))*sin(dlng/2)**2
+    return R * 2 * atan2(sqrt(a), sqrt(1-a))
+
+def _state_from_coords(lat, lng):
+    """Best-effort: reverse geocode to a US state. Falls back to nearest-centroid
+    if the geocoder is unavailable, so the app still works offline-ish."""
+    try:
+        r = requests.get(
+            f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lng}&format=json&zoom=5",
+            headers={'User-Agent': 'ClubLifter_GoBest_App'}, timeout=8)
+        if r.text and r.text.strip():
+            data = r.json()
+            st = (data.get('address', {}) or {}).get('state', '')
+            if st:
+                return st
+    except Exception as e:
+        print(f"[GOBEST] reverse geocode failed: {e}", flush=True)
+    # Fallback: nearest known state centroid
+    best, bestd = None, 1e9
+    for name, (slat, slng) in US_STATES.items():
+        d = _haversine_mi(lat, lng, slat, slng)
+        if d < bestd:
+            best, bestd = name, d
+    return best or ""
+
+@app.route('/api/app/detect-state', methods=['GET', 'POST'])
+def app_detect_state():
+    """The app sends the user's coordinates; we return which state they're in and
+    whether that state has GoBest clubs (so the app knows to show the welcome)."""
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or request.form
+    else:
+        data = request.args
+    try:
+        lat = float(data.get('lat'))
+        lng = float(data.get('lng'))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "lat and lng are required"})
+    state = _state_from_coords(lat, lng)
+    club_count = Club.query.filter(Club.active == True, Club.gobest == True,
+                                   func.lower(Club.state) == (state or "").lower()).count()
+    return jsonify({
+        "success": True,
+        "state": state,
+        "has_clubs": club_count > 0,
+        "club_count": club_count,
+        "welcome_message": f"Welcome to {state}! Be sure to check out our clubs and scan the QR code for a free drink!" if club_count else "",
+    })
+
+@app.route('/api/app/clubs', methods=['GET'])
+def app_clubs():
+    """Return GoBest clubs, optionally filtered by state, with distance from the
+    user's coordinates (if provided), sorted nearest-first."""
+    state = (request.args.get('state') or "").strip()
+    try:
+        u_lat = float(request.args.get('lat')) if request.args.get('lat') else None
+        u_lng = float(request.args.get('lng')) if request.args.get('lng') else None
+    except (TypeError, ValueError):
+        u_lat = u_lng = None
+
+    q = Club.query.filter(Club.active == True, Club.gobest == True)
+    if state:
+        q = q.filter(func.lower(Club.state) == state.lower())
+    clubs = q.all()
+
+    out = []
+    for c in clubs:
+        item = c.to_dict()
+        if u_lat is not None and u_lng is not None and c.lat is not None and c.lng is not None:
+            item["distance_mi"] = round(_haversine_mi(u_lat, u_lng, c.lat, c.lng), 1)
+        else:
+            item["distance_mi"] = None
+        out.append(item)
+
+    # Sort by distance when we have it, else by name
+    if u_lat is not None and u_lng is not None:
+        out.sort(key=lambda x: (x["distance_mi"] is None, x["distance_mi"] or 0))
+    else:
+        out.sort(key=lambda x: x["name"])
+    return jsonify({"success": True, "state": state, "count": len(out), "clubs": out})
+
+@app.route('/api/app/redeem', methods=['POST'])
+def app_redeem():
+    """Called when a user scans a club's QR code. For the proof of concept this
+    just validates the club code and returns the free-drink details to display."""
+    data = request.get_json(silent=True) or request.form
+    code = (data.get('code') or "").strip()
+    # QR payload format for POC: "GOBEST:<club_id>" or just the club id/name
+    club = None
+    if code.upper().startswith("GOBEST:"):
+        code = code.split(":", 1)[1].strip()
+    if code.isdigit():
+        club = Club.query.get(int(code))
+    if not club:
+        club = Club.query.filter(func.lower(Club.name) == code.lower()).first()
+    if not club or not club.gobest:
+        return jsonify({"success": False, "error": "This QR code isn't a valid GoBest club."})
+    return jsonify({
+        "success": True,
+        "club_name": club.name,
+        "free_drink": club.free_drink or "a complimentary welcome drink",
+        "instructions": "Show this screen and a valid photo ID to the bartender to claim your free drink.",
+    })
+
 # ─── AI AGENT APIs ────────────────────────────────────────────────────────────
 def _safe_int(v, default=0):
     try:
@@ -2249,6 +2383,51 @@ def admin_clubs():
         return redirect(url_for("login"))
     return render_template('admin_clubs.html', clubs=Club.query.all())
 
+def _geocode_club(address):
+    """Best-effort geocode an address to (lat, lng, state). Returns (None,None,'')
+    on failure so club creation never breaks."""
+    if not address:
+        return None, None, ""
+    try:
+        enc = urllib.parse.quote(address)
+        r = requests.get(
+            f"https://nominatim.openstreetmap.org/search?q={enc}&format=json&limit=1&addressdetails=1",
+            headers={'User-Agent': 'ClubLifter_ClubGeocode'}, timeout=8)
+        if r.text and r.text.strip():
+            data = r.json()
+            if data:
+                lat = float(data[0]['lat']); lng = float(data[0]['lon'])
+                state = (data[0].get('address', {}) or {}).get('state', '')
+                return lat, lng, state
+    except Exception as e:
+        print(f"[CLUB] geocode failed: {e}", flush=True)
+    return None, None, ""
+
+def _apply_gobest_fields(club, f):
+    """Apply GoBest/app fields from a form to a club, auto-geocoding when the
+    address is present but coordinates weren't supplied."""
+    club.free_drink = (f.get('free_drink', club.free_drink) or "").strip()
+    club.photo_url  = (f.get('photo_url', club.photo_url) or "").strip()
+    if 'gobest' in f:
+        club.gobest = str(f.get('gobest')).lower() in ('true', '1', 'yes', 'on')
+    # State + coords: use provided values, else geocode from the address
+    state_in = (f.get('state') or "").strip()
+    lat_in = f.get('lat'); lng_in = f.get('lng')
+    if lat_in and lng_in:
+        try:
+            club.lat = float(lat_in); club.lng = float(lng_in)
+        except (TypeError, ValueError):
+            pass
+    if state_in:
+        club.state = state_in
+    # Auto-geocode if we still don't have coords (or state) and there's an address
+    if (club.lat is None or club.lng is None or not club.state) and club.address:
+        lat, lng, state = _geocode_club(club.address)
+        if lat is not None and (club.lat is None or club.lng is None):
+            club.lat = lat; club.lng = lng
+        if state and not club.state:
+            club.state = state
+
 @app.route('/admin/clubs/new', methods=['POST'])
 def new_club():
     if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
@@ -2257,6 +2436,7 @@ def new_club():
     if Club.query.filter_by(name=name).first():
         return jsonify({"success": False, "error": "Club already exists"})
     club = Club(name=name, address=request.form.get('address', '').strip())
+    _apply_gobest_fields(club, request.form)
     db.session.add(club)
     db.session.commit()
     return jsonify({"success": True, "club": club.to_dict()})
@@ -2265,9 +2445,14 @@ def new_club():
 def edit_club(club_id):
     if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     club = Club.query.get_or_404(club_id)
+    old_address = club.address
     club.name    = request.form.get('name', club.name).strip()
     club.address = request.form.get('address', club.address).strip()
     club.active  = request.form.get('active', 'true').lower() == 'true'
+    # If the address changed, clear coords so they re-geocode
+    if club.address != old_address:
+        club.lat = None; club.lng = None
+    _apply_gobest_fields(club, request.form)
     db.session.commit()
     return jsonify({"success": True, "club": club.to_dict()})
 
@@ -5010,6 +5195,12 @@ with app.app_context():
     safe_migrate("customer", "completed_driver","ALTER TABLE customer ADD COLUMN completed_driver VARCHAR(120) DEFAULT ''")
     safe_migrate("customer", "completed_car",   "ALTER TABLE customer ADD COLUMN completed_car VARCHAR(200) DEFAULT ''")
     safe_migrate("customer", "driver_notes",     "ALTER TABLE customer ADD COLUMN driver_notes VARCHAR(500) DEFAULT ''")
+    safe_migrate("club", "state",       "ALTER TABLE club ADD COLUMN state VARCHAR(40) DEFAULT ''")
+    safe_migrate("club", "lat",         "ALTER TABLE club ADD COLUMN lat FLOAT")
+    safe_migrate("club", "lng",         "ALTER TABLE club ADD COLUMN lng FLOAT")
+    safe_migrate("club", "photo_url",   "ALTER TABLE club ADD COLUMN photo_url VARCHAR(400) DEFAULT ''")
+    safe_migrate("club", "free_drink",  "ALTER TABLE club ADD COLUMN free_drink VARCHAR(200) DEFAULT ''")
+    safe_migrate("club", "gobest",      "ALTER TABLE club ADD COLUMN gobest BOOLEAN DEFAULT 1")
     safe_migrate("customer", "reported",         "ALTER TABLE customer ADD COLUMN reported BOOLEAN DEFAULT 0")
     safe_migrate("customer", "report_reason",    "ALTER TABLE customer ADD COLUMN report_reason VARCHAR(500) DEFAULT ''")
     safe_migrate("customer", "reported_by",      "ALTER TABLE customer ADD COLUMN reported_by VARCHAR(120) DEFAULT ''")
