@@ -104,8 +104,20 @@
 
     <div class="card">
         <div class="filters">
-            <div class="f"><label>Date</label>
+            <div class="f"><label>Mode</label>
+                <select id="fMode" class="fs" onchange="toggleMode()">
+                    <option value="day">Single day</option>
+                    <option value="range">Date/time range (overnight)</option>
+                </select>
+            </div>
+            <div class="f" id="dayWrap"><label>Date</label>
                 <input type="date" id="fDate" class="fc" onchange="load()">
+            </div>
+            <div class="f" id="fromWrap" style="display:none;"><label>From</label>
+                <input type="datetime-local" id="fFrom" class="fc" onchange="load()">
+            </div>
+            <div class="f" id="toWrap" style="display:none;"><label>To</label>
+                <input type="datetime-local" id="fTo" class="fc" onchange="load()">
             </div>
             <div class="f"><label>Driver</label>
                 <select id="fDriver" class="fs" onchange="load()"><option value="">All drivers</option></select>
@@ -118,12 +130,15 @@
                     <option value="45">45+ minutes</option>
                 </select>
             </div>
+            <div class="f"><label>&nbsp;</label>
+                <button onclick="exportStops()" class="fc" style="cursor:pointer;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;font-weight:700;white-space:nowrap;">⬇ Export CSV</button>
+            </div>
             <div class="stats">
                 <div class="stat"><b id="sStops">0</b><span>Stops</span></div>
                 <div class="stat"><b id="sTime">0h</b><span>Stopped</span></div>
             </div>
         </div>
-        <div class="note">A stop is recorded when a vehicle stays within ~80 m for at least 5 minutes. Stops in <span style="color:var(--r)">red</span> are unusually long; <span style="color:var(--g)">green</span> means the vehicle is still there right now.</div>
+        <div class="note">A stop is recorded when a vehicle stays within ~80 m for at least 5 minutes. Stops in <span style="color:var(--r)">red</span> are unusually long; <span style="color:var(--g)">green</span> means the vehicle is still there right now. For overnight reports, switch to <b>Date/time range</b> and set From/To (e.g. 8 PM to 6 AM next day).</div>
     </div>
 
     <div class="layout">
@@ -185,16 +200,52 @@ async function doMergeCar(){
     }catch(e){ msg.style.color='#ef4444'; msg.innerText='Error running merge'; }
 }
 
-async function load(){
-    const d = document.getElementById('fDate').value;
+function toggleMode(){
+    const mode = document.getElementById('fMode').value;
+    const isRange = mode === 'range';
+    document.getElementById('dayWrap').style.display = isRange ? 'none' : '';
+    document.getElementById('fromWrap').style.display = isRange ? '' : 'none';
+    document.getElementById('toWrap').style.display = isRange ? '' : 'none';
+    // Prefill a sensible overnight window the first time range is opened
+    if(isRange && !document.getElementById('fFrom').value){
+        const base = document.getElementById('fDate').value || new Date().toISOString().slice(0,10);
+        const [y,m,d] = base.split('-').map(Number);
+        const next = new Date(y, m-1, d+1);
+        const nextStr = `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}-${String(next.getDate()).padStart(2,'0')}`;
+        document.getElementById('fFrom').value = `${base}T20:00`;
+        document.getElementById('fTo').value = `${nextStr}T06:00`;
+    }
+    load();
+}
+
+function buildQuery(){
     const drv = document.getElementById('fDriver').value;
     const min = document.getElementById('fMin').value;
+    const mode = document.getElementById('fMode').value;
+    let qs = `driver=${encodeURIComponent(drv)}&min=${min}`;
+    if(mode === 'range'){
+        const f = document.getElementById('fFrom').value;
+        const t = document.getElementById('fTo').value;
+        qs += `&from=${encodeURIComponent(f)}&to=${encodeURIComponent(t)}`;
+    }else{
+        qs += `&date=${document.getElementById('fDate').value}`;
+    }
+    return qs;
+}
+
+function exportStops(){
+    // Opens the CSV in a new tab / triggers download with the current filters
+    window.location.href = `/api/driver-stops/export?${buildQuery()}`;
+}
+
+async function load(){
+    const drv = document.getElementById('fDriver').value;
     const list = document.getElementById('list');
     list.innerHTML = '<div class="empty">Loading…</div>';
     markers.forEach(m=>map.removeLayer(m)); markers = [];
 
     try{
-        const r = await fetch(`/api/driver-stops?date=${d}&driver=${encodeURIComponent(drv)}&min=${min}`);
+        const r = await fetch(`/api/driver-stops?${buildQuery()}`);
         const data = await r.json();
         if(data.error){ list.innerHTML = `<div class="empty">⚠️ ${data.error}</div>`; return; }
 

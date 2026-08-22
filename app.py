@@ -4114,30 +4114,57 @@ def api_driver_stops_backfill():
 
 @app.route('/api/driver-stops')
 def api_driver_stops():
-    """Stop history. ?date=YYYY-MM-DD (default today), ?driver=name, ?min=minutes"""
+    """Stop history with flexible windows:
+      Single day:   ?date=YYYY-MM-DD
+      Range:        ?from=YYYY-MM-DDTHH:MM&to=YYYY-MM-DDTHH:MM  (Vegas local time)
+      Also:         ?driver=name  ?min=minutes
+    The range form is handy for overnight shifts, e.g. from 8 PM to 6 AM next day."""
     if not session.get("logged") or not can_see_driver_tracking():
         return jsonify({"error": "Unauthorized"}), 401
-    day_iso = request.args.get('date', vegas_today().strftime("%Y-%m-%d"))
     driver_f = (request.args.get('driver', '') or "").strip()
     try:
         min_min = int(request.args.get('min', 5))
     except ValueError:
         min_min = 5
 
-    # Vegas day → UTC window
-    try:
-        from zoneinfo import ZoneInfo
-        from datetime import timezone as _tz
-        tz = ZoneInfo("America/Los_Angeles")
-        y, m, d = [int(x) for x in day_iso.split("-")]
-        start_local = datetime(y, m, d, 0, 0, tzinfo=tz)
-        end_local = start_local + timedelta(days=1)
-        start_utc = start_local.astimezone(_tz.utc).replace(tzinfo=None)
-        end_utc = end_local.astimezone(_tz.utc).replace(tzinfo=None)
-    except Exception:
-        y, m, d = [int(x) for x in day_iso.split("-")]
-        start_utc = datetime(y, m, d) + timedelta(hours=7)
-        end_utc = start_utc + timedelta(days=1)
+    from_s = (request.args.get('from', '') or "").strip()
+    to_s   = (request.args.get('to', '') or "").strip()
+    day_iso = request.args.get('date', vegas_today().strftime("%Y-%m-%d"))
+
+    def _vegas_to_utc(dt_local):
+        """Convert a naive Vegas-local datetime to naive UTC."""
+        try:
+            from zoneinfo import ZoneInfo
+            from datetime import timezone as _tz
+            return dt_local.replace(tzinfo=ZoneInfo("America/Los_Angeles")).astimezone(_tz.utc).replace(tzinfo=None)
+        except Exception:
+            return dt_local + timedelta(hours=7)
+
+    def _parse_local(s):
+        """Accept 'YYYY-MM-DDTHH:MM', 'YYYY-MM-DD HH:MM', or 'YYYY-MM-DD'."""
+        s = s.replace("T", " ").strip()
+        for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(s, fmt)
+            except ValueError:
+                continue
+        return None
+
+    label = day_iso
+    if from_s and to_s:
+        d1 = _parse_local(from_s); d2 = _parse_local(to_s)
+        if not d1 or not d2:
+            return jsonify({"error": "bad from/to datetime"}), 400
+        start_utc = _vegas_to_utc(d1)
+        end_utc = _vegas_to_utc(d2)
+        label = f"{from_s} → {to_s}"
+    else:
+        # Single Vegas day
+        d1 = _parse_local(day_iso)
+        if not d1:
+            return jsonify({"error": "bad date"}), 400
+        start_utc = _vegas_to_utc(datetime(d1.year, d1.month, d1.day, 0, 0))
+        end_utc = _vegas_to_utc(datetime(d1.year, d1.month, d1.day, 0, 0) + timedelta(days=1))
 
     q = (DriverStop.query
          .filter(DriverStop.started_at >= start_utc, DriverStop.started_at < end_utc)
@@ -4158,10 +4185,78 @@ def api_driver_stops():
     out = sorted(groups.values(), key=lambda g: g["total_min"], reverse=True)
 
     drivers = sorted({s.driver_name for s in DriverStop.query.all() if s.driver_name})
-    return jsonify({"groups": out, "date": day_iso, "min": min_min,
+    return jsonify({"groups": out, "date": label, "min": min_min,
                     "known_drivers": drivers,
                     "total_stops": len(stops),
                     "total_minutes": sum(s.duration_min or 0 for s in stops)})
+
+@app.route('/api/driver-stops/export')
+def api_driver_stops_export():
+    """CSV export of the stop history for the same window/filters as the feed."""
+    if not session.get("logged") or not can_see_driver_tracking():
+        return "Unauthorized", 401
+    driver_f = (request.args.get('driver', '') or "").strip()
+    try:
+        min_min = int(request.args.get('min', 5))
+    except ValueError:
+        min_min = 5
+    from_s = (request.args.get('from', '') or "").strip()
+    to_s   = (request.args.get('to', '') or "").strip()
+    day_iso = request.args.get('date', vegas_today().strftime("%Y-%m-%d"))
+
+    def _vegas_to_utc(dt_local):
+        try:
+            from zoneinfo import ZoneInfo
+            from datetime import timezone as _tz
+            return dt_local.replace(tzinfo=ZoneInfo("America/Los_Angeles")).astimezone(_tz.utc).replace(tzinfo=None)
+        except Exception:
+            return dt_local + timedelta(hours=7)
+
+    def _parse_local(s):
+        s = s.replace("T", " ").strip()
+        for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(s, fmt)
+            except ValueError:
+                continue
+        return None
+
+    if from_s and to_s:
+        d1 = _parse_local(from_s); d2 = _parse_local(to_s)
+        if not d1 or not d2:
+            return "bad from/to", 400
+        start_utc = _vegas_to_utc(d1); end_utc = _vegas_to_utc(d2)
+        window_label = f"{from_s}_to_{to_s}".replace(":", "").replace(" ", "_")
+    else:
+        d1 = _parse_local(day_iso) or datetime.utcnow()
+        start_utc = _vegas_to_utc(datetime(d1.year, d1.month, d1.day, 0, 0))
+        end_utc = _vegas_to_utc(datetime(d1.year, d1.month, d1.day, 0, 0) + timedelta(days=1))
+        window_label = day_iso
+
+    q = (DriverStop.query
+         .filter(DriverStop.started_at >= start_utc, DriverStop.started_at < end_utc)
+         .filter(DriverStop.duration_min >= min_min))
+    if driver_f:
+        q = q.filter((DriverStop.driver_name == driver_f) | (DriverStop.car_name == driver_f))
+    stops = q.order_by(DriverStop.started_at.asc()).all()
+
+    import csv, io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Driver", "Car", "Address", "Started", "Ended", "Duration (min)",
+                "Still there", "Latitude", "Longitude"])
+    for s in stops:
+        w.writerow([
+            s.driver_name or "", s.car_name or "", s.address or "",
+            vegas_datetime(s.started_at), vegas_datetime(s.ended_at) if s.ended_at else "",
+            s.duration_min or 0, "Yes" if s.ongoing else "No",
+            s.lat if s.lat is not None else "", s.lng if s.lng is not None else "",
+        ])
+    from flask import Response
+    fname = f"driver_stops_{window_label}.csv"
+    return Response(buf.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={fname}"})
+
 
 @app.route('/admin/tracking/availability', methods=['POST'])
 def tracking_set_availability():
@@ -5294,15 +5389,20 @@ def seed_venues():
 def seed_gobest_clubs():
     """Idempotently create/update the GoBest network clubs with their real
     addresses, coordinates, and state so they populate the app. Only fills
-    fields that are empty so manual edits on the Clubs screen are preserved."""
+    fields that are empty so manual edits on the Clubs screen are preserved.
+
+    This is the official CartVIP venue list (Jason's starting set)."""
     clubs = [
         # name, address, state, lat, lng, free_drink
+        ("Hustler Club Las Vegas", "6007 Dean Martin Dr, Las Vegas, NV 89118", "Nevada", 36.0665, -115.1830, "House cocktail"),
+        ("Hustler Club New York", "641 W 51st St, New York, NY 10019", "New York", 40.7672, -73.9954, "House cocktail"),
+        ("Kings of Hustler", "6007 Dean Martin Dr, Las Vegas, NV 89118", "Nevada", 36.0665, -115.1830, "House cocktail"),
+        ("Little Darlings Las Vegas", "1514 Western Ave, Las Vegas, NV 89102", "Nevada", 36.1585, -115.1618, "Well drink"),
+        ("Erotic Heritage Museum Las Vegas", "3275 S Sammy Davis Jr Dr, Las Vegas, NV 89109", "Nevada", 36.1367, -115.1720, "Well drink"),
+        ("Barely Legal New Orleans", "423 Bourbon St, New Orleans, LA 70130", "Louisiana", 29.9591, -90.0645, "House cocktail"),
+        ("Cats Meow New Orleans", "701 Bourbon St, New Orleans, LA 70116", "Louisiana", 29.9604, -90.0631, "Well drink"),
         ("Hustler Club New Orleans", "225 Bourbon St, New Orleans, LA 70130", "Louisiana", 29.9575, -90.0668, "House cocktail"),
-        ("Barely Legal Club New Orleans", "423 Bourbon St, New Orleans, LA 70130", "Louisiana", 29.9591, -90.0645, "House cocktail"),
-        ("Cat's Meow", "701 Bourbon St, New Orleans, LA 70116", "Louisiana", 29.9604, -90.0631, "Well drink"),
-        ("Deja Vu Showgirls Ypsilanti", "31 N Washington St, Ypsilanti, MI 48197", "Michigan", 42.2421, -83.6146, "Well drink"),
-        ("Deja Vu Showgirls Stockton", "4206 West Ln, Stockton, CA 95204", "California", 37.9917, -121.2861, "Well drink"),
-        ("Deja Vu Showgirls Kalamazoo", "1336 Ravine Rd Suite C, Kalamazoo, MI 49004", "Michigan", 42.3086, -85.6103, "Well drink"),
+        ("Deja Vu Showgirls Las Vegas", "3247 S Sammy Davis Jr Dr, Las Vegas, NV 89109", "Nevada", 36.1361, -115.1723, "Well drink"),
     ]
     try:
         for name, addr, state, lat, lng, drink in clubs:
