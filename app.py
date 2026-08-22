@@ -3994,6 +3994,95 @@ def admin_driver_tracking():
         return redirect(url_for("login"))
     return render_template('admin_driver_tracking.html')
 
+@app.route('/api/driver-stops/diagnose')
+def api_driver_stops_diagnose():
+    """Diagnostic: shows every distinct car_name in the stop history, how many
+    stops each has, whether a driver_name is attached, and which driver each car
+    currently maps to. Helps explain why a driver shows no stops."""
+    if not session.get("logged") or not can_see_driver_tracking():
+        return jsonify({"error": "Unauthorized"}), 401
+    today_p = f"{vegas_today().month:02d}/{vegas_today().day:02d}/{vegas_today().year}"
+    from collections import defaultdict
+    by_car = defaultdict(lambda: {"stops": 0, "with_driver": 0, "drivers": set()})
+    for s in DriverStop.query.all():
+        b = by_car[s.car_name or "(no car)"]
+        b["stops"] += 1
+        if s.driver_name:
+            b["with_driver"] += 1
+            b["drivers"].add(s.driver_name)
+    out = []
+    for car_name, b in by_car.items():
+        car = _match_car(car_name)
+        maps_to = None
+        if car:
+            drv = _driver_for_car_today(car, today_p)
+            maps_to = drv.name if drv else None
+        out.append({
+            "car_name": car_name,
+            "matched_car": car.name if car else None,
+            "stops": b["stops"],
+            "stops_with_driver": b["with_driver"],
+            "stops_missing_driver": b["stops"] - b["with_driver"],
+            "driver_names_on_stops": sorted(b["drivers"]),
+            "currently_maps_to_driver": maps_to,
+        })
+    out.sort(key=lambda x: x["stops"], reverse=True)
+    # Also list drivers and their assigned cars for reference
+    drivers = []
+    for d in Driver.query.all():
+        car = Car.query.get(d.assigned_car_id) if d.assigned_car_id else None
+        drivers.append({"driver": d.name, "assigned_car": car.name if car else None})
+    return jsonify({"cars_in_stop_history": out, "drivers": drivers})
+
+@app.route('/api/driver-stops/backfill', methods=['POST'])
+def api_driver_stops_backfill():
+    """Repair pass: for stops that have no driver_name (or a stale one), set the
+    driver based on which driver the stop's car currently maps to. Fixes the case
+    where stops were recorded before a car was assigned to a driver.
+
+    Body (optional): {"car_name": "...", "driver_name": "...", "date": "YYYY-MM-DD"}
+    - If car_name + driver_name given, force that mapping for that car's stops.
+    - Otherwise auto-map every car to its current driver.
+    - date limits the repair to one Vegas day; omit for all history."""
+    if not session.get("logged") or not is_master():
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    force_car = (data.get("car_name") or "").strip()
+    force_driver = (data.get("driver_name") or "").strip()
+    date_iso = (data.get("date") or "").strip()
+    today_p = f"{vegas_today().month:02d}/{vegas_today().day:02d}/{vegas_today().year}"
+
+    q = DriverStop.query
+    # Optional date window
+    if date_iso:
+        try:
+            y, m, d = [int(x) for x in date_iso.split("-")]
+            start_utc = datetime(y, m, d) + timedelta(hours=7)
+            end_utc = start_utc + timedelta(days=1)
+            q = q.filter(DriverStop.started_at >= start_utc, DriverStop.started_at < end_utc)
+        except Exception:
+            return jsonify({"error": "bad date"}), 400
+    if force_car:
+        q = q.filter(DriverStop.car_name == force_car)
+
+    stops = q.all()
+    fixed = 0
+    for s in stops:
+        if force_car and force_driver:
+            if s.driver_name != force_driver:
+                s.driver_name = force_driver
+                fixed += 1
+            continue
+        # Auto-map: only fill when empty, using the car's current driver
+        if not s.driver_name:
+            car = _match_car(s.car_name)
+            drv = _driver_for_car_today(car, today_p) if car else None
+            if drv:
+                s.driver_name = drv.name
+                fixed += 1
+    db.session.commit()
+    return jsonify({"success": True, "stops_examined": len(stops), "stops_updated": fixed})
+
 @app.route('/api/driver-stops')
 def api_driver_stops():
     """Stop history. ?date=YYYY-MM-DD (default today), ?driver=name, ?min=minutes"""
@@ -4765,7 +4854,10 @@ def detect_driver_stops():
             st = DriverStop.query.get(anchor["stop_id"])
             if st:
                 st.duration_min = minutes
-                if driver_name and not st.driver_name:
+                # Keep the driver in sync: fill when empty, and also update if the
+                # car's driver changed while the stop is still open (e.g. the car
+                # was just assigned to someone in Driver Management).
+                if driver_name and st.driver_name != driver_name:
                     st.driver_name = driver_name
                 db.session.commit()
         else:
@@ -5170,6 +5262,39 @@ def seed_venues():
         db.session.rollback()
         print(f"[SEED] venues seed failed: {e}", flush=True)
 
+def seed_gobest_clubs():
+    """Idempotently create/update the GoBest network clubs with their real
+    addresses, coordinates, and state so they populate the app. Only fills
+    fields that are empty so manual edits on the Clubs screen are preserved."""
+    clubs = [
+        # name, address, state, lat, lng, free_drink
+        ("Hustler Club New Orleans", "225 Bourbon St, New Orleans, LA 70130", "Louisiana", 29.9575, -90.0668, "House cocktail"),
+        ("Barely Legal Club New Orleans", "423 Bourbon St, New Orleans, LA 70130", "Louisiana", 29.9591, -90.0645, "House cocktail"),
+        ("Cat's Meow", "701 Bourbon St, New Orleans, LA 70116", "Louisiana", 29.9604, -90.0631, "Well drink"),
+        ("Deja Vu Showgirls Ypsilanti", "31 N Washington St, Ypsilanti, MI 48197", "Michigan", 42.2421, -83.6146, "Well drink"),
+        ("Deja Vu Showgirls Stockton", "4206 West Ln, Stockton, CA 95204", "California", 37.9917, -121.2861, "Well drink"),
+        ("Deja Vu Showgirls Kalamazoo", "1336 Ravine Rd Suite C, Kalamazoo, MI 49004", "Michigan", 42.3086, -85.6103, "Well drink"),
+    ]
+    try:
+        for name, addr, state, lat, lng, drink in clubs:
+            club = Club.query.filter(func.lower(Club.name) == name.lower()).first()
+            if not club:
+                club = Club(name=name, address=addr, active=True,
+                            state=state, lat=lat, lng=lng, free_drink=drink, gobest=True)
+                db.session.add(club)
+                print(f"[SEED] GoBest club created: {name}", flush=True)
+            else:
+                if not club.address: club.address = addr
+                if not club.state:   club.state = state
+                if club.lat is None: club.lat = lat
+                if club.lng is None: club.lng = lng
+                if not club.free_drink: club.free_drink = drink
+                if club.gobest is None: club.gobest = True
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"[SEED] GoBest clubs seed failed: {e}", flush=True)
+
 with app.app_context():
     db.create_all()
 
@@ -5255,6 +5380,7 @@ with app.app_context():
         db.session.commit()
 
     seed_data()
+    seed_gobest_clubs()
 
 # Start background distance tracker (runs in daemon thread)
 # Use WERKZEUG_RUN_MAIN guard to avoid double-starting in Flask debug mode reloader
