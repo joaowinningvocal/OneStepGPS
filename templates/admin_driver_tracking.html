@@ -72,7 +72,35 @@
     </div>
 
     <h1>Driver Tracking</h1>
-    <div class="sub">Where vehicles stopped, for how long, and the address — built from GPS history.</div>
+    <div class="sub">Where vehicles stopped, for how long, and the address — built from GPS history.
+        {% if session.get('role') == 'master' %}
+        <button onclick="openMergeCar()" style="margin-left:12px;background:linear-gradient(135deg,#8a5cf6,#6d28d9);color:#fff;border:none;padding:6px 14px;border-radius:8px;font-size:.78rem;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">🔀 Merge car history</button>
+        {% endif %}
+    </div>
+
+    {% if session.get('role') == 'master' %}
+    <div id="mergeModal" style="display:none;position:fixed;inset:0;background:rgba(4,6,12,.72);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:16px;padding:24px;max-width:460px;width:100%;">
+            <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.15rem;color:#e8eaf0;margin-bottom:5px;">🔀 Merge car history</div>
+            <div style="font-size:.82rem;color:#8892a0;margin-bottom:16px;">Move old stops from one car name onto another. Use this after renaming a vehicle so its past stops group with the new name.</div>
+            <div style="display:flex;flex-direction:column;gap:12px;">
+                <div>
+                    <label style="font-size:.72rem;color:#8892a0;font-weight:600;text-transform:uppercase;display:block;margin-bottom:5px;">Old car name (stops to move)</label>
+                    <select id="mergeFrom" style="width:100%;background:#161d2e;border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:10px 12px;color:#e8eaf0;font-size:.88rem;font-family:'DM Sans',sans-serif;"></select>
+                </div>
+                <div>
+                    <label style="font-size:.72rem;color:#8892a0;font-weight:600;text-transform:uppercase;display:block;margin-bottom:5px;">New car name (destination)</label>
+                    <input id="mergeTo" placeholder="e.g. 2016 Mercedes Sprinter 2500" style="width:100%;box-sizing:border-box;background:#161d2e;border:1px solid rgba(138,92,246,.45);border-radius:9px;padding:10px 12px;color:#e8eaf0;font-size:.88rem;font-family:'DM Sans',sans-serif;">
+                </div>
+                <div id="mergeMsg" style="font-size:.82rem;color:#8892a0;min-height:18px;"></div>
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
+                <button onclick="closeMergeCar()" style="background:transparent;border:1px solid rgba(255,255,255,.12);color:#8892a0;padding:10px 18px;border-radius:10px;font-weight:700;font-size:.84rem;cursor:pointer;font-family:'DM Sans',sans-serif;">Cancel</button>
+                <button onclick="doMergeCar()" style="background:linear-gradient(135deg,#8a5cf6,#6d28d9);color:#fff;border:none;padding:10px 18px;border-radius:10px;font-weight:700;font-size:.84rem;cursor:pointer;font-family:'DM Sans',sans-serif;">Merge stops</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     <div class="card">
         <div class="filters">
@@ -114,6 +142,47 @@ function fmtDur(m){
     if(m < 60) return m + 'm';
     const h = Math.floor(m/60), r = m%60;
     return r ? `${h}h${r}m` : `${h}h`;
+}
+
+async function openMergeCar(){
+    const modal = document.getElementById('mergeModal');
+    const sel = document.getElementById('mergeFrom');
+    document.getElementById('mergeMsg').innerText = '';
+    document.getElementById('mergeTo').value = '';
+    sel.innerHTML = '<option>Loading…</option>';
+    modal.style.display = 'flex';
+    try{
+        const r = await fetch('/api/driver-stops/car-names');
+        const d = await r.json();
+        if(d.car_names && d.car_names.length){
+            sel.innerHTML = d.car_names.map(c=>`<option value="${c.name.replace(/"/g,'&quot;')}">${c.name} (${c.stops} stops)</option>`).join('');
+        }else{
+            sel.innerHTML = '<option value="">No stop history found</option>';
+        }
+    }catch(e){ sel.innerHTML = '<option value="">Error loading</option>'; }
+}
+function closeMergeCar(){ document.getElementById('mergeModal').style.display = 'none'; }
+async function doMergeCar(){
+    const from = document.getElementById('mergeFrom').value;
+    const to = document.getElementById('mergeTo').value.trim();
+    const msg = document.getElementById('mergeMsg');
+    if(!from || !to){ msg.style.color='#ef4444'; msg.innerText='Pick an old name and type the new one.'; return; }
+    if(from === to){ msg.style.color='#ef4444'; msg.innerText='Old and new names are the same.'; return; }
+    if(!confirm(`Move all stops from "${from}" onto "${to}"?`)) return;
+    msg.style.color='#8892a0'; msg.innerText='Merging…';
+    try{
+        const r = await fetch('/api/driver-stops/rename-car', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({from, to})
+        });
+        const d = await r.json();
+        if(d.success){
+            msg.style.color='#22c55e'; msg.innerText=`✓ Moved ${d.renamed} stop(s). Reloading…`;
+            setTimeout(()=>location.reload(), 1200);
+        }else{
+            msg.style.color='#ef4444'; msg.innerText=d.error || 'Could not merge';
+        }
+    }catch(e){ msg.style.color='#ef4444'; msg.innerText='Error running merge'; }
 }
 
 async function load(){

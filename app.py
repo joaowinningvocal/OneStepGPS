@@ -3994,6 +3994,35 @@ def admin_driver_tracking():
         return redirect(url_for("login"))
     return render_template('admin_driver_tracking.html')
 
+@app.route('/api/driver-stops/rename-car', methods=['POST'])
+def api_driver_stops_rename_car():
+    """Rename the car on historical stops — e.g. after a vehicle was renamed in
+    the Cars screen, move its old stops onto the new name so they group together.
+    Body: {"from": "2019 Mercedes sprinter", "to": "2016 Mercedes Sprinter 2500"}"""
+    if not session.get("logged") or not is_master():
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    src = (data.get("from") or "").strip()
+    dst = (data.get("to") or "").strip()
+    if not src or not dst:
+        return jsonify({"success": False, "error": "from and to are required"})
+    stops = DriverStop.query.filter(DriverStop.car_name == src).all()
+    for s in stops:
+        s.car_name = dst
+    db.session.commit()
+    return jsonify({"success": True, "renamed": len(stops), "from": src, "to": dst})
+
+@app.route('/api/driver-stops/car-names', methods=['GET'])
+def api_driver_stops_car_names():
+    """List the distinct car names that appear in stop history, with counts —
+    so the UI can offer them for renaming."""
+    if not session.get("logged") or not is_master():
+        return jsonify({"error": "Unauthorized"}), 401
+    from collections import Counter
+    counts = Counter(s.car_name for s in DriverStop.query.all() if s.car_name)
+    names = [{"name": n, "stops": c} for n, c in counts.most_common()]
+    return jsonify({"car_names": names})
+
 @app.route('/api/driver-stops/diagnose')
 def api_driver_stops_diagnose():
     """Diagnostic: shows every distinct car_name in the stop history, how many
