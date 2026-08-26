@@ -960,7 +960,7 @@ QR_DEMO = {
 }
 
 def _qr_png_bytes(data):
-    """Generate a QR code PNG as bytes."""
+    """Generate a QR code PNG as bytes (needs Pillow)."""
     import qrcode
     from qrcode.constants import ERROR_CORRECT_H
     import io
@@ -973,15 +973,44 @@ def _qr_png_bytes(data):
     buf.seek(0)
     return buf.getvalue()
 
+def _qr_svg_bytes(data):
+    """Generate a QR code as SVG bytes — pure Python, no Pillow needed. Used as a
+    fallback so QR codes always render even if the image libraries aren't present."""
+    import qrcode
+    from qrcode.constants import ERROR_CORRECT_H
+    qr = qrcode.QRCode(version=None, error_correction=ERROR_CORRECT_H, box_size=12, border=3)
+    qr.add_data(data)
+    qr.make(fit=True)
+    matrix = qr.get_matrix()
+    n = len(matrix)
+    box = 12
+    size = n * box
+    rects = []
+    for y, row in enumerate(matrix):
+        for x, val in enumerate(row):
+            if val:
+                rects.append(f'<rect x="{x*box}" y="{y*box}" width="{box}" height="{box}" fill="#1a1033"/>')
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
+           f'viewBox="0 0 {size} {size}"><rect width="{size}" height="{size}" fill="white"/>'
+           + "".join(rects) + '</svg>')
+    return svg.encode('utf-8')
+
 @app.route('/qr/<qid>.png')
 def qr_image(qid):
-    """Raw QR PNG for demo code <qid> (encodes GOBEST:<club>)."""
+    """Raw QR for demo code <qid> (encodes GOBEST:<club>). Serves PNG when Pillow
+    is available, otherwise falls back to SVG so it always renders."""
     info = QR_DEMO.get(str(qid))
     if not info:
         return "Not found", 404
     from flask import Response
-    png = _qr_png_bytes(f"GOBEST:{info['club']}")
-    return Response(png, mimetype="image/png")
+    payload = f"GOBEST:{info['club']}"
+    try:
+        png = _qr_png_bytes(payload)
+        return Response(png, mimetype="image/png")
+    except Exception as e:
+        print(f"[QR] PNG generation failed ({e}); serving SVG", flush=True)
+        svg = _qr_svg_bytes(payload)
+        return Response(svg, mimetype="image/svg+xml")
 
 @app.route('/qr/<qid>')
 def qr_poster(qid):
