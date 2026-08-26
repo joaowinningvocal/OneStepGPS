@@ -163,6 +163,7 @@
     </div>
 
     <!-- ADD CAR -->
+    {% if session.get('role') == 'master' %}
     <div class="card">
         <div class="ctitle">Add New Car (vehicle)</div>
         <div class="form-grid">
@@ -178,13 +179,15 @@
         </div>
         <button class="btn-add" onclick="addCar()">+ Add Car</button>
     </div>
+    {% endif %}
 
     <!-- CARS TABLE -->
     <div class="card">
         <div class="ctitle">Cars</div>
+        {% if session.get('role') != 'master' %}<div class="hint" style="margin-bottom:10px;">Cars are managed by the master account.</div>{% endif %}
         <div class="tbl-wrap">
             <table>
-                <thead><tr><th>Photo</th><th>Name (GPS)</th><th>Vehicle</th><th>Plate</th><th style="text-align:right">Actions</th></tr></thead>
+                <thead><tr><th>Photo</th><th>Name (GPS)</th><th>Vehicle</th><th>Plate</th>{% if session.get('role') == 'master' %}<th style="text-align:right">Actions</th>{% endif %}</tr></thead>
                 <tbody>
                     {% for c in cars %}
                     <tr id="crow-{{ c.id }}">
@@ -192,10 +195,12 @@
                         <td class="name">{{ c.name }}</td>
                         <td style="font-size:.8rem;">{% if c.model or c.color %}{{ c.color }} {{ c.model }}{% else %}—{% endif %}</td>
                         <td style="font-size:.8rem;">{{ c.plate or '—' }}</td>
+                        {% if session.get('role') == 'master' %}
                         <td><div class="btns">
                             <button class="btn-e" data-cid="{{ c.id }}" data-cname="{{ c.name|e }}" data-cmodel="{{ c.model|e if c.model else '' }}" data-ccolor="{{ c.color|e if c.color else '' }}" data-cplate="{{ c.plate|e if c.plate else '' }}" onclick="openCEditEl(this)">Edit</button>
                             <button class="btn-d" onclick="delCar({{ c.id }})">Delete</button>
                         </div></td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>

@@ -2618,7 +2618,7 @@ def delete_driver(driver_id):
 # ─── ADMIN: CARS ──────────────────────────────────────────────────────────────
 @app.route('/admin/cars/new', methods=['POST'])
 def new_car():
-    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_master(): return jsonify({"success": False, "error": "Only the master account can manage cars"})
     name = request.form.get('name', '').strip()
     if not name: return jsonify({"success": False, "error": "Car name is required (must match OneStepGPS)"})
     if Car.query.filter_by(name=name).first():
@@ -2636,7 +2636,7 @@ def new_car():
 
 @app.route('/admin/cars/edit/<int:car_id>', methods=['POST'])
 def edit_car(car_id):
-    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_master(): return jsonify({"success": False, "error": "Only the master account can manage cars"})
     car = Car.query.get_or_404(car_id)
     car.name  = request.form.get('name', car.name).strip()
     car.model = request.form.get('model', car.model).strip()
@@ -2650,7 +2650,7 @@ def edit_car(car_id):
 
 @app.route('/admin/cars/delete/<int:car_id>', methods=['POST'])
 def delete_car(car_id):
-    if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
+    if not is_master(): return jsonify({"success": False, "error": "Only the master account can manage cars"})
     car = Car.query.get_or_404(car_id)
     db.session.delete(car); db.session.commit()
     return jsonify({"success": True})
@@ -4994,6 +4994,66 @@ def detect_driver_stops():
             anchor["stop_id"] = st.id
             print(f"[STOPS] {name} parked at {st.address[:60]} ({minutes} min)", flush=True)
 
+GPS_DISCONNECT_ALERT_NUMBERS = ["+17253121048", "+13109307413"]
+GPS_DISCONNECT_MINUTES = 60          # consider a device "disconnected" after this long with no update
+_gps_disconnected = {}               # display_name -> True while we've already alerted (reset when it returns)
+
+def _parse_gps_timestamp(v):
+    """Pull the 'last seen' time from a OneStepGPS device record and return a naive
+    UTC datetime, or None if it can't be read. OneStepGPS uses 'dt_tracker' (and
+    sometimes 'dt_server') as ISO-8601 timestamps."""
+    raw = v.get('dt_tracker') or v.get('dt_server') or (v.get('last_tap', {}) or {}).get('dt_tracker')
+    if not raw:
+        return None
+    try:
+        s = str(raw).replace('Z', '+00:00')
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is not None:
+            from datetime import timezone as _tz
+            dt = dt.astimezone(_tz.utc).replace(tzinfo=None)
+        return dt
+    except Exception:
+        return None
+
+def check_gps_disconnects():
+    """Alert by SMS when any OneStepGPS device stops reporting for over an hour.
+    Fires once per disconnection; re-arms when the device comes back so a later
+    drop alerts again."""
+    try:
+        headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+        res = _safe_json_get(
+            "https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
+            headers=headers_api, default=None)
+        if res is None:
+            return  # GPS API unreachable — don't false-alarm
+        lista = res if isinstance(res, list) else [res]
+    except Exception as e:
+        print(f"[GPS-WATCH] fetch failed: {e}", flush=True)
+        return
+
+    now = datetime.utcnow()
+    for v in lista:
+        name = v.get('display_name', '') or "Unknown device"
+        last_seen = _parse_gps_timestamp(v)
+        if last_seen is None:
+            continue  # can't tell age → skip rather than false-alarm
+        minutes_since = (now - last_seen).total_seconds() / 60.0
+
+        if minutes_since >= GPS_DISCONNECT_MINUTES:
+            if not _gps_disconnected.get(name):
+                _gps_disconnected[name] = True
+                hrs = minutes_since / 60.0
+                ago = f"{hrs:.1f} hours" if hrs >= 2 else f"{int(minutes_since)} minutes"
+                msg = (f"ClubLifter GPS alert: \"{name}\" has stopped reporting "
+                       f"(no signal for {ago}). The device may be disconnected or powered off.")
+                for num in GPS_DISCONNECT_ALERT_NUMBERS:
+                    send_sms_bg(num, msg)
+                print(f"[GPS-WATCH] {name} disconnected ({int(minutes_since)} min) — alerted", flush=True)
+        else:
+            if _gps_disconnected.get(name):
+                _gps_disconnected[name] = False
+                print(f"[GPS-WATCH] {name} is back online", flush=True)
+
 def auto_dropoff_at_venue():
     """Automatically mark picked-up rides as dropped off when the driver's car
     reaches the destination club. Lazy drivers often forget to tap 'Dropped Off',
@@ -5107,6 +5167,12 @@ def distance_tracker_loop():
                     auto_dropoff_at_venue()
                 except Exception as e:
                     print(f"[AUTO-DROPOFF] error: {e}", flush=True)
+
+                # ── GPS disconnect watch (alert if a device stops reporting) ──
+                try:
+                    check_gps_disconnects()
+                except Exception as e:
+                    print(f"[GPS-WATCH] error: {e}", flush=True)
 
                 # ── Purge "I'm here" photos older than 24h ──
                 try:
@@ -5394,10 +5460,10 @@ def seed_gobest_clubs():
     This is the official CartVIP venue list (Jason's starting set)."""
     clubs = [
         # name, address, state, lat, lng, free_drink
-        ("Hustler Club Las Vegas", "6007 Dean Martin Dr, Las Vegas, NV 89118", "Nevada", 36.0665, -115.1830, "House cocktail"),
+        ("Hustler Club Las Vegas", "6007 Dean Martin Dr, Las Vegas, NV 89118", "Nevada", 36.0665, -115.1830, "House Margarita"),
         ("Hustler Club New York", "641 W 51st St, New York, NY 10019", "New York", 40.7672, -73.9954, "House cocktail"),
         ("Kings of Hustler", "6007 Dean Martin Dr, Las Vegas, NV 89118", "Nevada", 36.0665, -115.1830, "House cocktail"),
-        ("Little Darlings Las Vegas", "1514 Western Ave, Las Vegas, NV 89102", "Nevada", 36.1585, -115.1618, "Well drink"),
+        ("Little Darlings Las Vegas", "1514 Western Ave, Las Vegas, NV 89102", "Nevada", 36.1585, -115.1618, "Well Drink"),
         ("Erotic Heritage Museum Las Vegas", "3275 S Sammy Davis Jr Dr, Las Vegas, NV 89109", "Nevada", 36.1367, -115.1720, "Well drink"),
         ("Barely Legal New Orleans", "423 Bourbon St, New Orleans, LA 70130", "Louisiana", 29.9591, -90.0645, "House cocktail"),
         ("Cats Meow New Orleans", "701 Bourbon St, New Orleans, LA 70116", "Louisiana", 29.9604, -90.0631, "Well drink"),
