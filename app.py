@@ -956,7 +956,7 @@ def gobest_app():
 # free drink. Served as live pages so they can be shared and scanned by anyone.
 QR_DEMO = {
     "1": {"club": "Hustler Club Las Vegas", "city": "Las Vegas", "drink": "House Margarita", "glass": "🍹", "accent": "#8a5cf6"},
-    "2": {"club": "Little Darlings Las Vegas", "city": "Las Vegas", "drink": "Well Drink", "glass": "🍸", "accent": "#ec4899"},
+    "2": {"club": "Kings of Hustler", "city": "Las Vegas", "drink": "House Cocktail", "glass": "🍸", "accent": "#ec4899"},
 }
 
 def _qr_png_bytes(data):
