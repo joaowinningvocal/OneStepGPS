@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GoBest — {% if single %}{{ info.club }}{% else %}Demo QR Codes{% endif %}</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#08060f;color:#f0edf7;font-family:'DM Sans',sans-serif;padding:40px 20px;min-height:100vh;}
+.wrap{max-width:900px;margin:0 auto;}
+.head{text-align:center;margin-bottom:40px;}
+.head .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:2.4rem;}
+.head .brand .go{color:#a78bfa;}
+.head p{color:#9a92b0;margin-top:8px;font-size:1rem;}
+.posters{display:grid;grid-template-columns:{% if single %}1fr{% else %}1fr 1fr{% endif %};gap:28px;{% if single %}max-width:420px;margin:0 auto;{% endif %}}
+@media(max-width:680px){.posters{grid-template-columns:1fr;}}
+.poster{background:linear-gradient(160deg,#161129,#1e1738);border:1px solid rgba(138,92,246,.4);border-radius:24px;padding:30px;text-align:center;position:relative;overflow:hidden;}
+.poster::before{content:'';position:absolute;top:-60px;right:-60px;width:180px;height:180px;filter:blur(30px);}
+.venue{font-family:'Syne',sans-serif;font-weight:800;font-size:1.35rem;margin-bottom:4px;position:relative;}
+.promo-label{font-size:.72rem;font-weight:600;letter-spacing:.14em;text-transform:uppercase;margin-bottom:22px;position:relative;}
+.qr-box{background:#fff;border-radius:18px;padding:18px;display:inline-block;position:relative;box-shadow:0 10px 30px rgba(0,0,0,.4);}
+.qr-box img{width:220px;height:220px;display:block;}
+.drink{margin-top:22px;font-family:'Syne',sans-serif;font-weight:700;font-size:1.5rem;position:relative;}
+.drink .glass{font-size:1.8rem;}
+.instr{margin-top:8px;color:#9a92b0;font-size:.85rem;position:relative;}
+.step{margin-top:26px;font-size:.8rem;color:#6b6484;position:relative;}
+.foot{text-align:center;margin-top:40px;color:#6b6484;font-size:.82rem;}
+.foot a{color:#a78bfa;text-decoration:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="brand"><span class="go">Go</span>Best</div>
+    <p>Scan with the GoBest app to claim your free drink</p>
+  </div>
+  <div class="posters">
+    {% if single %}
+    <div class="poster">
+      <div style="position:absolute;top:-60px;right:-60px;width:180px;height:180px;filter:blur(30px);background:radial-gradient(circle,{{ info.accent }}66,transparent 70%);"></div>
+      <div class="venue">{{ info.club }}</div>
+      <div class="promo-label" style="color:{{ info.accent }};">{{ info.city }} · Free Drink</div>
+      <div class="qr-box"><img src="/qr/{{ qid }}.png" alt="{{ info.club }} QR"></div>
+      <div class="drink"><span class="glass">{{ info.glass }}</span> {{ info.drink }}</div>
+      <div class="instr">Show your app + a valid photo ID at the bar</div>
+      <div class="step">Open GoBest → Scan → point at this code</div>
+    </div>
+    {% else %}
+    {% for qid, info in all_qrs.items() %}
+    <div class="poster">
+      <div style="position:absolute;top:-60px;right:-60px;width:180px;height:180px;filter:blur(30px);background:radial-gradient(circle,{{ info.accent }}66,transparent 70%);"></div>
+      <div class="venue">{{ info.club }}</div>
+      <div class="promo-label" style="color:{{ info.accent }};">{{ info.city }} · Free Drink</div>
+      <div class="qr-box"><img src="/qr/{{ qid }}.png" alt="{{ info.club }} QR"></div>
+      <div class="drink"><span class="glass">{{ info.glass }}</span> {{ info.drink }}</div>
+      <div class="instr">Show your app + a valid photo ID at the bar</div>
+      <div class="step">Open GoBest → Scan → point at this code</div>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+  <div class="foot">
+    {% if single %}<a href="/qr">← See both venues</a> · {% endif %}
+    Proof of concept — open the app at <a href="/app">/app</a>
+  </div>
+</div>
+</body>
+</html>

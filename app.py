@@ -950,6 +950,52 @@ def gobest_app():
     Capacitor. No login required; it only calls the public /api/app/* endpoints."""
     return render_template('gobest_app.html')
 
+# ─── DEMO QR CODES ────────────────────────────────────────────────────────────
+# Static demo QR codes for the GoBest proof of concept. Each encodes a
+# "GOBEST:<club name>" payload the app's scanner reads to redeem that venue's
+# free drink. Served as live pages so they can be shared and scanned by anyone.
+QR_DEMO = {
+    "1": {"club": "Hustler Club Las Vegas", "city": "Las Vegas", "drink": "House Margarita", "glass": "🍹", "accent": "#8a5cf6"},
+    "2": {"club": "Little Darlings Las Vegas", "city": "Las Vegas", "drink": "Well Drink", "glass": "🍸", "accent": "#ec4899"},
+}
+
+def _qr_png_bytes(data):
+    """Generate a QR code PNG as bytes."""
+    import qrcode
+    from qrcode.constants import ERROR_CORRECT_H
+    import io
+    qr = qrcode.QRCode(version=None, error_correction=ERROR_CORRECT_H, box_size=12, border=3)
+    qr.add_data(data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="#1a1033", back_color="white").convert('RGB')
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    return buf.getvalue()
+
+@app.route('/qr/<qid>.png')
+def qr_image(qid):
+    """Raw QR PNG for demo code <qid> (encodes GOBEST:<club>)."""
+    info = QR_DEMO.get(str(qid))
+    if not info:
+        return "Not found", 404
+    from flask import Response
+    png = _qr_png_bytes(f"GOBEST:{info['club']}")
+    return Response(png, mimetype="image/png")
+
+@app.route('/qr/<qid>')
+def qr_poster(qid):
+    """A shareable poster page for one demo QR code."""
+    info = QR_DEMO.get(str(qid))
+    if not info:
+        return "Not found", 404
+    return render_template('qr_poster.html', qid=qid, info=info, single=True, all_qrs=None)
+
+@app.route('/qr')
+def qr_posters_all():
+    """Both demo QR codes side by side."""
+    return render_template('qr_poster.html', qid=None, info=None, single=False, all_qrs=QR_DEMO)
+
 @app.route('/')
 def index():
     if not session.get("logged"):
