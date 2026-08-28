@@ -220,46 +220,7 @@
 <div class="wrap">
 
     <!-- TOPBAR -->
-    <div class="topbar">
-        <div class="brand">Club<span>Lifter</span></div>
-        <div class="topbar-r">
-            <div class="pills-desk" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                {% if session.get('role') in ['master','club_owner','club_manager','dispatch','dispatch_manager'] %}
-                <a href="/admin/today"    class="pill">Today</a><a href="/admin/analytics" class="pill">Analytics</a>
-                <a href="/admin/tracking" class="pill">Tracking</a>{% if session.get('role') in ['master','club_owner'] %}<a href="/admin/driver-tracking" class="pill">Driver Tracking</a>{% endif %}
-                <a href="/admin/guestlist" class="pill">Guest List</a>
-                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages" class="pill">Packages</a>{% endif %}
-                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers"  class="pill">Drivers</a>{% endif %}
-                <a href="/admin/schedule" class="pill">Driver Management</a>
-                {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users"    class="pill">Users</a>{% endif %}
-                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs"    class="pill">Clubs</a>{% endif %}
-                {% if session.get('role') == 'master' %}<a href="/admin/api"      class="pill">API</a>{% endif %}
-                {% else %}
-                <a href="/promoter/dashboard" class="pill">📊 My Dashboard</a>
-                {% endif %}
-                {% if session.get('club_name') %}
-                <span class="club-pill">🏢 {{ session.get('club_name') }}</span>
-                {% endif %}
-            </div>
-            <button class="hamburger" onclick="toggleMobileMenu()">☰</button>
-            <a href="/logout" class="btn-out">Logout</a>
-        </div>
-    </div>
-
-    <!-- MOBILE NAV -->
-    {% if session.get('role') in ['master','club_owner','club_manager','dispatch','dispatch_manager'] %}
-    <div class="mobile-menu" id="mobileMenu">
-        <a href="/admin/today">Today</a><a href="/admin/analytics">Analytics</a>
-        <a href="/admin/tracking">Tracking</a>{% if session.get('role') in ['master','club_owner'] %}<a href="/admin/driver-tracking">Driver Tracking</a>{% endif %}
-        <a href="/admin/guestlist">Guest List</a>
-        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages">Packages</a>{% endif %}
-        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers">Drivers</a>{% endif %}
-        <a href="/admin/schedule">Driver Management</a>
-        {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users">Users</a>{% endif %}
-        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs">Clubs</a>{% endif %}
-        {% if session.get('role') == 'master' %}<a href="/admin/api">API</a>{% endif %}
-    </div>
-    {% endif %}
+    {% set active_page = 'home' %}{% include '_sidebar.html' %}
 
     <div class="grid">
 
@@ -596,7 +557,7 @@ document.getElementById('pickupDate').addEventListener('input',function(e){
 });
 
 var map=L.map('map').setView([36.1699,-115.1398],12);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19,subdomains:'abc'}).addTo(map);
+L.tileLayer('https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2hxe_1_6ff26a5d73490112bf3e5408',{attribution:'© OpenStreetMap © CARTO',maxZoom:20}).addTo(map);
 var rCtrl=null, rLayer=L.layerGroup().addTo(map);
 
 // ── PACKAGE CHECKOUT ─────────────────────────────────────────────────────────
@@ -887,10 +848,10 @@ document.getElementById('valetModal').addEventListener('click',function(e){if(e.
 </script>
 <!-- Team Chat Widget -->
 <style>
-#chatFab{position:fixed;bottom:18px;left:18px;z-index:9997;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;cursor:pointer;box-shadow:0 6px 20px rgba(138,92,246,.5);display:flex;align-items:center;justify-content:center;font-size:1.5rem;transition:.2s;}
+#chatFab{position:fixed;bottom:18px;right:18px;z-index:9997;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;cursor:pointer;box-shadow:0 6px 20px rgba(138,92,246,.5);display:flex;align-items:center;justify-content:center;font-size:1.5rem;transition:.2s;}
 #chatFab:hover{transform:scale(1.08);}
 #chatBadge{position:absolute;top:-3px;right:-3px;min-width:20px;height:20px;border-radius:10px;background:#ef4444;color:#fff;font-size:.7rem;font-weight:800;display:none;align-items:center;justify-content:center;padding:0 5px;font-family:'DM Sans',sans-serif;border:2px solid #080b12;}
-#chatPanel{position:fixed;bottom:82px;left:18px;z-index:9997;width:370px;max-width:calc(100vw - 36px);height:520px;max-height:calc(100vh - 120px);background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:16px;box-shadow:0 16px 50px rgba(0,0,0,.6);display:none;flex-direction:column;overflow:hidden;}
+#chatPanel{position:fixed;bottom:82px;right:18px;z-index:9997;width:370px;max-width:calc(100vw - 36px);height:520px;max-height:calc(100vh - 120px);background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:16px;box-shadow:0 16px 50px rgba(0,0,0,.6);display:none;flex-direction:column;overflow:hidden;}
 #chatPanel.open{display:flex;}
 .chat-head{display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid rgba(255,255,255,.07);background:#0d1117;}
 .chat-head .ttl{font-family:'Syne',sans-serif;font-weight:800;font-size:.98rem;color:#e8eaf0;flex:1;display:flex;align-items:center;gap:7px;}

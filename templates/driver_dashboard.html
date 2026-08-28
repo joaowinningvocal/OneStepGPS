@@ -42,7 +42,6 @@
         /* Layout */
         .layout{display:grid;grid-template-columns:380px 1fr;gap:14px;}
         #map{height:calc(100vh - 180px);min-height:420px;border-radius:16px;border:1px solid var(--bd);}
-        .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.95) contrast(.9) saturate(.8);}
         .sidebar{display:flex;flex-direction:column;gap:11px;max-height:calc(100vh - 180px);overflow-y:auto;padding-right:4px;}
         .pickup{background:var(--s);border:1px solid var(--bd);border-radius:15px;padding:15px;}
         .pickup.done{opacity:.55;}
@@ -109,11 +108,11 @@
     <script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/service-worker.js').catch(()=>{}));}</script>
 </head>
 <body>
+{% set active_page = 'driver' %}{% include '_sidebar.html' %}
 <div class="wrap">
     <div class="topbar">
         <div>
-            <div class="brand">Club<span>Lifter</span></div>
-            <div class="hi">Driver: <b>{{ driver_name }}</b> · {{ today_str }}</div>
+            <div class="hi" style="font-size:1.1rem;font-weight:700;">Driver: <b>{{ driver_name }}</b> · {{ today_str }}</div>
         </div>
         <a href="/logout" class="btn-out">Logout</a>
     </div>
@@ -248,7 +247,7 @@ function toast(m,ok=true){const t=document.getElementById('toast');t.style.displ
 
 // ---- Map ----
 const map = L.map('map').setView([36.1699,-115.1398], 11);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19,subdomains:'abc'}).addTo(map);
+L.tileLayer('https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2hxe_1_6ff26a5d73490112bf3e5408',{attribution:'© OpenStreetMap © CARTO',maxZoom:20}).addTo(map);
 const bounds = [];
 if (CAR_LAT && CAR_LNG){
     const carIcon = L.divIcon({className:'',html:'<div style="font-size:26px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6));">🚗</div>',iconSize:[30,30],iconAnchor:[15,28]});
@@ -454,10 +453,10 @@ document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if
 </script>
 <!-- Team Chat Widget -->
 <style>
-#chatFab{position:fixed;bottom:18px;left:18px;z-index:9997;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;cursor:pointer;box-shadow:0 6px 20px rgba(138,92,246,.5);display:flex;align-items:center;justify-content:center;font-size:1.5rem;transition:.2s;}
+#chatFab{position:fixed;bottom:18px;right:18px;z-index:9997;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);border:none;cursor:pointer;box-shadow:0 6px 20px rgba(138,92,246,.5);display:flex;align-items:center;justify-content:center;font-size:1.5rem;transition:.2s;}
 #chatFab:hover{transform:scale(1.08);}
 #chatBadge{position:absolute;top:-3px;right:-3px;min-width:20px;height:20px;border-radius:10px;background:#ef4444;color:#fff;font-size:.7rem;font-weight:800;display:none;align-items:center;justify-content:center;padding:0 5px;font-family:'DM Sans',sans-serif;border:2px solid #080b12;}
-#chatPanel{position:fixed;bottom:82px;left:18px;z-index:9997;width:370px;max-width:calc(100vw - 36px);height:520px;max-height:calc(100vh - 120px);background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:16px;box-shadow:0 16px 50px rgba(0,0,0,.6);display:none;flex-direction:column;overflow:hidden;}
+#chatPanel{position:fixed;bottom:82px;right:18px;z-index:9997;width:370px;max-width:calc(100vw - 36px);height:520px;max-height:calc(100vh - 120px);background:#0f1420;border:1px solid rgba(138,92,246,.45);border-radius:16px;box-shadow:0 16px 50px rgba(0,0,0,.6);display:none;flex-direction:column;overflow:hidden;}
 #chatPanel.open{display:flex;}
 .chat-head{display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid rgba(255,255,255,.07);background:#0d1117;}
 .chat-head .ttl{font-family:'Syne',sans-serif;font-weight:800;font-size:.98rem;color:#e8eaf0;flex:1;display:flex;align-items:center;gap:7px;}

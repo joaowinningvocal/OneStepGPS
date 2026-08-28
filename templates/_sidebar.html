@@ -70,6 +70,11 @@
         <button class="cl-sb-close" onclick="clToggleSidebar()">‹</button>
     </div>
     <nav class="cl-sb-nav">
+        {# Home / Dashboard — everyone #}
+        <a href="/" class="{{ 'active' if active_page=='home' }}"><span class="ic">🏠</span> Dashboard</a>
+
+        {# Admin/dispatch screens #}
+        {% if session.get('role') in ['master','club_owner','club_manager','dispatch','dispatch_manager'] %}
         <a href="/admin/today"    class="{{ 'active' if active_page=='today' }}"><span class="ic">📊</span> Today</a>
         <a href="/admin/analytics" class="{{ 'active' if active_page=='analytics' }}"><span class="ic">📈</span> Analytics</a>
         <a href="/admin/tracking" class="{{ 'active' if active_page=='tracking' }}"><span class="ic">📍</span> Tracking</a>
@@ -82,9 +87,21 @@
         {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs"    class="{{ 'active' if active_page=='clubs' }}"><span class="ic">🏢</span> Clubs</a>{% endif %}
         {% if session.get('role') in ['master','club_owner'] %}<a href="/admin/app-manager" class="{{ 'active' if active_page=='app-manager' }}"><span class="ic">📱</span> App Manager</a>{% endif %}
         {% if session.get('role') == 'master' %}<a href="/admin/api" class="{{ 'active' if active_page=='api' }}"><span class="ic">🔑</span> API</a>{% endif %}
+        {% endif %}
+
+        {# Driver screen #}
+        {% if session.get('role') == 'driver' %}
+        <a href="/driver" class="{{ 'active' if active_page=='driver' }}"><span class="ic">🚗</span> My Pickups</a>
+        {% endif %}
+
+        {# Promoter screen #}
+        {% if session.get('role') == 'promoter' %}
+        <a href="/promoter/dashboard" class="{{ 'active' if active_page=='promoter' }}"><span class="ic">📊</span> My Dashboard</a>
+        {% endif %}
     </nav>
     <div class="cl-sb-foot">
-        <a href="/">← Dashboard</a>
+        {% if session.get('club_name') %}<div style="padding:8px 14px;font-size:.78rem;color:#8892a0;">🏢 {{ session.get('club_name') }}</div>{% endif %}
+        <a href="/logout">← Logout</a>
     </div>
 </aside>
 
