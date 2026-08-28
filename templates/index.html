@@ -596,7 +596,7 @@ document.getElementById('pickupDate').addEventListener('input',function(e){
 });
 
 var map=L.map('map').setView([36.1699,-115.1398],12);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© ClubLifter'}).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19,subdomains:'abc'}).addTo(map);
 var rCtrl=null, rLayer=L.layerGroup().addTo(map);
 
 // ── PACKAGE CHECKOUT ─────────────────────────────────────────────────────────

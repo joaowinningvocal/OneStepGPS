@@ -111,6 +111,8 @@
         .b-reg{background:rgba(34,197,94,.12);color:var(--g);border:1px solid rgba(34,197,94,.4);}
         .b-unreg{background:rgba(251,191,36,.12);color:var(--gold);border:1px solid rgba(251,191,36,.4);}
         #map{height:calc(100vh - 130px);min-height:480px;border-radius:16px;border:1px solid var(--bd);}
+        /* Make OpenStreetMap tiles dark to match the theme */
+        .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.95) contrast(.9) saturate(.8);}
         .refresh-line{font-size:.72rem;color:var(--m);margin-top:12px;display:flex;align-items:center;gap:7px;}
         .pulse{width:7px;height:7px;border-radius:50%;background:var(--g);animation:p 2s infinite;}
         @keyframes p{0%,100%{opacity:1}50%{opacity:.3}}
@@ -153,7 +155,9 @@
 <script>
 
 const map = L.map('map').setView([36.1699,-115.1398], 11);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© ClubLifter'}).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© OpenStreetMap',maxZoom:19,subdomains:'abc'
+}).addTo(map);
 
 let markers = [];
 

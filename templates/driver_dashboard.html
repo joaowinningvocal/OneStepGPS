@@ -42,6 +42,7 @@
         /* Layout */
         .layout{display:grid;grid-template-columns:380px 1fr;gap:14px;}
         #map{height:calc(100vh - 180px);min-height:420px;border-radius:16px;border:1px solid var(--bd);}
+        .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.95) contrast(.9) saturate(.8);}
         .sidebar{display:flex;flex-direction:column;gap:11px;max-height:calc(100vh - 180px);overflow-y:auto;padding-right:4px;}
         .pickup{background:var(--s);border:1px solid var(--bd);border-radius:15px;padding:15px;}
         .pickup.done{opacity:.55;}
@@ -247,7 +248,7 @@ function toast(m,ok=true){const t=document.getElementById('toast');t.style.displ
 
 // ---- Map ----
 const map = L.map('map').setView([36.1699,-115.1398], 11);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© ClubLifter'}).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19,subdomains:'abc'}).addTo(map);
 const bounds = [];
 if (CAR_LAT && CAR_LNG){
     const carIcon = L.divIcon({className:'',html:'<div style="font-size:26px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6));">🚗</div>',iconSize:[30,30],iconAnchor:[15,28]});
