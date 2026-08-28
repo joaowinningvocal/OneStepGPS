@@ -51,6 +51,9 @@ body{
 .state-hero p{font-size:.92rem;color:var(--m);line-height:1.5;max-width:90%;}
 
 .section-label{display:flex;align-items:center;justify-content:space-between;margin:24px 0 12px;}
+.ad-banner{margin:18px 0 4px;height:90px;border-radius:16px;border:1.5px dashed var(--bd);background:linear-gradient(135deg,rgba(138,92,246,.08),rgba(236,72,153,.06));display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;gap:2px;}
+.ad-banner .ad-tag{position:absolute;top:8px;left:10px;font-size:.58rem;font-weight:700;letter-spacing:.1em;color:var(--m2);background:var(--s2);padding:2px 7px;border-radius:5px;}
+.ad-banner .ad-text{font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;color:var(--m2);}
 .section-label h2{font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;}
 .section-label .count{font-size:.76rem;color:var(--m2);font-weight:600;}
 
@@ -63,6 +66,8 @@ body{
 .club-addr{font-size:.78rem;color:var(--m);line-height:1.35;margin-bottom:7px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 .club-meta{display:flex;align-items:center;gap:10px;}
 .club-dist{display:flex;align-items:center;gap:4px;font-size:.8rem;font-weight:700;color:var(--acc3);}
+.take-me{margin-top:10px;width:100%;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;border:none;padding:9px;border-radius:11px;font-family:'DM Sans',sans-serif;font-weight:700;font-size:.82rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:filter .15s;}
+.take-me:active{filter:brightness(1.15);}
 .club-drink{display:flex;align-items:center;gap:4px;font-size:.72rem;color:var(--gold);font-weight:600;}
 
 /* ── Bottom nav ── */
@@ -131,6 +136,17 @@ body{
 .redeem-done{margin-top:26px;background:none;border:1px solid var(--bd);color:var(--m);padding:13px 30px;border-radius:100px;font-family:'DM Sans',sans-serif;font-weight:600;font-size:.9rem;cursor:pointer;}
 
 .scan-fail{position:absolute;inset:0;z-index:120;background:rgba(8,6,15,.96);display:none;flex-direction:column;align-items:center;justify-content:center;padding:40px;text-align:center;}
+.code-entry{position:absolute;inset:0;z-index:130;background:rgba(8,6,15,.97);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:30px;}
+.code-entry.show{display:flex;}
+.code-entry-box{background:var(--surf,#161129);border:1px solid var(--bhi);border-radius:20px;padding:28px 24px;max-width:340px;width:100%;text-align:center;}
+.ce-title{font-family:'Syne',sans-serif;font-weight:800;font-size:1.4rem;margin-bottom:6px;}
+.ce-sub{color:var(--m,#9a92b0);font-size:.86rem;margin-bottom:20px;line-height:1.4;}
+.ce-input{width:100%;box-sizing:border-box;background:var(--surf2,#1e1738);border:2px solid var(--bhi);border-radius:12px;padding:14px;color:var(--t);font-size:1.3rem;font-family:'Courier New',monospace;font-weight:700;text-align:center;letter-spacing:.15em;margin-bottom:18px;}
+.ce-input:focus{outline:none;border-color:var(--acc);}
+.ce-actions{display:flex;gap:10px;}
+.ce-btn{flex:1;padding:13px;border-radius:11px;font-weight:700;font-size:.9rem;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;}
+.ce-cancel{background:transparent;border:1px solid var(--bd);color:var(--m2);}
+.ce-go{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;}
 .scan-fail.show{display:flex;}
 .scan-fail .x{width:80px;height:80px;border-radius:50%;background:rgba(239,68,68,.15);border:2px solid rgba(239,68,68,.4);display:flex;align-items:center;justify-content:center;font-size:2.4rem;margin-bottom:20px;}
 .scan-fail h2{font-family:'Syne',sans-serif;font-weight:700;font-size:1.4rem;margin-bottom:10px;}
@@ -10267,6 +10283,10 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
         <h1 id="heroState">—</h1>
         <p id="heroSub">Finding the best clubs near you…</p>
       </div>
+      <div class="ad-banner" id="adBanner">
+        <div class="ad-tag">AD</div>
+        <div class="ad-text">Your ad here</div>
+      </div>
       <div class="section-label">
         <h2>Clubs near you</h2>
         <span class="count" id="clubCount"></span>
@@ -10300,14 +10320,25 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
       </div>
     </div>
     <div class="scan-sim">
-      <button class="scan-sim-btn" onclick="simulateScan()">🎯 Simulate a successful scan</button>
-      <div class="scan-sim-note">Proof-of-concept: real camera scanning wires in at build</div>
+      <button class="scan-sim-btn" onclick="openCodeEntry()">⌨️ Enter code instead</button>
+      <button class="scan-sim-btn" style="background:rgba(138,92,246,.5);margin-top:8px;" onclick="simulateScan()">🎯 Simulate a scan (demo)</button>
     </div>
     <div class="scan-fail" id="scanFail">
       <div class="x">✕</div>
       <h2>Not a GoBest code</h2>
       <p>That QR code isn't from a participating GoBest venue. Look for the GoBest sticker at the bar.</p>
       <button onclick="document.getElementById('scanFail').classList.remove('show')">Try again</button>
+    </div>
+    <div class="code-entry" id="codeEntry">
+      <div class="code-entry-box">
+        <div class="ce-title">Enter your code</div>
+        <div class="ce-sub">Can't scan? Type the code from the flyer or sticker.</div>
+        <input id="codeInput" class="ce-input" placeholder="e.g. HUST-4X9K" autocomplete="off" autocapitalize="characters" oninput="this.value=this.value.toUpperCase()">
+        <div class="ce-actions">
+          <button class="ce-btn ce-cancel" onclick="closeCodeEntry()">Cancel</button>
+          <button class="ce-btn ce-go" onclick="submitCode()">Redeem</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -10465,11 +10496,23 @@ async function loadClubs(coords, state, detected){
           ${c.distance_mi!=null?`<span class="club-dist">📍 ${c.distance_mi} mi</span>`:''}
           ${c.free_drink?`<span class="club-drink">🍸 Free drink</span>`:''}
         </div>
+        <button class="take-me" onclick='event.stopPropagation();takeMeThere(${JSON.stringify(c.address||"")}, ${c.lat!=null?c.lat:'null'}, ${c.lng!=null?c.lng:'null'}, ${JSON.stringify(c.name||"")})'>🧭 Take me there!</button>
       </div>
     </div>`).join('');
 }
 
-function esc(s){return (s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
+function takeMeThere(address, lat, lng, name){
+  // Open Google Maps directions. Prefer coordinates (most accurate); fall back
+  // to the address. Works on iOS/Android (opens the Maps app) and desktop.
+  let dest;
+  if(lat!=null && lng!=null){
+    dest = `${lat},${lng}`;
+  }else{
+    dest = encodeURIComponent(address || name);
+  }
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
+  window.open(url, '_blank');
+}
 
 // ══════════════════════════════════════════════════════════════════
 //  WELCOME moment (with confetti)
@@ -10559,6 +10602,25 @@ function startQRLoop(){
       redeem(code.data.trim());
     }
   }, 250);
+}
+
+function openCodeEntry(){
+  document.getElementById('codeInput').value = '';
+  document.getElementById('codeEntry').classList.add('show');
+  setTimeout(()=>document.getElementById('codeInput').focus(), 100);
+}
+function closeCodeEntry(){
+  document.getElementById('codeEntry').classList.remove('show');
+}
+async function submitCode(){
+  const code = document.getElementById('codeInput').value.trim();
+  if(!code){ document.getElementById('codeInput').focus(); return; }
+  closeCodeEntry();
+  // Stop the camera if running, then redeem the typed code
+  _scanning = false;
+  if(_scanTimer){ clearInterval(_scanTimer); _scanTimer=null; }
+  if(_camStream){ _camStream.getTracks().forEach(t=>t.stop()); _camStream=null; }
+  await redeem(code);
 }
 
 async function simulateScan(){

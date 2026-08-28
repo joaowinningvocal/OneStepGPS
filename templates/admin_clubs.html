@@ -99,36 +99,8 @@
 </head>
 <body>
 <div class="wrap">
-    <div class="topbar">
-        <div class="brand">Club<span>Lifter</span></div>
-        <div class="nav-r">
-            <div class="pills-desk" style="display:flex;gap:7px;">
-                <a href="/admin/today"    class="pill">Today</a><a href="/admin/analytics" class="pill">Analytics</a>
-                <a href="/admin/tracking" class="pill">Tracking</a>{% if session.get('role') in ['master','club_owner'] %}<a href="/admin/driver-tracking" class="pill">Driver Tracking</a>{% endif %}
-                <a href="/admin/guestlist" class="pill">Guest List</a>
-                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages" class="pill">Packages</a>{% endif %}
-                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers"  class="pill">Drivers</a>{% endif %}
-                <a href="/admin/schedule" class="pill">Driver Management</a>
-                {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users"    class="pill">Users</a>{% endif %}
-                {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs"    class="pill act">Clubs</a>{% endif %}
-            {% if session.get('role') == 'master' %}<a href="/admin/api" class="pill">API</a>{% endif %}
-                </div>
-            <button class="hamburger" onclick="toggleMobileMenu()">☰</button>
-            <a href="/" class="btn-db">← Dashboard</a>
-        </div>
-    </div>
-    <div class="mobile-menu" id="mobileMenu">
-        <a href="/admin/today">Today</a><a href="/admin/analytics">Analytics</a>
-        <a href="/admin/tracking">Tracking</a>{% if session.get('role') in ['master','club_owner'] %}<a href="/admin/driver-tracking">Driver Tracking</a>{% endif %}
-        <a href="/admin/guestlist">Guest List</a>
-        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages">Packages</a>{% endif %}
-        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers">Drivers</a>{% endif %}
-        <a href="/admin/schedule">Driver Management</a>
-        {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users">Users</a>{% endif %}
-        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs" class="act">Clubs</a>{% endif %}
-        {% if session.get('role') == 'master' %}<a href="/admin/api">API</a>{% endif %}
-        <a href="/">← Dashboard</a>
-    </div>
+    {% set active_page = 'clubs' %}{% include '_sidebar.html' %}
+
 
     <div class="card">
         <div class="ctitle">Add New Club / Destination</div>
@@ -188,7 +160,6 @@ async function saveEdit(){const id=document.getElementById('eId').value,fd=new F
 async function delClub(id){if(!confirm('Delete this club?'))return;const d=await(await fetch(`/admin/clubs/delete/${id}`,{method:'POST'})).json();if(d.success){toast('Deleted!');document.getElementById(`row-${id}`).remove();}else toast(d.error,false);}
 </script>
 <script>
-function toggleMobileMenu(){var m=document.getElementById('mobileMenu');if(m)m.classList.toggle('open');}
 </script>
 <!-- Team Chat Widget -->
 <style>

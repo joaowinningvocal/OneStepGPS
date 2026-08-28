@@ -1,0 +1,124 @@
+{# Collapsible left sidebar for ClubLifter admin screens.
+   Include with:  {% set active_page = 'today' %}{% include '_sidebar.html' %}
+   Pages: today, analytics, tracking, driver-tracking, guestlist, packages,
+          drivers, schedule, users, clubs, app-manager, api #}
+<style>
+:root{ --sb-w: 248px; }
+.cl-sidebar{
+    position:fixed; top:0; left:0; bottom:0; width:var(--sb-w);
+    background:linear-gradient(180deg,#0f1420,#0b0f1a);
+    border-right:1px solid rgba(255,255,255,.07);
+    z-index:1000; display:flex; flex-direction:column;
+    transform:translateX(0); transition:transform .28s cubic-bezier(.4,0,.2,1);
+    overflow-y:auto;
+}
+.cl-sidebar.collapsed{ transform:translateX(calc(-1 * var(--sb-w))); }
+.cl-sb-head{ display:flex; align-items:center; justify-content:space-between; padding:20px 18px 14px; }
+.cl-sb-brand{ font-family:'Syne',sans-serif; font-weight:800; font-size:1.3rem; color:#e8eaf0; }
+.cl-sb-brand span{ color:#8a5cf6; }
+.cl-sb-close{ background:none; border:none; color:#5a6270; font-size:1.3rem; cursor:pointer; padding:2px 6px; border-radius:6px; }
+.cl-sb-close:hover{ color:#e8eaf0; background:rgba(255,255,255,.05); }
+.cl-sb-nav{ display:flex; flex-direction:column; padding:6px 12px; gap:2px; flex:1; }
+.cl-sb-nav a{
+    display:flex; align-items:center; gap:11px; padding:11px 14px; border-radius:10px;
+    color:#8892a0; text-decoration:none; font-size:.9rem; font-weight:600;
+    font-family:'DM Sans',sans-serif; transition:background .15s, color .15s;
+}
+.cl-sb-nav a:hover{ background:rgba(255,255,255,.05); color:#e8eaf0; }
+.cl-sb-nav a.active{ background:linear-gradient(135deg,rgba(138,92,246,.25),rgba(109,40,217,.15)); color:#a78bfa; }
+.cl-sb-nav a .ic{ font-size:1.05rem; width:20px; text-align:center; }
+.cl-sb-foot{ padding:12px; border-top:1px solid rgba(255,255,255,.06); }
+.cl-sb-foot a{ display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:10px; color:#8892a0; text-decoration:none; font-size:.88rem; font-weight:600; }
+.cl-sb-foot a:hover{ background:rgba(255,255,255,.05); color:#e8eaf0; }
+
+/* Toggle button (hamburger) — always visible, fixed top-left */
+.cl-sb-toggle{
+    position:fixed; top:16px; left:16px; z-index:1001;
+    background:#161d2e; border:1px solid rgba(255,255,255,.1); color:#e8eaf0;
+    width:44px; height:44px; border-radius:11px; font-size:1.2rem; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    transition:left .28s cubic-bezier(.4,0,.2,1), background .15s;
+    box-shadow:0 4px 14px rgba(0,0,0,.3);
+}
+.cl-sb-toggle:hover{ background:#1e2740; }
+.cl-sb-toggle.pushed{ left:calc(var(--sb-w) + 16px); }
+
+/* Backdrop on mobile */
+.cl-sb-backdrop{
+    position:fixed; inset:0; background:rgba(4,6,12,.6); z-index:999;
+    opacity:0; pointer-events:none; transition:opacity .28s;
+}
+.cl-sb-backdrop.show{ opacity:1; pointer-events:auto; }
+
+/* Content shift on desktop when sidebar is open */
+@media(min-width:900px){
+    body.cl-has-sidebar .wrap{ transition:margin-left .28s cubic-bezier(.4,0,.2,1); }
+    body.cl-has-sidebar.cl-sb-open .wrap{ margin-left:var(--sb-w); }
+}
+/* On mobile, sidebar overlays (no content shift) */
+@media(max-width:899px){
+    body.cl-has-sidebar.cl-sb-open .wrap{ margin-left:0; }
+}
+</style>
+
+<button class="cl-sb-toggle" id="clSbToggle" onclick="clToggleSidebar()">☰</button>
+<div class="cl-sb-backdrop" id="clSbBackdrop" onclick="clToggleSidebar()"></div>
+
+<aside class="cl-sidebar collapsed" id="clSidebar">
+    <div class="cl-sb-head">
+        <div class="cl-sb-brand">Club<span>Lifter</span></div>
+        <button class="cl-sb-close" onclick="clToggleSidebar()">‹</button>
+    </div>
+    <nav class="cl-sb-nav">
+        <a href="/admin/today"    class="{{ 'active' if active_page=='today' }}"><span class="ic">📊</span> Today</a>
+        <a href="/admin/analytics" class="{{ 'active' if active_page=='analytics' }}"><span class="ic">📈</span> Analytics</a>
+        <a href="/admin/tracking" class="{{ 'active' if active_page=='tracking' }}"><span class="ic">📍</span> Tracking</a>
+        {% if session.get('role') in ['master','club_owner'] %}<a href="/admin/driver-tracking" class="{{ 'active' if active_page=='driver-tracking' }}"><span class="ic">🚗</span> Driver Tracking</a>{% endif %}
+        <a href="/admin/guestlist" class="{{ 'active' if active_page=='guestlist' }}"><span class="ic">📋</span> Guest List</a>
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/packages" class="{{ 'active' if active_page=='packages' }}"><span class="ic">📦</span> Packages</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/drivers"  class="{{ 'active' if active_page=='drivers' }}"><span class="ic">🚘</span> Drivers</a>{% endif %}
+        <a href="/admin/schedule" class="{{ 'active' if active_page=='schedule' }}"><span class="ic">🗂️</span> Driver Management</a>
+        {% if session.get('role') in ['master','club_owner','club_manager','dispatch_manager'] %}<a href="/admin/users"    class="{{ 'active' if active_page=='users' }}"><span class="ic">👥</span> Users</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner','club_manager'] %}<a href="/admin/clubs"    class="{{ 'active' if active_page=='clubs' }}"><span class="ic">🏢</span> Clubs</a>{% endif %}
+        {% if session.get('role') in ['master','club_owner'] %}<a href="/admin/app-manager" class="{{ 'active' if active_page=='app-manager' }}"><span class="ic">📱</span> App Manager</a>{% endif %}
+        {% if session.get('role') == 'master' %}<a href="/admin/api" class="{{ 'active' if active_page=='api' }}"><span class="ic">🔑</span> API</a>{% endif %}
+    </nav>
+    <div class="cl-sb-foot">
+        <a href="/">← Dashboard</a>
+    </div>
+</aside>
+
+<script>
+function clToggleSidebar(){
+    const sb = document.getElementById('clSidebar');
+    const tog = document.getElementById('clSbToggle');
+    const bd = document.getElementById('clSbBackdrop');
+    const open = sb.classList.contains('collapsed');  // was collapsed → will open
+    if(open){
+        sb.classList.remove('collapsed');
+        tog.classList.add('pushed');
+        document.body.classList.add('cl-sb-open');
+        if(window.innerWidth < 900) bd.classList.add('show');
+        try{ localStorage.setItem('cl_sb', 'open'); }catch(e){}
+    }else{
+        sb.classList.add('collapsed');
+        tog.classList.remove('pushed');
+        document.body.classList.remove('cl-sb-open');
+        bd.classList.remove('show');
+        try{ localStorage.setItem('cl_sb', 'closed'); }catch(e){}
+    }
+}
+// Restore last state on desktop (default open on wide screens, closed on mobile)
+(function(){
+    document.body.classList.add('cl-has-sidebar');
+    let pref = null;
+    try{ pref = localStorage.getItem('cl_sb'); }catch(e){}
+    const wide = window.innerWidth >= 900;
+    const shouldOpen = pref ? (pref === 'open') : wide;
+    if(shouldOpen){
+        document.getElementById('clSidebar').classList.remove('collapsed');
+        document.getElementById('clSbToggle').classList.add('pushed');
+        document.body.classList.add('cl-sb-open');
+    }
+})();
+</script>

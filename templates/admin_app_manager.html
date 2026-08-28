@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClubLifter — App Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#080b12; --s:#0f1420; --s2:#161d2e; --bd:rgba(255,255,255,.07); --bhi:rgba(138,92,246,.45);
+  --acc:#8a5cf6; --acc2:#6d28d9; --acc3:#a78bfa; --g:#22c55e; --r:#ef4444; --gold:#fbbf24;
+  --t:#e8eaf0; --m:#5a6270; --m2:#8892a0;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;min-height:100vh;}
+.wrap{max-width:1100px;margin:0 auto;padding:74px 24px 60px;}
+h1{font-family:'Syne',sans-serif;font-weight:800;font-size:1.9rem;margin-bottom:4px;}
+.sub{color:var(--m2);font-size:.95rem;margin-bottom:24px;}
+
+.tabs{display:flex;gap:8px;margin-bottom:24px;border-bottom:1px solid var(--bd);}
+.tab{padding:11px 18px;font-weight:600;font-size:.9rem;color:var(--m2);cursor:pointer;border-bottom:2px solid transparent;background:none;border-top:none;border-left:none;border-right:none;font-family:'DM Sans',sans-serif;}
+.tab.active{color:var(--acc3);border-bottom-color:var(--acc);}
+.tab .soon{font-size:.62rem;background:var(--s2);color:var(--m2);padding:2px 6px;border-radius:6px;margin-left:6px;}
+
+.panel{display:none;}
+.panel.active{display:block;}
+
+.card{background:var(--s);border:1px solid var(--bd);border-radius:16px;padding:22px;margin-bottom:20px;}
+.ctitle{font-family:'Syne',sans-serif;font-weight:700;font-size:1.1rem;margin-bottom:16px;}
+
+.form-row{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end;}
+@media(max-width:760px){.form-row{grid-template-columns:1fr;}}
+.f{display:flex;flex-direction:column;gap:5px;}
+.f label{font-size:.72rem;color:var(--m2);font-weight:600;text-transform:uppercase;letter-spacing:.4px;}
+.f input,.f select{background:var(--s2);border:1px solid var(--bd);border-radius:9px;padding:10px 12px;color:var(--t);font-size:.9rem;font-family:'DM Sans',sans-serif;}
+.f input:focus,.f select:focus{outline:none;border-color:var(--acc);}
+.btn{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;border:none;padding:11px 20px;border-radius:10px;font-weight:700;font-size:.88rem;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.btn:hover{filter:brightness(1.1);}
+.btn.sm{padding:7px 12px;font-size:.78rem;}
+.btn.ghost{background:transparent;border:1px solid var(--bd);color:var(--m2);}
+.btn.ghost:hover{color:var(--t);border-color:var(--bhi);filter:none;}
+.btn.danger{background:transparent;border:1px solid rgba(239,68,68,.4);color:var(--r);}
+.btn.danger:hover{background:rgba(239,68,68,.1);filter:none;}
+
+.qr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;}
+.qr-item{background:var(--s2);border:1px solid var(--bd);border-radius:14px;padding:16px;position:relative;}
+.qr-item.off{opacity:.55;}
+.qr-item .qimg{background:#fff;border-radius:10px;padding:10px;width:130px;height:130px;margin:0 auto 12px;}
+.qr-item .qimg img{width:100%;height:100%;display:block;}
+.qr-item .qlabel{font-weight:700;font-size:.95rem;text-align:center;margin-bottom:3px;}
+.qr-item .qclub{font-size:.8rem;color:var(--m2);text-align:center;margin-bottom:10px;}
+.qr-code-badge{text-align:center;margin-bottom:12px;}
+.qr-code-badge .lbl{font-size:.66rem;color:var(--m2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;}
+.qr-code-badge .code{font-family:'Courier New',monospace;font-weight:700;font-size:1.15rem;color:var(--gold);letter-spacing:.12em;background:rgba(251,191,36,.08);border:1px dashed rgba(251,191,36,.35);border-radius:8px;padding:6px;}
+.qr-stats{display:flex;justify-content:center;gap:14px;font-size:.74rem;color:var(--m2);margin-bottom:12px;}
+.qr-stats b{color:var(--t);}
+.qr-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;}
+.status-pill{position:absolute;top:12px;right:12px;font-size:.64rem;font-weight:700;padding:3px 9px;border-radius:20px;}
+.status-pill.on{background:rgba(34,197,94,.15);color:var(--g);}
+.status-pill.off{background:rgba(239,68,68,.15);color:var(--r);}
+
+.empty{text-align:center;padding:50px 20px;color:var(--m);}
+.empty .ico{font-size:2.6rem;margin-bottom:12px;opacity:.5;}
+
+.placeholder-panel{text-align:center;padding:60px 30px;color:var(--m);}
+.placeholder-panel .ico{font-size:3rem;margin-bottom:16px;opacity:.4;}
+.placeholder-panel h3{font-family:'Syne',sans-serif;font-weight:700;color:var(--m2);font-size:1.2rem;margin-bottom:8px;}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--s2);border:1px solid var(--bhi);color:var(--t);padding:12px 22px;border-radius:12px;font-weight:600;font-size:.88rem;opacity:0;pointer-events:none;transition:opacity .3s;z-index:2000;}
+.toast.show{opacity:1;}
+.toast.err{border-color:rgba(239,68,68,.5);}
+</style>
+</head>
+<body>
+{% set active_page = 'app-manager' %}{% include '_sidebar.html' %}
+
+<div class="wrap">
+    <h1>App Manager</h1>
+    <div class="sub">Manage everything that powers the GoBest app — QR codes, promotions, and ad banners.</div>
+
+    <div class="tabs">
+        <button class="tab active" onclick="showPanel('qr', this)">🎟️ QR Codes</button>
+        <button class="tab" onclick="showPanel('promos', this)">🎉 Promotions <span class="soon">soon</span></button>
+        <button class="tab" onclick="showPanel('banners', this)">📢 Ad Banners <span class="soon">soon</span></button>
+    </div>
+
+    <!-- QR CODES PANEL -->
+    <div class="panel active" id="panel-qr">
+        <div class="card">
+            <div class="ctitle">Create a QR code</div>
+            <div class="form-row">
+                <div class="f">
+                    <label>Label (internal name)</label>
+                    <input id="qrLabel" placeholder="e.g. Hustler front door">
+                </div>
+                <div class="f">
+                    <label>Club</label>
+                    <select id="qrClub">
+                        <option value="">Select a club…</option>
+                        {% for c in clubs %}<option value="{{ c.id }}" data-drink="{{ c.free_drink|e }}">{{ c.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="f">
+                    <label>Promo drink (optional)</label>
+                    <input id="qrDrink" placeholder="Defaults to club's drink">
+                </div>
+                <button class="btn" onclick="createQR()">+ Generate</button>
+            </div>
+        </div>
+
+        <div id="qrList">
+            {% if qrs %}
+            <div class="qr-grid">
+                {% for q in qrs %}
+                <div class="qr-item {{ '' if q.active else 'off' }}" id="qr-{{ q.id }}">
+                    <div class="status-pill {{ 'on' if q.active else 'off' }}">{{ 'Active' if q.active else 'Off' }}</div>
+                    <div class="qimg"><img src="/admin/app-manager/qr/{{ q.id }}.png?v={{ q.scan_count }}" alt="QR"></div>
+                    <div class="qlabel">{{ q.label }}</div>
+                    <div class="qclub">{{ q.club_name }}{% if q.drink %} · {{ q.drink }}{% endif %}</div>
+                    <div class="qr-code-badge">
+                        <div class="lbl">Type-in code</div>
+                        <div class="code">{{ q.code }}</div>
+                    </div>
+                    <div class="qr-stats"><span><b>{{ q.scan_count }}</b> scans</span><span>{{ q.created_at }}</span></div>
+                    <div class="qr-actions">
+                        <a class="btn sm" href="/admin/app-manager/qr/{{ q.id }}/flyer">📄 Flyer</a>
+                        <button class="btn sm ghost" onclick="toggleQR({{ q.id }})">{{ 'Disable' if q.active else 'Enable' }}</button>
+                        <button class="btn sm danger" onclick="deleteQR({{ q.id }})">Delete</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty"><div class="ico">🎟️</div><p>No QR codes yet.<br>Create one above to get started.</p></div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- PROMOS PANEL (placeholder) -->
+    <div class="panel" id="panel-promos">
+        <div class="placeholder-panel">
+            <div class="ico">🎉</div>
+            <h3>Promotions coming soon</h3>
+            <p>Create and schedule in-app promotions for your venues.</p>
+        </div>
+    </div>
+
+    <!-- BANNERS PANEL (placeholder) -->
+    <div class="panel" id="panel-banners">
+        <div class="placeholder-panel">
+            <div class="ico">📢</div>
+            <h3>Ad banners coming soon</h3>
+            <p>Manage the advertising banner space shown in the app.</p>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function showPanel(name, btn){
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.getElementById('panel-'+name).classList.add('active');
+    btn.classList.add('active');
+}
+function toast(msg, ok=true){
+    const t=document.getElementById('toast');
+    t.textContent=msg; t.className='toast show'+(ok?'':' err');
+    setTimeout(()=>t.className='toast',2200);
+}
+// autofill drink placeholder from club default
+document.getElementById('qrClub').addEventListener('change', function(){
+    const opt=this.options[this.selectedIndex];
+    const drink=opt.getAttribute('data-drink')||'';
+    document.getElementById('qrDrink').placeholder = drink ? `Defaults to: ${drink}` : "Defaults to club's drink";
+});
+async function createQR(){
+    const label=document.getElementById('qrLabel').value.trim();
+    const club_id=document.getElementById('qrClub').value;
+    const drink=document.getElementById('qrDrink').value.trim();
+    if(!club_id){ toast('Pick a club first', false); return; }
+    const fd=new FormData();fd.append('label',label);fd.append('club_id',club_id);fd.append('drink',drink);
+    try{
+        const d=await(await fetch('/admin/app-manager/qr/create',{method:'POST',body:fd})).json();
+        if(d.success){ toast('QR code created'); location.reload(); }
+        else toast(d.error||'Could not create', false);
+    }catch(e){ toast('Error creating QR', false); }
+}
+async function toggleQR(id){
+    try{
+        const d=await(await fetch('/admin/app-manager/qr/toggle/'+id,{method:'POST'})).json();
+        if(d.success){ location.reload(); } else toast(d.error||'Failed', false);
+    }catch(e){ toast('Error', false); }
+}
+async function deleteQR(id){
+    if(!confirm('Delete this QR code? Anyone with the printed code or flyer will no longer be able to redeem it.')) return;
+    try{
+        const d=await(await fetch('/admin/app-manager/qr/delete/'+id,{method:'POST'})).json();
+        if(d.success){ document.getElementById('qr-'+id).remove(); toast('Deleted'); }
+        else toast(d.error||'Failed', false);
+    }catch(e){ toast('Error', false); }
+}
+</script>
+</body>
+</html>

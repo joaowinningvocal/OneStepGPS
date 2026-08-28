@@ -239,9 +239,29 @@ class SavedLocation(db.Model):
     def to_dict(self):
         return {"id": self.id, "name": self.name, "address": self.address}
 
-def get_setting(key, default=""):
-    s = Setting.query.filter_by(key=key).first()
-    return s.value if s else default
+class QRCodeItem(db.Model):
+    """A managed QR code for the GoBest app. Each one carries a short human code
+    that can be typed into the app if scanning fails, and points to a club so the
+    app can redeem that venue's promo. Club owners create and manage these."""
+    id          = db.Column(db.Integer, primary_key=True)
+    code        = db.Column(db.String(20), nullable=False, unique=True)  # typeable code e.g. "HUST-4X9K"
+    label       = db.Column(db.String(120), default="")                  # internal name e.g. "Hustler front door"
+    club_id     = db.Column(db.Integer, nullable=True)                    # which club it redeems
+    club_name   = db.Column(db.String(120), default="")                  # denormalized for display
+    drink       = db.Column(db.String(120), default="")                  # promo shown (overrides club default if set)
+    active      = db.Column(db.Boolean, default=True)
+    scan_count  = db.Column(db.Integer, default=0)                        # how many times redeemed
+    created_by  = db.Column(db.String(80), default="")
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "code": self.code, "label": self.label,
+            "club_id": self.club_id, "club_name": self.club_name,
+            "drink": self.drink, "active": self.active,
+            "scan_count": self.scan_count or 0,
+            "created_at": self.created_at.strftime("%Y-%m-%d") if self.created_at else "",
+        }
 
 def set_setting(key, value):
     s = Setting.query.filter_by(key=key).first()
@@ -1024,6 +1044,226 @@ def qr_poster(qid):
 def qr_posters_all():
     """Both demo QR codes side by side."""
     return render_template('qr_poster.html', qid=None, info=None, single=False, all_qrs=QR_DEMO)
+
+# ─── APP MANAGER (QR codes, later: promotions + banners) ──────────────────────
+import random as _random, string as _string
+
+def _gen_qr_code(club_name=""):
+    """Generate a short, human-typeable, unique code like 'HUST-4X9K'. Uses a club
+    prefix when possible so codes are recognizable. Avoids ambiguous chars."""
+    prefix = "".join(ch for ch in (club_name or "GB").upper() if ch.isalpha())[:4] or "GB"
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no I,O,0,1 (ambiguous)
+    for _ in range(50):
+        suffix = "".join(_random.choice(alphabet) for _ in range(4))
+        code = f"{prefix}-{suffix}"
+        if not QRCodeItem.query.filter_by(code=code).first():
+            return code
+    # Fallback: longer random
+    return "GB-" + "".join(_random.choice(alphabet) for _ in range(6))
+
+def _can_manage_app():
+    """Master and club owners can manage the app (QR codes, promos, banners)."""
+    return session.get("logged") and session.get("role") in ("master", "club_owner")
+
+def _build_flyer_pdf(item):
+    """Build a printable flyer PDF (bytes) for a managed QR code. Uses the Hustler
+    neon branding when it's a Hustler venue; otherwise a clean GoBest flyer.
+    Shows the QR plus the typeable code underneath."""
+    import qrcode as _qrcode
+    from qrcode.constants import ERROR_CORRECT_H
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas as _canvas
+    from reportlab.lib.units import inch
+    from reportlab.lib.utils import ImageReader
+    import io as _io
+
+    club = item.club_name or "GoBest Venue"
+    drink = item.drink or "a complimentary welcome drink"
+    code = item.code
+    payload = f"GOBEST:{code}"
+
+    # QR image
+    qr = _qrcode.QRCode(version=None, error_correction=ERROR_CORRECT_H, box_size=16, border=2)
+    qr.add_data(payload)
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="#1a0033", back_color="white").convert("RGB")
+    qb = _io.BytesIO(); qr_img.save(qb, format="PNG"); qb.seek(0)
+    qr_reader = ImageReader(qb)
+
+    is_hustler = "hustler" in club.lower()
+
+    # Palette
+    if is_hustler:
+        BG_TOP=(0.043,0.024,0.094); BG_BOT=(0.024,0.008,0.063)
+        ACCENT=(0.925,0.145,0.686); ACCENT_LT=(0.988,0.541,0.851); ACCENT2=(0.298,0.788,0.941)
+    else:
+        BG_TOP=(0.055,0.043,0.098); BG_BOT=(0.031,0.024,0.059)
+        ACCENT=(0.541,0.361,0.965); ACCENT_LT=(0.655,0.545,0.980); ACCENT2=(0.925,0.282,0.600)
+    GOLD=(0.984,0.749,0.141); WHITE=(0.965,0.953,0.980); MUTED=(0.639,0.612,0.729)
+
+    buf = _io.BytesIO()
+    c = _canvas.Canvas(buf, pagesize=letter)
+    W, H = letter
+
+    # Background gradient
+    steps = 100
+    for i in range(steps):
+        t = i/steps
+        c.setFillColorRGB(BG_TOP[0]+(BG_BOT[0]-BG_TOP[0])*t,
+                          BG_TOP[1]+(BG_BOT[1]-BG_TOP[1])*t,
+                          BG_TOP[2]+(BG_BOT[2]-BG_TOP[2])*t)
+        c.rect(0, H*(1-(i+1)/steps), W, H/steps+1, fill=1, stroke=0)
+
+    # Glow blobs
+    c.setFillColorRGB(*ACCENT); c.setFillAlpha(0.10); c.circle(W*0.15, H*0.82, 140, fill=1, stroke=0)
+    c.setFillColorRGB(*ACCENT2); c.setFillAlpha(0.08); c.circle(W*0.88, H*0.30, 130, fill=1, stroke=0)
+    c.setFillAlpha(1)
+
+    # Try to place the Hustler logo if available
+    top_y = H - 0.9*inch
+    logo_path = "/mnt/user-data/uploads/1787766136000_image.png"
+    placed_logo = False
+    if is_hustler and os.path.exists(logo_path):
+        try:
+            from PIL import Image as _PILImage
+            logo = _PILImage.open(logo_path).convert("RGBA")
+            lb = _io.BytesIO(); logo.save(lb, format="PNG"); lb.seek(0)
+            logo_reader = ImageReader(lb)
+            logo_w = 5.4*inch; logo_h = logo_w / (logo.width/logo.height)
+            c.drawImage(logo_reader, (W-logo_w)/2, H-0.5*inch-logo_h, logo_w, logo_h, mask='auto')
+            top_y = H - 0.5*inch - logo_h - 0.4*inch
+            placed_logo = True
+        except Exception:
+            placed_logo = False
+
+    if not placed_logo:
+        # GoBest brand text
+        c.setFillColorRGB(*ACCENT_LT); c.setFont("Helvetica-Bold", 40)
+        c.drawCentredString(W/2 - 0.4*inch, H-1.15*inch, "Go")
+        c.setFillColorRGB(*WHITE)
+        gw = c.stringWidth("Go", "Helvetica-Bold", 40)
+        c.drawString(W/2 - 0.4*inch + gw, H-1.15*inch, "Best")
+        # Club name
+        c.setFillColorRGB(*WHITE); c.setFont("Helvetica-Bold", 26)
+        c.drawCentredString(W/2, H-1.7*inch, club)
+        top_y = H - 2.1*inch
+
+    # Headline
+    c.setFillColorRGB(*GOLD); c.setFont("Helvetica-Bold", 17)
+    c.drawCentredString(W/2, top_y, "★  SCAN FOR A FREE WELCOME DRINK  ★")
+
+    # QR card
+    qr_size = 2.8*inch
+    qr_x = (W-qr_size)/2
+    qr_y = top_y - 0.45*inch - qr_size
+    pad = 0.26*inch
+    c.setFillColorRGB(*ACCENT)
+    c.roundRect(qr_x-pad-5, qr_y-pad-5, qr_size+2*pad+10, qr_size+2*pad+10, 22, fill=1, stroke=0)
+    c.setFillColorRGB(1,1,1)
+    c.roundRect(qr_x-pad, qr_y-pad, qr_size+2*pad, qr_size+2*pad, 18, fill=1, stroke=0)
+    c.drawImage(qr_reader, qr_x, qr_y, qr_size, qr_size)
+
+    # Drink
+    c.setFillColorRGB(*ACCENT_LT); c.setFont("Helvetica-Bold", 11)
+    c.drawCentredString(W/2, qr_y-0.5*inch, "YOUR COMPLIMENTARY DRINK")
+    c.setFillColorRGB(*WHITE); c.setFont("Helvetica-Bold", 26)
+    c.drawCentredString(W/2, qr_y-0.92*inch, drink)
+
+    # Typeable code
+    c.setFillColorRGB(*MUTED); c.setFont("Helvetica", 10)
+    c.drawCentredString(W/2, qr_y-1.32*inch, "Can't scan? Enter this code in the app:")
+    c.setFillColorRGB(*GOLD); c.setFont("Courier-Bold", 22)
+    c.drawCentredString(W/2, qr_y-1.68*inch, code)
+
+    # Steps
+    c.setFillColorRGB(*ACCENT2); c.setFont("Helvetica-Bold", 12)
+    steps_txt = ["1.  Download the GoBest app", "2.  Tap Scan (or enter the code)", "3.  Show your phone + photo ID at the bar"]
+    sy = qr_y - 2.15*inch
+    for s in steps_txt:
+        c.drawCentredString(W/2, sy, s); sy -= 0.25*inch
+
+    # Footer
+    c.setStrokeColorRGB(*ACCENT); c.setStrokeAlpha(0.4); c.setLineWidth(1)
+    c.line(1.4*inch, 0.6*inch, W-1.4*inch, 0.6*inch); c.setStrokeAlpha(1)
+    c.setFillColorRGB(*MUTED); c.setFont("Helvetica-Bold", 9)
+    c.drawCentredString(W/2, 0.4*inch, "Powered by GoBest  ·  clublifter.com/app")
+
+    c.showPage(); c.save()
+    buf.seek(0)
+    return buf.getvalue()
+
+@app.route('/admin/app-manager')
+def app_manager():
+    if not _can_manage_app():
+        return redirect(url_for("login"))
+    clubs = Club.query.filter_by(active=True).order_by(Club.name).all()
+    qrs = QRCodeItem.query.order_by(QRCodeItem.created_at.desc()).all()
+    return render_template('admin_app_manager.html', clubs=clubs, qrs=qrs)
+
+@app.route('/admin/app-manager/qr/create', methods=['POST'])
+def app_qr_create():
+    if not _can_manage_app():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    f = request.form
+    label = (f.get('label') or "").strip()
+    club_id = _safe_int(f.get('club_id'))
+    drink = (f.get('drink') or "").strip()
+    club = Club.query.get(club_id) if club_id else None
+    if not club:
+        return jsonify({"success": False, "error": "Pick a club for this QR code."})
+    item = QRCodeItem(
+        code=_gen_qr_code(club.name),
+        label=label or f"{club.name} QR",
+        club_id=club.id, club_name=club.name,
+        drink=drink or (club.free_drink or ""),
+        active=True, created_by=session.get("username", ""),
+    )
+    db.session.add(item)
+    db.session.commit()
+    return jsonify({"success": True, "qr": item.to_dict()})
+
+@app.route('/admin/app-manager/qr/toggle/<int:qr_id>', methods=['POST'])
+def app_qr_toggle(qr_id):
+    if not _can_manage_app():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    item = QRCodeItem.query.get_or_404(qr_id)
+    item.active = not item.active
+    db.session.commit()
+    return jsonify({"success": True, "active": item.active})
+
+@app.route('/admin/app-manager/qr/delete/<int:qr_id>', methods=['POST'])
+def app_qr_delete(qr_id):
+    if not _can_manage_app():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    item = QRCodeItem.query.get_or_404(qr_id)
+    db.session.delete(item)
+    db.session.commit()
+    return jsonify({"success": True})
+
+@app.route('/admin/app-manager/qr/<int:qr_id>.png')
+def app_qr_png(qr_id):
+    """QR image for a managed code. Encodes the typeable code so the app resolves
+    it the same whether scanned or typed."""
+    item = QRCodeItem.query.get_or_404(qr_id)
+    from flask import Response
+    payload = f"GOBEST:{item.code}"
+    try:
+        return Response(_qr_png_bytes(payload), mimetype="image/png")
+    except Exception:
+        return Response(_qr_svg_bytes(payload), mimetype="image/svg+xml")
+
+@app.route('/admin/app-manager/qr/<int:qr_id>/flyer')
+def app_qr_flyer(qr_id):
+    """Generate a printable flyer PDF for a managed QR code (Hustler-style branding
+    when it's a Hustler venue, otherwise a clean GoBest flyer)."""
+    if not _can_manage_app():
+        return redirect(url_for("login"))
+    item = QRCodeItem.query.get_or_404(qr_id)
+    pdf_bytes = _build_flyer_pdf(item)
+    from flask import Response
+    safe = "".join(ch for ch in (item.club_name or "venue") if ch.isalnum() or ch in " -_").strip().replace(" ", "_")
+    return Response(pdf_bytes, mimetype="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename=GoBest_Flyer_{safe}.pdf"})
 
 @app.route('/')
 def index():
@@ -2000,20 +2240,38 @@ def app_clubs():
 
 @app.route('/api/app/redeem', methods=['POST'])
 def app_redeem():
-    """Called when a user scans a club's QR code. For the proof of concept this
-    just validates the club code and returns the free-drink details to display."""
+    """Called when a user scans a QR code OR types a code into the app. Resolves
+    either a managed QR code (QRCodeItem) or, for the original demo codes, a club
+    id/name. Returns the free-drink details to display."""
     data = request.get_json(silent=True) or request.form
-    code = (data.get('code') or "").strip()
-    # QR payload format for POC: "GOBEST:<club_id>" or just the club id/name
-    club = None
+    raw = (data.get('code') or "").strip()
+    code = raw
     if code.upper().startswith("GOBEST:"):
         code = code.split(":", 1)[1].strip()
+
+    # 1) Managed QR code (also what typed codes match) — case-insensitive
+    item = QRCodeItem.query.filter(func.upper(QRCodeItem.code) == code.upper()).first()
+    if item:
+        if not item.active:
+            return jsonify({"success": False, "error": "This code is no longer active."})
+        club = Club.query.get(item.club_id) if item.club_id else None
+        item.scan_count = (item.scan_count or 0) + 1
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "club_name": item.club_name or (club.name if club else "GoBest"),
+            "free_drink": item.drink or (club.free_drink if club else "") or "a complimentary welcome drink",
+            "instructions": "Show this screen and a valid photo ID to the bartender to claim your free drink.",
+        })
+
+    # 2) Legacy/demo: club id or name
+    club = None
     if code.isdigit():
         club = Club.query.get(int(code))
     if not club:
         club = Club.query.filter(func.lower(Club.name) == code.lower()).first()
     if not club or not club.gobest:
-        return jsonify({"success": False, "error": "This QR code isn't a valid GoBest club."})
+        return jsonify({"success": False, "error": "That code isn't valid. Check the code and try again."})
     return jsonify({
         "success": True,
         "club_name": club.name,

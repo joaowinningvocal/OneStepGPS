@@ -46,16 +46,8 @@
 </head>
 <body>
 <div class="wrap">
-    <div class="topbar">
-        <div class="brand">Club<span>Lifter</span></div>
-        <div class="pills">
-            <a href="/admin/today" class="pill">Today</a>
-            <a href="/admin/analytics" class="pill act">Analytics</a>
-            <a href="/admin/guestlist" class="pill">Guest List</a>
-            <a href="/admin/tracking" class="pill">Tracking</a>
-            <a href="/" class="pill">← Dashboard</a>
-        </div>
-    </div>
+    {% set active_page = 'analytics' %}{% include '_sidebar.html' %}
+
 
     <h1>Analytics</h1>
     <div class="sub">Performance overview across your operation.</div>

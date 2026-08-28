@@ -5,3 +5,4 @@ requests
 Werkzeug
 qrcode
 Pillow
+reportlab
