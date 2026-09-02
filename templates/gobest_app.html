@@ -10359,11 +10359,6 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
         <div class="spinner"></div>
       </div>
     </div>
-    <div class="nav">
-      <button class="nav-btn active" id="navExplore" onclick="showScreen('home');setNav('navExplore')"><span class="ico">🏙️</span>Explore</button>
-      <button class="nav-btn scan-btn" onclick="openScanner()"><span class="ico">⧉</span>Scan</button>
-      <button class="nav-btn" id="navProfile" onclick="openProfile()"><span class="ico">👤</span>Profile</button>
-    </div>
   </div>
 
   <!-- ═══ SCANNER SCREEN ═══ -->
@@ -10519,6 +10514,13 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
       <button class="cta" onclick="dismissWelcome()">Show me the clubs</button>
       <button class="skip" onclick="dismissWelcome()">Maybe later</button>
     </div>
+  </div>
+
+  <!-- ═══ GLOBAL BOTTOM NAV (shown on Explore & Profile) ═══ -->
+  <div class="nav" id="mainNav">
+    <button class="nav-btn active" id="navExplore" onclick="showScreen('home');setNav('navExplore')"><span class="ico">🏙️</span>Explore</button>
+    <button class="nav-btn scan-btn" onclick="openScanner()"><span class="ico">⧉</span>Scan</button>
+    <button class="nav-btn" id="navProfile" onclick="openProfile()"><span class="ico">👤</span>Profile</button>
   </div>
 
 </div>
@@ -10983,6 +10985,12 @@ function previewClub(id){
 function showScreen(name){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById('screen-'+name).classList.add('active');
+  // The bottom nav only shows on the main browsing screens
+  const nav = document.getElementById('mainNav');
+  if(nav){
+    const withNav = (name === 'home' || name === 'profile');
+    nav.style.display = withNav ? 'flex' : 'none';
+  }
 }
 
 init();
