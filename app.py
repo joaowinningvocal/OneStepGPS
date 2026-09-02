@@ -214,12 +214,13 @@ class Club(db.Model):
     photo_url   = db.Column(db.String(400), default="")
     free_drink  = db.Column(db.String(200), default="")    # e.g. "House margarita"
     gobest      = db.Column(db.Boolean, default=True)       # part of the GoBest network
+    review_url  = db.Column(db.String(400), default="")     # Google review link for the app prompt
 
     def to_dict(self):
         return {"id": self.id, "name": self.name, "address": self.address, "active": self.active,
                 "state": self.state, "lat": self.lat, "lng": self.lng,
                 "photo_url": self.photo_url, "free_drink": self.free_drink,
-                "gobest": self.gobest}
+                "gobest": self.gobest, "review_url": self.review_url or ""}
 
 class Setting(db.Model):
     """Generic key-value store for app settings (e.g. the global API key)."""
@@ -262,6 +263,76 @@ class QRCodeItem(db.Model):
             "scan_count": self.scan_count or 0,
             "created_at": self.created_at.strftime("%Y-%m-%d") if self.created_at else "",
         }
+
+class AppUser(db.Model):
+    """A consumer who uses the GoBest app. Identified by phone (verified via SMS).
+    Carries loyalty progress: check-ins, points, and level."""
+    id           = db.Column(db.Integer, primary_key=True)
+    phone        = db.Column(db.String(20), nullable=False, unique=True)   # last-10-digit normalized
+    name         = db.Column(db.String(120), default="")
+    verified     = db.Column(db.Boolean, default=False)
+    points       = db.Column(db.Integer, default=0)                        # loyalty points (from check-ins)
+    checkin_count = db.Column(db.Integer, default=0)
+    auth_token   = db.Column(db.String(64), default="")                    # device session token
+    created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+    last_seen    = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def level(self):
+        """Level derived from points. Every LEVEL_STEP points = 1 level."""
+        return app_level_for_points(self.points or 0)
+
+    def to_dict(self):
+        lvl = self.level()
+        info = APP_LEVELS.get(lvl, APP_LEVELS[max(APP_LEVELS)])
+        nxt = APP_LEVELS.get(lvl + 1)
+        return {
+            "id": self.id, "phone": self.phone, "name": self.name,
+            "verified": self.verified, "points": self.points or 0,
+            "checkin_count": self.checkin_count or 0,
+            "level": lvl, "level_name": info["name"], "level_perk": info["perk"],
+            "points_to_next": (nxt["min_points"] - (self.points or 0)) if nxt else 0,
+            "next_level_name": nxt["name"] if nxt else None,
+            "next_level_at": nxt["min_points"] if nxt else None,
+        }
+
+class CheckIn(db.Model):
+    """A record of an app user checking in at a club (by scanning its QR)."""
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, nullable=False, index=True)
+    club_id    = db.Column(db.Integer, nullable=True)
+    club_name  = db.Column(db.String(120), default="")
+    points     = db.Column(db.Integer, default=0)          # points awarded for this check-in
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class OTPCode(db.Model):
+    """A one-time SMS verification code for app login."""
+    id         = db.Column(db.Integer, primary_key=True)
+    phone      = db.Column(db.String(20), nullable=False, index=True)
+    code       = db.Column(db.String(6), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    attempts   = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+# ─── LOYALTY LEVEL SYSTEM ─────────────────────────────────────────────────────
+# Points come from check-ins. Levels unlock periodic rewards. Tune freely.
+POINTS_PER_CHECKIN = 10          # each QR check-in at a venue
+CHECKIN_COOLDOWN_HOURS = 4       # can't earn again at the SAME club within this window
+
+APP_LEVELS = {
+    1: {"name": "Newcomer",  "min_points": 0,   "perk": ""},
+    2: {"name": "Regular",   "min_points": 30,  "perk": "Free welcome drink on your next visit"},
+    3: {"name": "VIP",       "min_points": 80,  "perk": "Free drink + skip-the-line pass"},
+    4: {"name": "Insider",   "min_points": 160, "perk": "Free drink + free dance"},
+    5: {"name": "Legend",    "min_points": 300, "perk": "Free bottle service upgrade"},
+}
+
+def app_level_for_points(points):
+    """Return the numeric level for a points total."""
+    lvl = 1
+    for n in sorted(APP_LEVELS):
+        if points >= APP_LEVELS[n]["min_points"]:
+            lvl = n
+    return lvl
 
 def set_setting(key, value):
     s = Setting.query.filter_by(key=key).first()
@@ -2237,6 +2308,189 @@ def app_clubs():
     else:
         out.sort(key=lambda x: x["name"])
     return jsonify({"success": True, "state": state, "count": len(out), "clubs": out})
+
+# ─── APP AUTH (SMS login) + PROFILE ───────────────────────────────────────────
+import secrets as _secrets
+
+def _app_user_from_token():
+    """Resolve the logged-in AppUser from the Authorization header or ?token=."""
+    tok = ""
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        tok = auth[7:].strip()
+    if not tok:
+        tok = (request.args.get("token") or "").strip()
+    if not tok:
+        data = request.get_json(silent=True) or {}
+        tok = (data.get("token") or "").strip()
+    if not tok:
+        return None
+    return AppUser.query.filter_by(auth_token=tok).first()
+
+@app.route('/api/app/auth/send-code', methods=['POST'])
+def app_auth_send_code():
+    """Step 1 of login: the user enters their phone; we text them a 6-digit code."""
+    data = request.get_json(silent=True) or request.form
+    phone = clean_phone(data.get("phone") or "")
+    if not phone or len(phone) < 10:
+        return jsonify({"success": False, "error": "Enter a valid phone number."})
+    # Rate limit: max 1 code per 30s per phone
+    recent = OTPCode.query.filter_by(phone=phone).order_by(OTPCode.created_at.desc()).first()
+    if recent and (datetime.utcnow() - recent.created_at).total_seconds() < 30:
+        return jsonify({"success": False, "error": "Please wait a moment before requesting another code."})
+    code = "".join(_secrets.choice("0123456789") for _ in range(6))
+    otp = OTPCode(phone=phone, code=code, expires_at=datetime.utcnow() + timedelta(minutes=10))
+    db.session.add(otp)
+    db.session.commit()
+    # Send the SMS
+    msg = f"Your GoBest verification code is {code}. It expires in 10 minutes."
+    sent = send_sms(phone, msg)
+    if not sent:
+        # Still return success so the flow works in dev, but note it
+        print(f"[APP-AUTH] SMS send failed for {phone}; code={code}", flush=True)
+    return jsonify({"success": True, "message": "Code sent."})
+
+@app.route('/api/app/auth/verify', methods=['POST'])
+def app_auth_verify():
+    """Step 2 of login: the user enters the code. On success we create/return the
+    AppUser and a device token."""
+    data = request.get_json(silent=True) or request.form
+    phone = clean_phone(data.get("phone") or "")
+    code = (data.get("code") or "").strip()
+    name = (data.get("name") or "").strip()
+    if not phone or not code:
+        return jsonify({"success": False, "error": "Phone and code are required."})
+    otp = OTPCode.query.filter_by(phone=phone).order_by(OTPCode.created_at.desc()).first()
+    if not otp:
+        return jsonify({"success": False, "error": "Request a code first."})
+    if datetime.utcnow() > otp.expires_at:
+        return jsonify({"success": False, "error": "That code expired. Request a new one."})
+    if otp.attempts >= 5:
+        return jsonify({"success": False, "error": "Too many attempts. Request a new code."})
+    otp.attempts += 1
+    db.session.commit()
+    if code != otp.code:
+        return jsonify({"success": False, "error": "Incorrect code. Try again."})
+
+    # Success — find or create the user
+    user = AppUser.query.filter_by(phone=phone).first()
+    if not user:
+        user = AppUser(phone=phone, name=name, verified=True)
+        db.session.add(user)
+    else:
+        user.verified = True
+        if name and not user.name:
+            user.name = name
+    user.auth_token = _secrets.token_hex(24)
+    user.last_seen = datetime.utcnow()
+    db.session.commit()
+    # Clean up used codes for this phone
+    OTPCode.query.filter_by(phone=phone).delete()
+    db.session.commit()
+    return jsonify({"success": True, "token": user.auth_token, "user": user.to_dict()})
+
+@app.route('/api/app/profile', methods=['GET', 'POST'])
+def app_profile():
+    """Return the logged-in user's profile (level, points, check-ins). POST can
+    update the name."""
+    user = _app_user_from_token()
+    if not user:
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or request.form
+        new_name = (data.get("name") or "").strip()
+        if new_name:
+            user.name = new_name
+            db.session.commit()
+    user.last_seen = datetime.utcnow()
+    db.session.commit()
+    # Recent check-ins
+    checkins = (CheckIn.query.filter_by(user_id=user.id)
+                .order_by(CheckIn.created_at.desc()).limit(10).all())
+    recent = [{"club_name": c.club_name, "points": c.points,
+               "date": c.created_at.strftime("%b %d") if c.created_at else ""} for c in checkins]
+    out = user.to_dict()
+    out["recent_checkins"] = recent
+    # Include the full level ladder so the app can show progress
+    out["levels"] = [{"level": n, "name": APP_LEVELS[n]["name"],
+                      "min_points": APP_LEVELS[n]["min_points"], "perk": APP_LEVELS[n]["perk"]}
+                     for n in sorted(APP_LEVELS)]
+    return jsonify({"success": True, "user": out})
+
+@app.route('/api/app/checkin', methods=['POST'])
+def app_checkin():
+    """Record a check-in when a logged-in user scans a club QR. Awards points
+    (with a per-club cooldown) and returns the updated level + any new unlock."""
+    user = _app_user_from_token()
+    if not user:
+        return jsonify({"success": False, "error": "Not logged in", "need_login": True}), 401
+    data = request.get_json(silent=True) or request.form
+    raw = (data.get("code") or "").strip()
+    code = raw.split(":", 1)[1].strip() if raw.upper().startswith("GOBEST:") else raw
+
+    # Resolve the club from the QR code (managed code or club name/id)
+    club = None
+    item = QRCodeItem.query.filter(func.upper(QRCodeItem.code) == code.upper()).first()
+    if item and item.active:
+        club = Club.query.get(item.club_id) if item.club_id else None
+        club_name = item.club_name
+    else:
+        if code.isdigit():
+            club = Club.query.get(int(code))
+        if not club:
+            club = Club.query.filter(func.lower(Club.name) == code.lower()).first()
+        club_name = club.name if club else ""
+    if not club_name:
+        return jsonify({"success": False, "error": "That code isn't a valid venue."})
+
+    # Cooldown: no repeat points at the SAME club within the window
+    club_id = club.id if club else None
+    cutoff = datetime.utcnow() - timedelta(hours=CHECKIN_COOLDOWN_HOURS)
+    recent_same = (CheckIn.query.filter_by(user_id=user.id, club_name=club_name)
+                   .filter(CheckIn.created_at >= cutoff).first())
+    old_level = user.level()
+    if recent_same:
+        awarded = 0
+    else:
+        awarded = POINTS_PER_CHECKIN
+        user.points = (user.points or 0) + awarded
+        user.checkin_count = (user.checkin_count or 0) + 1
+        db.session.add(CheckIn(user_id=user.id, club_id=club_id, club_name=club_name, points=awarded))
+    db.session.commit()
+    new_level = user.level()
+    leveled_up = new_level > old_level
+
+    return jsonify({
+        "success": True,
+        "club_name": club_name,
+        "points_awarded": awarded,
+        "already_checked_in": awarded == 0,
+        "leveled_up": leveled_up,
+        "new_level": new_level,
+        "new_level_name": APP_LEVELS.get(new_level, {}).get("name", ""),
+        "new_perk": APP_LEVELS.get(new_level, {}).get("perk", "") if leveled_up else "",
+        "user": user.to_dict(),
+    })
+
+@app.route('/api/app/club-review-link', methods=['GET'])
+def app_club_review_link():
+    """Return the Google review link for a club (for the 'Enjoying your stay?'
+    prompt). Uses the club's saved review URL, or builds a Google search fallback."""
+    club_id = _safe_int(request.args.get("club_id"))
+    club = Club.query.get(club_id) if club_id else None
+    if not club:
+        name = (request.args.get("club_name") or "").strip()
+        if name:
+            club = Club.query.filter(func.lower(Club.name) == name.lower()).first()
+    if not club:
+        return jsonify({"success": False, "error": "Club not found"})
+    # Prefer an explicit review URL if the club has one; else Google search
+    link = (club.review_url or "").strip() if hasattr(club, "review_url") else ""
+    if not link:
+        import urllib.parse as _up
+        q = _up.quote(f"{club.name} {club.address or ''} reviews")
+        link = f"https://www.google.com/search?q={q}"
+    return jsonify({"success": True, "club_name": club.name, "review_link": link})
 
 @app.route('/api/app/redeem', methods=['POST'])
 def app_redeem():
@@ -5872,6 +6126,7 @@ with app.app_context():
     safe_migrate("club", "photo_url",   "ALTER TABLE club ADD COLUMN photo_url VARCHAR(400) DEFAULT ''")
     safe_migrate("club", "free_drink",  "ALTER TABLE club ADD COLUMN free_drink VARCHAR(200) DEFAULT ''")
     safe_migrate("club", "gobest",      "ALTER TABLE club ADD COLUMN gobest BOOLEAN DEFAULT 1")
+    safe_migrate("club", "review_url",  "ALTER TABLE club ADD COLUMN review_url VARCHAR(400) DEFAULT ''")
     safe_migrate("customer", "reported",         "ALTER TABLE customer ADD COLUMN reported BOOLEAN DEFAULT 0")
     safe_migrate("customer", "report_reason",    "ALTER TABLE customer ADD COLUMN report_reason VARCHAR(500) DEFAULT ''")
     safe_migrate("customer", "reported_by",      "ALTER TABLE customer ADD COLUMN reported_by VARCHAR(120) DEFAULT ''")

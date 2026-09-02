@@ -159,6 +159,70 @@ body{
 
 .spinner{width:34px;height:34px;border:3px solid var(--bd);border-top-color:var(--acc);border-radius:50%;animation:spin .8s linear infinite;margin:40px auto;}
 @keyframes spin{to{transform:rotate(360deg);}}
+/* ── LOGIN ── */
+.login-body{flex:1;display:flex;flex-direction:column;justify-content:center;padding:40px 28px calc(40px + env(safe-area-inset-bottom));position:relative;z-index:2;}
+.login-brand{font-family:'Syne',sans-serif;font-weight:800;font-size:2rem;text-align:center;margin-bottom:30px;}
+.login-brand .go{color:var(--acc3);}
+.login-hero{font-family:'Syne',sans-serif;font-weight:800;font-size:1.8rem;text-align:center;margin-bottom:8px;}
+.login-sub{color:var(--m);font-size:.92rem;text-align:center;line-height:1.5;margin-bottom:28px;padding:0 10px;}
+.login-sub2{color:var(--m);font-size:.82rem;text-align:center;margin-bottom:14px;}
+.login-label{display:block;font-size:.74rem;color:var(--m2);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;}
+.login-input{width:100%;box-sizing:border-box;background:var(--surf2,#1e1738);border:2px solid var(--bhi);border-radius:13px;padding:15px;color:var(--t);font-size:1.1rem;font-family:'DM Sans',sans-serif;margin-bottom:16px;}
+.login-input:focus{outline:none;border-color:var(--acc);}
+.login-input.code-in{text-align:center;font-size:1.8rem;letter-spacing:.35em;font-family:'Courier New',monospace;font-weight:700;}
+.login-btn{width:100%;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;border:none;padding:16px;border-radius:13px;font-family:'DM Sans',sans-serif;font-weight:700;font-size:1rem;cursor:pointer;box-shadow:0 8px 24px rgba(138,92,246,.4);}
+.login-link{width:100%;background:none;border:none;color:var(--acc3);font-size:.86rem;font-weight:600;cursor:pointer;padding:14px;font-family:'DM Sans',sans-serif;}
+.login-skip{width:100%;background:none;border:none;color:var(--m2);font-size:.86rem;font-weight:600;cursor:pointer;padding:14px;margin-top:6px;font-family:'DM Sans',sans-serif;}
+.login-msg{text-align:center;font-size:.85rem;min-height:20px;margin-top:6px;font-weight:600;}
+.login-msg.err{color:var(--r);}
+.login-msg.ok{color:var(--g);}
+
+/* ── PROFILE ── */
+.profile-body{flex:1;padding:24px 20px calc(100px + env(safe-area-inset-bottom));position:relative;z-index:2;overflow-y:auto;}
+.profile-header{text-align:center;margin-bottom:24px;}
+.profile-avatar{width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--pink,#ec4899));display:flex;align-items:center;justify-content:center;font-size:2.4rem;margin:0 auto 12px;}
+.profile-name{font-family:'Syne',sans-serif;font-weight:800;font-size:1.5rem;}
+.profile-phone{color:var(--m);font-size:.86rem;margin-top:2px;}
+.level-card{background:linear-gradient(135deg,var(--surf,#161129),var(--surf2,#1e1738));border:1px solid var(--bhi);border-radius:18px;padding:20px;margin-bottom:16px;}
+.level-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+.level-label{font-size:.72rem;color:var(--m2);text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
+.level-name{font-family:'Syne',sans-serif;font-weight:800;font-size:1.5rem;color:var(--acc3);}
+.level-badge{width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--gold,#fbbf24),#f59e0b);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:800;font-size:1.3rem;color:#1a1033;}
+.level-bar-wrap{height:10px;background:rgba(255,255,255,.08);border-radius:6px;overflow:hidden;margin-bottom:8px;}
+.level-bar{height:100%;background:linear-gradient(90deg,var(--acc),var(--pink,#ec4899));border-radius:6px;transition:width .6s cubic-bezier(.2,.8,.2,1);}
+.level-progress{font-size:.8rem;color:var(--m);text-align:center;}
+.level-perk{margin-top:14px;padding:12px;background:rgba(251,191,36,.08);border:1px dashed rgba(251,191,36,.3);border-radius:11px;font-size:.86rem;color:var(--gold,#fbbf24);text-align:center;font-weight:600;}
+.level-perk:empty{display:none;}
+.prof-stats{display:flex;gap:12px;margin-bottom:24px;}
+.prof-stat{flex:1;background:var(--surf,#161129);border:1px solid var(--bd);border-radius:14px;padding:16px;text-align:center;}
+.prof-stat b{display:block;font-family:'Syne',sans-serif;font-size:1.8rem;font-weight:800;color:var(--acc3);}
+.prof-stat span{font-size:.74rem;color:var(--m2);text-transform:uppercase;letter-spacing:.4px;}
+.prof-section-title{font-family:'Syne',sans-serif;font-weight:700;font-size:1rem;margin:18px 0 10px;}
+.ladder-item{display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;margin-bottom:8px;background:var(--surf,#161129);border:1px solid var(--bd);}
+.ladder-item.reached{border-color:var(--bhi);}
+.ladder-item.current{background:linear-gradient(135deg,rgba(138,92,246,.2),rgba(236,72,153,.1));border-color:var(--acc);}
+.ladder-lvl{width:34px;height:34px;border-radius:50%;background:var(--surf2,#1e1738);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.9rem;flex-shrink:0;font-family:'Syne',sans-serif;}
+.ladder-item.reached .ladder-lvl{background:linear-gradient(135deg,var(--gold,#fbbf24),#f59e0b);color:#1a1033;}
+.ladder-info{flex:1;min-width:0;}
+.ladder-name{font-weight:700;font-size:.92rem;}
+.ladder-perk{font-size:.76rem;color:var(--m);line-height:1.3;}
+.ladder-pts{font-size:.72rem;color:var(--m2);font-weight:600;white-space:nowrap;}
+.prof-checkin{display:flex;justify-content:space-between;align-items:center;padding:11px 14px;background:var(--surf,#161129);border:1px solid var(--bd);border-radius:11px;margin-bottom:7px;}
+.prof-checkin .cin-club{font-weight:600;font-size:.88rem;}
+.prof-checkin .cin-date{font-size:.76rem;color:var(--m2);}
+.prof-checkin .cin-pts{font-size:.8rem;color:var(--g);font-weight:700;}
+.prof-empty{text-align:center;color:var(--m2);font-size:.86rem;padding:24px;}
+.prof-logout{width:100%;background:none;border:1px solid var(--bd);color:var(--m2);padding:14px;border-radius:12px;font-weight:600;font-size:.9rem;cursor:pointer;margin-top:24px;font-family:'DM Sans',sans-serif;}
+
+/* ── REVIEW PROMPT ── */
+.review-prompt{position:absolute;inset:0;z-index:140;background:rgba(8,6,15,.8);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:30px;}
+.review-prompt.show{display:flex;}
+.review-box{background:var(--surf,#161129);border:1px solid var(--bhi);border-radius:22px;padding:30px 26px;max-width:330px;width:100%;text-align:center;}
+.review-emoji{font-size:3rem;margin-bottom:12px;}
+.review-title{font-family:'Syne',sans-serif;font-weight:800;font-size:1.5rem;margin-bottom:8px;}
+.review-sub{color:var(--m);font-size:.9rem;line-height:1.5;margin-bottom:24px;}
+.review-btn{width:100%;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;border:none;padding:15px;border-radius:13px;font-weight:700;font-size:.95rem;cursor:pointer;font-family:'DM Sans',sans-serif;margin-bottom:8px;}
+.review-skip{width:100%;background:none;border:none;color:var(--m2);font-size:.86rem;font-weight:600;cursor:pointer;padding:10px;font-family:'DM Sans',sans-serif;}
 </style>
 <script>
 (function webpackUniversalModuleDefinition(root, factory) {
@@ -10296,9 +10360,9 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
       </div>
     </div>
     <div class="nav">
-      <button class="nav-btn active"><span class="ico">🏙️</span>Explore</button>
+      <button class="nav-btn active" id="navExplore" onclick="showScreen('home');setNav('navExplore')"><span class="ico">🏙️</span>Explore</button>
       <button class="nav-btn scan-btn" onclick="openScanner()"><span class="ico">⧉</span>Scan</button>
-      <button class="nav-btn" onclick="simulateTravel()"><span class="ico">✈️</span>Travel</button>
+      <button class="nav-btn" id="navProfile" onclick="openProfile()"><span class="ico">👤</span>Profile</button>
     </div>
   </div>
 
@@ -10364,6 +10428,84 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
         </div>
       </div>
       <button class="redeem-done" onclick="showScreen('home')">Done</button>
+    </div>
+  </div>
+
+  <!-- ═══ LOGIN SCREEN ═══ -->
+  <div class="screen login-screen" id="screen-login">
+    <div class="login-body">
+      <div class="login-brand"><span class="go">Go</span>Best</div>
+      <div class="login-hero">Join the club</div>
+      <div class="login-sub">Check in, level up, and unlock free drinks &amp; perks at every venue.</div>
+
+      <div id="loginStep1">
+        <label class="login-label">Your phone number</label>
+        <input id="loginPhone" class="login-input" type="tel" inputmode="tel" placeholder="(702) 555-1234" autocomplete="tel">
+        <button class="login-btn" onclick="sendCode()">Send code</button>
+      </div>
+
+      <div id="loginStep2" style="display:none;">
+        <label class="login-label">Enter the 6-digit code</label>
+        <div class="login-sub2" id="codeSentTo">We texted a code to your phone.</div>
+        <input id="loginCode" class="login-input code-in" type="tel" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code">
+        <label class="login-label" style="margin-top:14px;">Your name (optional)</label>
+        <input id="loginName" class="login-input" placeholder="What should we call you?" autocomplete="name">
+        <button class="login-btn" onclick="verifyCode()">Verify &amp; continue</button>
+        <button class="login-link" onclick="backToPhone()">← Use a different number</button>
+      </div>
+
+      <div class="login-msg" id="loginMsg"></div>
+      <button class="login-skip" onclick="showScreen('home');setNav('navExplore')">Maybe later</button>
+    </div>
+  </div>
+
+  <!-- ═══ PROFILE SCREEN ═══ -->
+  <div class="screen profile-screen" id="screen-profile">
+    <div class="profile-body">
+      <div class="profile-header">
+        <div class="profile-avatar" id="profAvatar">👤</div>
+        <div class="profile-name" id="profName">—</div>
+        <div class="profile-phone" id="profPhone"></div>
+      </div>
+
+      <div class="level-card">
+        <div class="level-top">
+          <div>
+            <div class="level-label">Your level</div>
+            <div class="level-name" id="profLevelName">Newcomer</div>
+          </div>
+          <div class="level-badge" id="profLevelNum">1</div>
+        </div>
+        <div class="level-bar-wrap">
+          <div class="level-bar" id="profLevelBar" style="width:0%"></div>
+        </div>
+        <div class="level-progress" id="profProgress">0 points</div>
+        <div class="level-perk" id="profPerk"></div>
+      </div>
+
+      <div class="prof-stats">
+        <div class="prof-stat"><b id="profPoints">0</b><span>Points</span></div>
+        <div class="prof-stat"><b id="profCheckins">0</b><span>Check-ins</span></div>
+      </div>
+
+      <div class="prof-section-title">Rewards ladder</div>
+      <div id="profLadder"></div>
+
+      <div class="prof-section-title">Recent check-ins</div>
+      <div id="profRecent"><div class="prof-empty">No check-ins yet — scan a venue's QR to start.</div></div>
+
+      <button class="prof-logout" onclick="appLogout()">Log out</button>
+    </div>
+  </div>
+
+  <!-- ═══ REVIEW PROMPT ═══ -->
+  <div class="review-prompt" id="reviewPrompt">
+    <div class="review-box">
+      <div class="review-emoji">⭐</div>
+      <div class="review-title">Enjoying your stay?</div>
+      <div class="review-sub" id="reviewClub">Leave a quick review — it helps a lot!</div>
+      <button class="review-btn" onclick="goToReview()">Leave a review</button>
+      <button class="review-skip" onclick="closeReview()">Not now</button>
     </div>
   </div>
 
@@ -10653,14 +10795,185 @@ async function redeem(code){
     document.getElementById('redeemCode').innerText = 'GB-' + String(Math.floor(1000+Math.random()*9000));
     showScreen('redeem');
     setTimeout(()=>dropConfetti(document.getElementById('screen-redeem')),300);
+    _lastClub = d.club_name;
+    // If logged in, also record a check-in (earns points / levels up)
+    if(_token){ recordCheckin(code, d.club_name); }
+    // Offer a review a few seconds after redeeming
+    setTimeout(()=>maybeShowReview(d.club_name), 4500);
   }catch(e){
     document.getElementById('scanFail').classList.add('show');
   }
 }
 
+// ══════════════════════════════════════════════════════════════════
+//  APP AUTH + PROFILE + LOYALTY
+//  Token is kept in a JS variable (artifacts can't use localStorage). In the
+//  native Capacitor build this is swapped for secure storage / Preferences.
+// ══════════════════════════════════════════════════════════════════
+let _token = null;
+let _user = null;
+let _lastClub = null;
+let _pendingCheckinCode = null;
+
+function setNav(activeId){
+  document.querySelectorAll('.nav .nav-btn').forEach(b=>b.classList.remove('active'));
+  const el = document.getElementById(activeId);
+  if(el) el.classList.add('active');
+}
+
+function openProfile(){
+  setNav('navProfile');
+  if(!_token){ showScreen('login'); return; }
+  showScreen('profile');
+  loadProfile();
+}
+
+// ── Login flow ──
+async function sendCode(){
+  const phone = document.getElementById('loginPhone').value.trim();
+  const msg = document.getElementById('loginMsg');
+  if(!phone){ msg.className='login-msg err'; msg.innerText='Enter your phone number.'; return; }
+  msg.className='login-msg'; msg.innerText='Sending…';
+  try{
+    const d = await (await fetch(`${API_BASE}/api/app/auth/send-code`,{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone})
+    })).json();
+    if(d.success){
+      document.getElementById('loginStep1').style.display='none';
+      document.getElementById('loginStep2').style.display='block';
+      document.getElementById('codeSentTo').innerText = `We texted a code to ${phone}.`;
+      msg.innerText=''; document.getElementById('loginCode').focus();
+    }else{ msg.className='login-msg err'; msg.innerText=d.error||'Could not send code'; }
+  }catch(e){ msg.className='login-msg err'; msg.innerText='Network error'; }
+}
+function backToPhone(){
+  document.getElementById('loginStep2').style.display='none';
+  document.getElementById('loginStep1').style.display='block';
+  document.getElementById('loginMsg').innerText='';
+}
+async function verifyCode(){
+  const phone = document.getElementById('loginPhone').value.trim();
+  const code = document.getElementById('loginCode').value.trim();
+  const name = document.getElementById('loginName').value.trim();
+  const msg = document.getElementById('loginMsg');
+  if(!code){ msg.className='login-msg err'; msg.innerText='Enter the code.'; return; }
+  msg.className='login-msg'; msg.innerText='Verifying…';
+  try{
+    const d = await (await fetch(`${API_BASE}/api/app/auth/verify`,{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone,code,name})
+    })).json();
+    if(d.success){
+      _token = d.token; _user = d.user;
+      msg.className='login-msg ok'; msg.innerText='Welcome!';
+      // Reset login form for next time
+      document.getElementById('loginCode').value=''; document.getElementById('loginPhone').value='';
+      backToPhone();
+      // If there was a check-in waiting for login, do it now
+      if(_pendingCheckinCode){ const c=_pendingCheckinCode; _pendingCheckinCode=null; await recordCheckin(c); }
+      showScreen('profile'); setNav('navProfile'); loadProfile();
+    }else{ msg.className='login-msg err'; msg.innerText=d.error||'Verification failed'; }
+  }catch(e){ msg.className='login-msg err'; msg.innerText='Network error'; }
+}
+function appLogout(){
+  _token=null; _user=null;
+  showScreen('home'); setNav('navExplore');
+}
+
+// ── Profile ──
+async function loadProfile(){
+  if(!_token) return;
+  try{
+    const d = await (await fetch(`${API_BASE}/api/app/profile`,{
+      headers:{'Authorization':`Bearer ${_token}`}
+    })).json();
+    if(!d.success){ if(d.error){ appLogout(); } return; }
+    const u = d.user; _user = u;
+    document.getElementById('profName').innerText = u.name || 'Guest';
+    document.getElementById('profPhone').innerText = u.phone ? formatPhone(u.phone) : '';
+    document.getElementById('profLevelName').innerText = u.level_name;
+    document.getElementById('profLevelNum').innerText = u.level;
+    document.getElementById('profPoints').innerText = u.points;
+    document.getElementById('profCheckins').innerText = u.checkin_count;
+    // progress bar toward next level
+    let pct = 100;
+    if(u.next_level_at){
+      const levels = u.levels||[];
+      const curMin = (levels.find(l=>l.level===u.level)||{}).min_points || 0;
+      const span = u.next_level_at - curMin;
+      pct = span>0 ? Math.min(100, Math.round(((u.points - curMin)/span)*100)) : 0;
+      document.getElementById('profProgress').innerText = `${u.points_to_next} points to ${u.next_level_name}`;
+    }else{
+      document.getElementById('profProgress').innerText = 'Max level reached 🎉';
+    }
+    document.getElementById('profLevelBar').style.width = pct+'%';
+    document.getElementById('profPerk').innerText = u.level_perk || '';
+    // ladder
+    const ladder = document.getElementById('profLadder');
+    ladder.innerHTML = (u.levels||[]).map(l=>{
+      const reached = u.points >= l.min_points;
+      const current = l.level === u.level;
+      return `<div class="ladder-item ${reached?'reached':''} ${current?'current':''}">
+        <div class="ladder-lvl">${l.level}</div>
+        <div class="ladder-info"><div class="ladder-name">${l.name}</div><div class="ladder-perk">${l.perk||'Starting level'}</div></div>
+        <div class="ladder-pts">${l.min_points} pts</div>
+      </div>`;
+    }).join('');
+    // recent check-ins
+    const recent = document.getElementById('profRecent');
+    if(u.recent_checkins && u.recent_checkins.length){
+      recent.innerHTML = u.recent_checkins.map(c=>`
+        <div class="prof-checkin"><div><div class="cin-club">${esc(c.club_name)}</div><div class="cin-date">${c.date}</div></div><div class="cin-pts">+${c.points}</div></div>
+      `).join('');
+    }else{
+      recent.innerHTML = '<div class="prof-empty">No check-ins yet — scan a venue\'s QR to start.</div>';
+    }
+  }catch(e){}
+}
+
+// ── Check-in ──
+async function recordCheckin(code, clubName){
+  if(!_token){ _pendingCheckinCode = code; return; }
+  try{
+    const d = await (await fetch(`${API_BASE}/api/app/checkin`,{
+      method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${_token}`},
+      body:JSON.stringify({code})
+    })).json();
+    if(d.success){
+      _user = d.user;
+      if(d.leveled_up){
+        setTimeout(()=>showLevelUp(d.new_level, d.new_level_name, d.new_perk), 1800);
+      }
+    }
+  }catch(e){}
+}
+function showLevelUp(level, name, perk){
+  showWelcome(`Level ${level}: ${name}!`, perk ? `You unlocked: ${perk}` : `You reached ${name}!`);
+}
+
+// ── Review prompt ──
+let _reviewedThisSession = {};
+async function maybeShowReview(clubName){
+  if(!clubName || _reviewedThisSession[clubName]) return;
+  _reviewedThisSession[clubName] = true;
+  document.getElementById('reviewClub').innerText = `Tell everyone about your night at ${clubName}!`;
+  document.getElementById('reviewPrompt').classList.add('show');
+}
+function closeReview(){ document.getElementById('reviewPrompt').classList.remove('show'); }
+async function goToReview(){
+  closeReview();
+  try{
+    const d = await (await fetch(`${API_BASE}/api/app/club-review-link?club_name=${encodeURIComponent(_lastClub||'')}`)).json();
+    if(d.success && d.review_link){ window.open(d.review_link, '_blank'); }
+  }catch(e){}
+}
+
+function formatPhone(p){
+  const s = (p||'').replace(/\D/g,'');
+  if(s.length===10) return `(${s.slice(0,3)}) ${s.slice(3,6)}-${s.slice(6)}`;
+  return p;
+}
+
 function previewClub(id){
-  // In the full app this opens club details; for the POC, tapping a club
-  // takes you straight to scanning.
   openScanner();
 }
 
