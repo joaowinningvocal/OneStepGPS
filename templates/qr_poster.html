@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GoBest — {% if single %}{{ info.club }}{% else %}Demo QR Codes{% endif %}</title>
+<title>ClubLifter — {% if single %}{{ info.club }}{% else %}Demo QR Codes{% endif %}</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -33,7 +33,7 @@ body{background:#08060f;color:#f0edf7;font-family:'DM Sans',sans-serif;padding:4
 <div class="wrap">
   <div class="head">
     <div class="brand"><span class="go">Go</span>Best</div>
-    <p>Scan with the GoBest app to claim your free drink</p>
+    <p>Scan with the ClubLifter app to claim your free drink</p>
   </div>
   <div class="posters">
     {% if single %}
@@ -44,7 +44,7 @@ body{background:#08060f;color:#f0edf7;font-family:'DM Sans',sans-serif;padding:4
       <div class="qr-box"><img src="/qr/{{ qid }}.png" alt="{{ info.club }} QR"></div>
       <div class="drink"><span class="glass">{{ info.glass }}</span> {{ info.drink }}</div>
       <div class="instr">Show your app + a valid photo ID at the bar</div>
-      <div class="step">Open GoBest → Scan → point at this code</div>
+      <div class="step">Open ClubLifter → Scan → point at this code</div>
     </div>
     {% else %}
     {% for qid, info in all_qrs.items() %}
@@ -55,7 +55,7 @@ body{background:#08060f;color:#f0edf7;font-family:'DM Sans',sans-serif;padding:4
       <div class="qr-box"><img src="/qr/{{ qid }}.png" alt="{{ info.club }} QR"></div>
       <div class="drink"><span class="glass">{{ info.glass }}</span> {{ info.drink }}</div>
       <div class="instr">Show your app + a valid photo ID at the bar</div>
-      <div class="step">Open GoBest → Scan → point at this code</div>
+      <div class="step">Open ClubLifter → Scan → point at this code</div>
     </div>
     {% endfor %}
     {% endif %}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>GoBest</title>
+<title>ClubLifter</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -10338,7 +10338,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
   <!-- ═══ HOME SCREEN ═══ -->
   <div class="screen active" id="screen-home">
     <div class="hdr safe-top">
-      <div class="brand"><span class="go">Go</span><span class="best">Best</span></div>
+      <div class="brand"><span class="go">Club</span><span class="best">Lifter</span></div>
       <div class="loc-chip"><span class="dot"></span><span id="locLabel">Locating…</span></div>
     </div>
     <div class="home-body">
@@ -10375,7 +10375,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
           <span></span><span></span><span></span><span></span>
           <div class="scan-line"></div>
         </div>
-        <div class="scan-hint">Point your camera at the GoBest QR code at the venue</div>
+        <div class="scan-hint">Point your camera at the ClubLifter QR code at the venue</div>
       </div>
     </div>
     <div class="scan-sim">
@@ -10384,8 +10384,8 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     </div>
     <div class="scan-fail" id="scanFail">
       <div class="x">✕</div>
-      <h2>Not a GoBest code</h2>
-      <p>That QR code isn't from a participating GoBest venue. Look for the GoBest sticker at the bar.</p>
+      <h2>Not a ClubLifter code</h2>
+      <p>That QR code isn't from a participating ClubLifter venue. Look for the ClubLifter sticker at the bar.</p>
       <button onclick="document.getElementById('scanFail').classList.remove('show')">Try again</button>
     </div>
     <div class="code-entry" id="codeEntry">
@@ -10429,7 +10429,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
   <!-- ═══ LOGIN SCREEN ═══ -->
   <div class="screen login-screen" id="screen-login">
     <div class="login-body">
-      <div class="login-brand"><span class="go">Go</span>Best</div>
+      <div class="login-brand"><span class="go">Club</span>Lifter</div>
       <div class="login-hero">Join the club</div>
       <div class="login-sub">Check in, level up, and unlock free drinks &amp; perks at every venue.</div>
 
@@ -10508,7 +10508,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
   <div class="welcome" id="welcome">
     <div class="welcome-inner">
       <div class="welcome-badge">🎉</div>
-      <div class="eyebrow">GoBest</div>
+      <div class="eyebrow">ClubLifter</div>
       <h1 id="welcomeTitle">Welcome!</h1>
       <p id="welcomeMsg">Be sure to check out our clubs and scan the QR code for a free drink!</p>
       <button class="cta" onclick="dismissWelcome()">Show me the clubs</button>
@@ -10603,7 +10603,7 @@ async function loadClubs(coords, state, detected){
 
   let clubs = data.clubs || [];
 
-  // If there are no clubs in the user's state, show all GoBest clubs (with
+  // If there are no clubs in the user's state, show all ClubLifter clubs (with
   // distance) so they can still discover venues elsewhere.
   if(!clubs.length){
     try{
@@ -10617,17 +10617,17 @@ async function loadClubs(coords, state, detected){
   document.getElementById('clubCount').innerText = clubs.length ? `${clubs.length} found` : '';
 
   if(!clubs.length){
-    document.getElementById('heroSub').innerText = 'No GoBest clubs available yet — we\'re expanding fast.';
-    list.innerHTML = `<div class="empty-state"><div class="ico">🍸</div><p>No GoBest venues yet.<br>Check back soon — we're growing.</p></div>`;
+    document.getElementById('heroSub').innerText = 'No ClubLifter clubs available yet — we\'re expanding fast.';
+    list.innerHTML = `<div class="empty-state"><div class="ico">🍸</div><p>No ClubLifter venues yet.<br>Check back soon — we're growing.</p></div>`;
     return;
   }
 
   // Update the section label + hero copy depending on whether these are local
-  document.querySelector('.section-label h2').innerText = showingOtherAreas ? 'GoBest clubs' : 'Clubs near you';
+  document.querySelector('.section-label h2').innerText = showingOtherAreas ? 'ClubLifter clubs' : 'Clubs near you';
   if(showingOtherAreas){
-    document.getElementById('heroSub').innerText = `No clubs in ${state||'your area'} yet, but here's where GoBest is live. Visit any venue and scan for a free drink.`;
+    document.getElementById('heroSub').innerText = `No clubs in ${state||'your area'} yet, but here's where ClubLifter is live. Visit any venue and scan for a free drink.`;
   }else{
-    document.getElementById('heroSub').innerText = `${clubs.length} GoBest ${clubs.length===1?'club':'clubs'} ready to welcome you. Scan a QR at any venue for a free drink.`;
+    document.getElementById('heroSub').innerText = `${clubs.length} ClubLifter ${clubs.length===1?'club':'clubs'} ready to welcome you. Scan a QR at any venue for a free drink.`;
   }
 
   list.innerHTML = clubs.map(c=>`
@@ -10768,7 +10768,7 @@ async function submitCode(){
 }
 
 async function simulateScan(){
-  // Fallback demo button — redeems a club in the current state, or any GoBest club.
+  // Fallback demo button — redeems a club in the current state, or any ClubLifter club.
   let clubId = null;
   try{
     let r = await fetch(`${API_BASE}/api/app/clubs?state=${encodeURIComponent(currentState||'')}`);

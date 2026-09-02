@@ -1148,7 +1148,7 @@ def _build_flyer_pdf(item):
     from reportlab.lib.utils import ImageReader
     import io as _io
 
-    club = item.club_name or "GoBest Venue"
+    club = item.club_name or "ClubLifter Venue"
     drink = item.drink or "a complimentary welcome drink"
     code = item.code
     payload = f"GOBEST:{code}"
@@ -1208,12 +1208,12 @@ def _build_flyer_pdf(item):
             placed_logo = False
 
     if not placed_logo:
-        # GoBest brand text
+        # ClubLifter brand text
         c.setFillColorRGB(*ACCENT_LT); c.setFont("Helvetica-Bold", 40)
-        c.drawCentredString(W/2 - 0.4*inch, H-1.15*inch, "Go")
+        c.drawCentredString(W/2 - 0.55*inch, H-1.15*inch, "Club")
         c.setFillColorRGB(*WHITE)
-        gw = c.stringWidth("Go", "Helvetica-Bold", 40)
-        c.drawString(W/2 - 0.4*inch + gw, H-1.15*inch, "Best")
+        gw = c.stringWidth("Club", "Helvetica-Bold", 40)
+        c.drawString(W/2 - 0.55*inch + gw, H-1.15*inch, "Lifter")
         # Club name
         c.setFillColorRGB(*WHITE); c.setFont("Helvetica-Bold", 26)
         c.drawCentredString(W/2, H-1.7*inch, club)
@@ -1248,7 +1248,7 @@ def _build_flyer_pdf(item):
 
     # Steps
     c.setFillColorRGB(*ACCENT2); c.setFont("Helvetica-Bold", 12)
-    steps_txt = ["1.  Download the GoBest app", "2.  Tap Scan (or enter the code)", "3.  Show your phone + photo ID at the bar"]
+    steps_txt = ["1.  Download the ClubLifter app", "2.  Tap Scan (or enter the code)", "3.  Show your phone + photo ID at the bar"]
     sy = qr_y - 2.15*inch
     for s in steps_txt:
         c.drawCentredString(W/2, sy, s); sy -= 0.25*inch
@@ -1257,7 +1257,7 @@ def _build_flyer_pdf(item):
     c.setStrokeColorRGB(*ACCENT); c.setStrokeAlpha(0.4); c.setLineWidth(1)
     c.line(1.4*inch, 0.6*inch, W-1.4*inch, 0.6*inch); c.setStrokeAlpha(1)
     c.setFillColorRGB(*MUTED); c.setFont("Helvetica-Bold", 9)
-    c.drawCentredString(W/2, 0.4*inch, "Powered by GoBest  ·  clublifter.com/app")
+    c.drawCentredString(W/2, 0.4*inch, "Powered by ClubLifter  ·  clublifter.com/app")
 
     c.showPage(); c.save()
     buf.seek(0)
@@ -1334,7 +1334,7 @@ def app_qr_flyer(qr_id):
     from flask import Response
     safe = "".join(ch for ch in (item.club_name or "venue") if ch.isalnum() or ch in " -_").strip().replace(" ", "_")
     return Response(pdf_bytes, mimetype="application/pdf",
-                    headers={"Content-Disposition": f"attachment; filename=GoBest_Flyer_{safe}.pdf"})
+                    headers={"Content-Disposition": f"attachment; filename=ClubLifter_Flyer_{safe}.pdf"})
 
 @app.route('/')
 def index():
@@ -2343,7 +2343,7 @@ def app_auth_send_code():
     db.session.add(otp)
     db.session.commit()
     # Send the SMS
-    msg = f"Your GoBest verification code is {code}. It expires in 10 minutes."
+    msg = f"Your ClubLifter verification code is {code}. It expires in 10 minutes."
     sent = send_sms(phone, msg)
     if not sent:
         # Still return success so the flow works in dev, but note it
@@ -2513,7 +2513,7 @@ def app_redeem():
         db.session.commit()
         return jsonify({
             "success": True,
-            "club_name": item.club_name or (club.name if club else "GoBest"),
+            "club_name": item.club_name or (club.name if club else "ClubLifter"),
             "free_drink": item.drink or (club.free_drink if club else "") or "a complimentary welcome drink",
             "instructions": "Show this screen and a valid photo ID to the bartender to claim your free drink.",
         })
