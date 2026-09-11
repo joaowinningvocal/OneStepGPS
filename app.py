@@ -2431,6 +2431,11 @@ def app_clubs():
 # ─── APP AUTH (SMS login) + PROFILE ───────────────────────────────────────────
 import secrets as _secrets
 
+# Demo account for App Store / Play Store reviewers. Entering this phone number
+# skips the SMS step and accepts the fixed code below. Can be overridden via env.
+DEMO_PHONE = clean_phone(os.environ.get("DEMO_PHONE", "4155550100"))
+DEMO_CODE  = os.environ.get("DEMO_CODE", "424242")
+
 def _app_user_from_token():
     """Resolve the logged-in AppUser from the Authorization header or ?token=."""
     tok = ""
@@ -2453,6 +2458,10 @@ def app_auth_send_code():
     phone = clean_phone(data.get("phone") or "")
     if not phone or len(phone) < 10:
         return jsonify({"success": False, "error": "Enter a valid phone number."})
+    # Demo/review account (for App Store / Play Store reviewers): the magic number
+    # skips SMS entirely and accepts a fixed code. Never sends a real text.
+    if phone == DEMO_PHONE:
+        return jsonify({"success": True, "message": "Code sent."})
     # Rate limit: max 1 code per 30s per phone
     recent = OTPCode.query.filter_by(phone=phone).order_by(OTPCode.created_at.desc()).first()
     if recent and (datetime.utcnow() - recent.created_at).total_seconds() < 30:
@@ -2479,6 +2488,21 @@ def app_auth_verify():
     name = (data.get("name") or "").strip()
     if not phone or not code:
         return jsonify({"success": False, "error": "Phone and code are required."})
+
+    # Demo/review account: the magic number accepts the fixed demo code directly.
+    if phone == DEMO_PHONE:
+        if code != DEMO_CODE:
+            return jsonify({"success": False, "error": "Incorrect code. Try again."})
+        user = AppUser.query.filter_by(phone=phone).first()
+        if not user:
+            user = AppUser(phone=phone, name=name or "Reviewer", verified=True,
+                           points=95, checkin_count=8)  # seeded so reviewers see the loyalty UI populated
+            db.session.add(user)
+        user.auth_token = _secrets.token_hex(24)
+        user.last_seen = datetime.utcnow()
+        db.session.commit()
+        return jsonify({"success": True, "token": user.auth_token, "user": user.to_dict()})
+
     otp = OTPCode.query.filter_by(phone=phone).order_by(OTPCode.created_at.desc()).first()
     if not otp:
         return jsonify({"success": False, "error": "Request a code first."})
