@@ -21,6 +21,55 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "devverse_secret_CHANGE_ME")
 CORS(app)
 
+# ─── ERROR HANDLERS ────────────────────────────────────────────────────────────
+# Return clean JSON for API routes instead of leaking the Werkzeug debugger
+# (which exposes source code, file paths, and the debugger secret). Non-API
+# routes fall through to Flask's normal handling.
+import traceback as _traceback
+
+def _is_api_request():
+    return request.path.startswith('/api/')
+
+@app.errorhandler(500)
+@app.errorhandler(Exception)
+def _handle_uncaught(e):
+    # Let Flask handle HTTP exceptions (404, 405, etc.) with their own status
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        if _is_api_request():
+            return jsonify({"success": False, "error": e.description,
+                            "status": e.code}), e.code
+        return e  # normal HTML for non-API
+    # Uncaught exception → log the full trace server-side, return clean JSON
+    print(f"[ERROR] Uncaught exception on {request.path}: {e}", flush=True)
+    print(_traceback.format_exc(), flush=True)
+    try:
+        db.session.rollback()
+    except Exception:
+        pass
+    if _is_api_request():
+        return jsonify({
+            "success": False,
+            "error": "An internal error occurred processing your request.",
+            "detail": str(e),
+            "path": request.path,
+        }), 500
+    # Non-API: minimal message (no debugger, no source leak)
+    return "Internal Server Error", 500
+
+@app.errorhandler(404)
+def _handle_404(e):
+    if _is_api_request():
+        return jsonify({"success": False, "error": "Not found", "path": request.path}), 404
+    return e
+
+@app.errorhandler(405)
+def _handle_405(e):
+    if _is_api_request():
+        return jsonify({"success": False, "error": "Method not allowed",
+                        "path": request.path}), 405
+    return e
+
 # ─── DATABASE CONFIG ───────────────────────────────────────────────────────────
 os.makedirs('/data', exist_ok=True)
 UPLOAD_FOLDER = '/data/uploads'
@@ -313,6 +362,30 @@ class OTPCode(db.Model):
     attempts   = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+class AdBanner(db.Model):
+    """A paid ad banner shown in the app's home screen. Rented to brand partners
+    (e.g. drink brands). Must respect 21+ audience — these run in an app gated to
+    users of legal drinking age."""
+    id          = db.Column(db.Integer, primary_key=True)
+    title       = db.Column(db.String(120), default="")     # internal name e.g. "Tito's - March"
+    image_url   = db.Column(db.String(500), default="")     # the banner image to show
+    link_url    = db.Column(db.String(500), default="")     # where tapping it goes
+    active      = db.Column(db.Boolean, default=True)
+    weight      = db.Column(db.Integer, default=1)           # relative rotation weight
+    impressions = db.Column(db.Integer, default=0)
+    clicks      = db.Column(db.Integer, default=0)
+    advertiser  = db.Column(db.String(120), default="")     # partner/brand name
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "title": self.title, "image_url": self.image_url,
+            "link_url": self.link_url, "active": self.active, "weight": self.weight,
+            "impressions": self.impressions or 0, "clicks": self.clicks or 0,
+            "advertiser": self.advertiser,
+            "created_at": self.created_at.strftime("%Y-%m-%d") if self.created_at else "",
+        }
+
 # ─── LOYALTY LEVEL SYSTEM ─────────────────────────────────────────────────────
 # Points come from check-ins. Levels unlock periodic rewards. Tune freely.
 POINTS_PER_CHECKIN = 10          # each QR check-in at a venue
@@ -333,6 +406,10 @@ def app_level_for_points(points):
         if points >= APP_LEVELS[n]["min_points"]:
             lvl = n
     return lvl
+
+def get_setting(key, default=""):
+    s = Setting.query.filter_by(key=key).first()
+    return s.value if s else default
 
 def set_setting(key, value):
     s = Setting.query.filter_by(key=key).first()
@@ -1034,6 +1111,12 @@ def logout():
     return redirect(url_for('login'))
 
 # ─── MAIN (PROMOTER/ADMIN DASHBOARD) ─────────────────────────────────────────
+@app.route('/privacy')
+def privacy_policy():
+    """Public privacy policy page for the ClubLifter app (required by the App Store
+    and Google Play). No login."""
+    return render_template('privacy.html')
+
 @app.route('/app')
 def gobest_app():
     """Serve the GoBest consumer app as a web page — used for demos and testing
@@ -1269,7 +1352,8 @@ def app_manager():
         return redirect(url_for("login"))
     clubs = Club.query.filter_by(active=True).order_by(Club.name).all()
     qrs = QRCodeItem.query.order_by(QRCodeItem.created_at.desc()).all()
-    return render_template('admin_app_manager.html', clubs=clubs, qrs=qrs)
+    banners = AdBanner.query.order_by(AdBanner.created_at.desc()).all()
+    return render_template('admin_app_manager.html', clubs=clubs, qrs=qrs, banners=banners)
 
 @app.route('/admin/app-manager/qr/create', methods=['POST'])
 def app_qr_create():
@@ -1335,6 +1419,41 @@ def app_qr_flyer(qr_id):
     safe = "".join(ch for ch in (item.club_name or "venue") if ch.isalnum() or ch in " -_").strip().replace(" ", "_")
     return Response(pdf_bytes, mimetype="application/pdf",
                     headers={"Content-Disposition": f"attachment; filename=ClubLifter_Flyer_{safe}.pdf"})
+
+@app.route('/admin/app-manager/banner/create', methods=['POST'])
+def app_banner_create():
+    if not _can_manage_app():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    f = request.form
+    title = (f.get('title') or "").strip()
+    image_url = (f.get('image_url') or "").strip()
+    link_url = (f.get('link_url') or "").strip()
+    advertiser = (f.get('advertiser') or "").strip()
+    if not image_url:
+        return jsonify({"success": False, "error": "A banner image URL is required."})
+    b = AdBanner(title=title or "Untitled ad", image_url=image_url, link_url=link_url,
+                 advertiser=advertiser, active=True, weight=_safe_int(f.get('weight')) or 1)
+    db.session.add(b)
+    db.session.commit()
+    return jsonify({"success": True, "banner": b.to_dict()})
+
+@app.route('/admin/app-manager/banner/toggle/<int:banner_id>', methods=['POST'])
+def app_banner_toggle(banner_id):
+    if not _can_manage_app():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    b = AdBanner.query.get_or_404(banner_id)
+    b.active = not b.active
+    db.session.commit()
+    return jsonify({"success": True, "active": b.active})
+
+@app.route('/admin/app-manager/banner/delete/<int:banner_id>', methods=['POST'])
+def app_banner_delete(banner_id):
+    if not _can_manage_app():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    b = AdBanner.query.get_or_404(banner_id)
+    db.session.delete(b)
+    db.session.commit()
+    return jsonify({"success": True})
 
 @app.route('/')
 def index():
@@ -2491,6 +2610,34 @@ def app_club_review_link():
         q = _up.quote(f"{club.name} {club.address or ''} reviews")
         link = f"https://www.google.com/search?q={q}"
     return jsonify({"success": True, "club_name": club.name, "review_link": link})
+
+@app.route('/api/app/banner', methods=['GET'])
+def app_banner():
+    """Return an active ad banner to show in the app (rotates by weight). Returns
+    empty when there are none, so the app shows its 'Your ad here' placeholder."""
+    banners = AdBanner.query.filter(AdBanner.active == True, AdBanner.image_url != "").all()
+    if not banners:
+        return jsonify({"success": True, "banner": None})
+    # Weighted random pick
+    import random as _r
+    pool = []
+    for b in banners:
+        pool.extend([b] * max(1, b.weight or 1))
+    chosen = _r.choice(pool)
+    chosen.impressions = (chosen.impressions or 0) + 1
+    db.session.commit()
+    return jsonify({"success": True, "banner": {
+        "id": chosen.id, "image_url": chosen.image_url, "link_url": chosen.link_url,
+    }})
+
+@app.route('/api/app/banner/click/<int:banner_id>', methods=['POST'])
+def app_banner_click(banner_id):
+    """Record a tap on a banner (for the advertiser's click count)."""
+    b = AdBanner.query.get(banner_id)
+    if b:
+        b.clicks = (b.clicks or 0) + 1
+        db.session.commit()
+    return jsonify({"success": True})
 
 @app.route('/api/app/redeem', methods=['POST'])
 def app_redeem():
@@ -6171,4 +6318,7 @@ if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
     start_distance_tracker()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
+    # Debug is OFF by default (production). Enable locally with FLASK_DEBUG=1.
+    # Never run with debug=True in production — it exposes the Werkzeug debugger.
+    debug_mode = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=debug_mode)

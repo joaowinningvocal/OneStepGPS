@@ -80,7 +80,7 @@ h1{font-family:'Syne',sans-serif;font-weight:800;font-size:1.9rem;margin-bottom:
     <div class="tabs">
         <button class="tab active" onclick="showPanel('qr', this)">🎟️ QR Codes</button>
         <button class="tab" onclick="showPanel('promos', this)">🎉 Promotions <span class="soon">soon</span></button>
-        <button class="tab" onclick="showPanel('banners', this)">📢 Ad Banners <span class="soon">soon</span></button>
+        <button class="tab" onclick="showPanel('banners', this)">📢 Ad Banners</button>
     </div>
 
     <!-- QR CODES PANEL -->
@@ -146,10 +146,58 @@ h1{font-family:'Syne',sans-serif;font-weight:800;font-size:1.9rem;margin-bottom:
 
     <!-- BANNERS PANEL (placeholder) -->
     <div class="panel" id="panel-banners">
-        <div class="placeholder-panel">
-            <div class="ico">📢</div>
-            <h3>Ad banners coming soon</h3>
-            <p>Manage the advertising banner space shown in the app.</p>
+        <div class="card">
+            <div class="ctitle">Add an ad banner</div>
+            <div style="font-size:.82rem;color:var(--m2);margin-bottom:14px;">Rent this space to brand partners. Banners show on the app's home screen. Remember: the app audience is 21+.</div>
+            <div class="form-row">
+                <div class="f">
+                    <label>Advertiser / brand</label>
+                    <input id="bAdvertiser" placeholder="e.g. Tito's Vodka">
+                </div>
+                <div class="f">
+                    <label>Internal label</label>
+                    <input id="bTitle" placeholder="e.g. Tito's - March campaign">
+                </div>
+                <div class="f">
+                    <label>Weight (rotation)</label>
+                    <input id="bWeight" type="number" min="1" value="1">
+                </div>
+                <button class="btn" onclick="createBanner()">+ Add</button>
+            </div>
+            <div class="form-row" style="margin-top:12px;">
+                <div class="f" style="grid-column:1/3;">
+                    <label>Banner image URL</label>
+                    <input id="bImage" placeholder="https://... (wide banner image)">
+                </div>
+                <div class="f" style="grid-column:3/5;">
+                    <label>Click-through link</label>
+                    <input id="bLink" placeholder="https://... (where tapping goes)">
+                </div>
+            </div>
+        </div>
+
+        <div id="bannerList">
+            {% if banners %}
+            <div class="qr-grid">
+                {% for b in banners %}
+                <div class="qr-item {{ '' if b.active else 'off' }}" id="banner-{{ b.id }}">
+                    <div class="status-pill {{ 'on' if b.active else 'off' }}">{{ 'Active' if b.active else 'Off' }}</div>
+                    <div style="background:#0d1117;border-radius:10px;overflow:hidden;margin-bottom:12px;min-height:80px;display:flex;align-items:center;justify-content:center;">
+                        {% if b.image_url %}<img src="{{ b.image_url }}" style="width:100%;display:block;" alt="banner">{% else %}<span style="color:var(--m2);font-size:.8rem;">No image</span>{% endif %}
+                    </div>
+                    <div class="qlabel">{{ b.advertiser or b.title }}</div>
+                    <div class="qclub">{{ b.title if b.advertiser else '' }}</div>
+                    <div class="qr-stats"><span><b>{{ b.impressions }}</b> views</span><span><b>{{ b.clicks }}</b> clicks</span></div>
+                    <div class="qr-actions">
+                        <button class="btn sm ghost" onclick="toggleBanner({{ b.id }})">{{ 'Disable' if b.active else 'Enable' }}</button>
+                        <button class="btn sm danger" onclick="deleteBanner({{ b.id }})">Delete</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty"><div class="ico">📢</div><p>No ad banners yet.<br>Add one above to start monetizing the app space.</p></div>
+            {% endif %}
         </div>
     </div>
 </div>
@@ -197,6 +245,37 @@ async function deleteQR(id){
     try{
         const d=await(await fetch('/admin/app-manager/qr/delete/'+id,{method:'POST'})).json();
         if(d.success){ document.getElementById('qr-'+id).remove(); toast('Deleted'); }
+        else toast(d.error||'Failed', false);
+    }catch(e){ toast('Error', false); }
+}
+
+// ── Ad Banners ──
+async function createBanner(){
+    const image_url=document.getElementById('bImage').value.trim();
+    if(!image_url){ toast('Add a banner image URL', false); return; }
+    const fd=new FormData();
+    fd.append('advertiser',document.getElementById('bAdvertiser').value.trim());
+    fd.append('title',document.getElementById('bTitle').value.trim());
+    fd.append('image_url',image_url);
+    fd.append('link_url',document.getElementById('bLink').value.trim());
+    fd.append('weight',document.getElementById('bWeight').value||'1');
+    try{
+        const d=await(await fetch('/admin/app-manager/banner/create',{method:'POST',body:fd})).json();
+        if(d.success){ toast('Banner added'); location.reload(); }
+        else toast(d.error||'Could not add', false);
+    }catch(e){ toast('Error adding banner', false); }
+}
+async function toggleBanner(id){
+    try{
+        const d=await(await fetch('/admin/app-manager/banner/toggle/'+id,{method:'POST'})).json();
+        if(d.success){ location.reload(); } else toast(d.error||'Failed', false);
+    }catch(e){ toast('Error', false); }
+}
+async function deleteBanner(id){
+    if(!confirm('Delete this ad banner?')) return;
+    try{
+        const d=await(await fetch('/admin/app-manager/banner/delete/'+id,{method:'POST'})).json();
+        if(d.success){ document.getElementById('banner-'+id).remove(); toast('Deleted'); }
         else toast(d.error||'Failed', false);
     }catch(e){ toast('Error', false); }
 }

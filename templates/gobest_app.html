@@ -214,15 +214,46 @@ body{
 .prof-empty{text-align:center;color:var(--m2);font-size:.86rem;padding:24px;}
 .prof-logout{width:100%;background:none;border:1px solid var(--bd);color:var(--m2);padding:14px;border-radius:12px;font-weight:600;font-size:.9rem;cursor:pointer;margin-top:24px;font-family:'DM Sans',sans-serif;}
 
-/* ── REVIEW PROMPT ── */
-.review-prompt{position:absolute;inset:0;z-index:140;background:rgba(8,6,15,.8);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:30px;}
-.review-prompt.show{display:flex;}
-.review-box{background:var(--surf,#161129);border:1px solid var(--bhi);border-radius:22px;padding:30px 26px;max-width:330px;width:100%;text-align:center;}
-.review-emoji{font-size:3rem;margin-bottom:12px;}
-.review-title{font-family:'Syne',sans-serif;font-weight:800;font-size:1.5rem;margin-bottom:8px;}
-.review-sub{color:var(--m);font-size:.9rem;line-height:1.5;margin-bottom:24px;}
-.review-btn{width:100%;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;border:none;padding:15px;border-radius:13px;font-weight:700;font-size:.95rem;cursor:pointer;font-family:'DM Sans',sans-serif;margin-bottom:8px;}
-.review-skip{width:100%;background:none;border:none;color:var(--m2);font-size:.86rem;font-weight:600;cursor:pointer;padding:10px;font-family:'DM Sans',sans-serif;}
+/* ── REVIEW PROMPT (interactive rating) ── */
+.review-prompt{position:absolute;inset:0;z-index:140;background:rgba(6,4,12,.82);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:none;align-items:flex-end;justify-content:center;padding:0;}
+.review-prompt.show{display:flex;animation:revFade .3s ease;}
+@keyframes revFade{from{opacity:0;}to{opacity:1;}}
+.review-box{position:relative;background:linear-gradient(180deg,#1c1436,#120c24);border:1px solid rgba(138,92,246,.35);border-top:1px solid rgba(167,139,250,.5);border-radius:28px 28px 0 0;padding:0;width:100%;max-width:440px;text-align:center;overflow:hidden;box-shadow:0 -20px 60px rgba(0,0,0,.5);transform:translateY(100%);transition:transform .42s cubic-bezier(.16,1,.3,1);}
+.review-prompt.show .review-box{transform:translateY(0);}
+.review-glow{position:absolute;top:-90px;left:50%;transform:translateX(-50%);width:260px;height:180px;background:radial-gradient(ellipse,rgba(251,191,36,.35),transparent 70%);filter:blur(30px);pointer-events:none;}
+.review-inner{position:relative;padding:34px 30px calc(30px + env(safe-area-inset-bottom));}
+.review-close{position:absolute;top:16px;right:18px;background:rgba(255,255,255,.06);border:none;color:var(--m2);width:32px;height:32px;border-radius:50%;font-size:.9rem;cursor:pointer;z-index:2;transition:.15s;}
+.review-close:hover{background:rgba(255,255,255,.12);color:var(--t);}
+.review-kicker{font-size:.8rem;font-weight:600;letter-spacing:.02em;color:var(--acc3);margin-bottom:6px;}
+.review-club{font-family:'Syne',sans-serif;font-weight:800;font-size:1.7rem;line-height:1.1;margin-bottom:24px;padding:0 20px;}
+.review-stars{display:flex;justify-content:center;gap:8px;margin-bottom:14px;}
+.rstar{background:none;border:none;font-size:2.5rem;line-height:1;cursor:pointer;color:rgba(255,255,255,.15);transition:transform .15s cubic-bezier(.2,1.5,.4,1),color .15s;padding:2px;-webkit-tap-highlight-color:transparent;}
+.rstar.lit{color:#fbbf24;text-shadow:0 0 16px rgba(251,191,36,.6);}
+.rstar.bounce{transform:scale(1.3);}
+.review-hint{font-size:.9rem;color:var(--m);margin-bottom:22px;min-height:20px;transition:color .2s;font-weight:500;}
+.review-skip{width:100%;background:none;border:none;color:var(--m2);font-size:.88rem;font-weight:600;cursor:pointer;padding:8px;font-family:'DM Sans',sans-serif;}
+.review-skip:hover{color:var(--m);}
+/* Low-rating feedback state */
+.review-feedback{display:none;flex-direction:column;gap:12px;}
+.review-feedback.show{display:flex;}
+.review-feedback textarea{width:100%;box-sizing:border-box;background:rgba(255,255,255,.05);border:1px solid var(--bd);border-radius:14px;padding:13px;color:var(--t);font-size:.9rem;font-family:'DM Sans',sans-serif;resize:none;min-height:80px;}
+.review-feedback textarea:focus{outline:none;border-color:var(--acc);}
+.review-send{width:100%;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;border:none;padding:15px;border-radius:14px;font-weight:700;font-size:.95rem;cursor:pointer;font-family:'DM Sans',sans-serif;}
+/* ── AGE GATE (21+) ── */
+.age-gate{position:fixed;inset:0;z-index:200;background:radial-gradient(ellipse at 50% 20%,#1a1033,#08060f 70%);display:flex;align-items:center;justify-content:center;padding:34px;}
+.age-gate.hidden{display:none;}
+.age-gate-inner{position:relative;text-align:center;max-width:400px;width:100%;}
+.age-glow{position:absolute;top:-40px;left:50%;transform:translateX(-50%);width:240px;height:180px;background:radial-gradient(ellipse,rgba(138,92,246,.35),transparent 70%);filter:blur(40px);pointer-events:none;}
+.age-brand{position:relative;font-family:'Syne',sans-serif;font-weight:800;font-size:1.7rem;margin-bottom:30px;}
+.age-brand .go{color:#a78bfa;}
+.age-icon{position:relative;font-size:3.4rem;margin-bottom:18px;}
+.age-title{position:relative;font-family:'Syne',sans-serif;font-weight:800;font-size:1.9rem;line-height:1.1;margin-bottom:14px;}
+.age-sub{position:relative;color:#9a92b0;font-size:.92rem;line-height:1.55;margin-bottom:32px;padding:0 6px;}
+.age-btn-yes{position:relative;width:100%;background:linear-gradient(135deg,#8a5cf6,#6d28d9);color:#fff;border:none;padding:16px;border-radius:14px;font-family:'DM Sans',sans-serif;font-weight:700;font-size:1rem;cursor:pointer;box-shadow:0 8px 26px rgba(138,92,246,.45);margin-bottom:12px;}
+.age-btn-no{position:relative;width:100%;background:transparent;border:1px solid rgba(255,255,255,.15);color:#8892a0;padding:15px;border-radius:14px;font-family:'DM Sans',sans-serif;font-weight:600;font-size:.95rem;cursor:pointer;}
+.age-btn-no:hover{color:#c8ccd8;}
+.age-deny-msg{position:relative;display:none;margin-top:20px;color:#ef4444;font-size:.9rem;font-weight:600;line-height:1.4;}
+.age-deny-msg.show{display:block;}
 </style>
 <script>
 (function webpackUniversalModuleDefinition(root, factory) {
@@ -10335,6 +10366,20 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
 
 <div class="app">
 
+  <!-- ═══ AGE GATE (21+ verification) ═══ -->
+  <div class="age-gate" id="ageGate">
+    <div class="age-gate-inner">
+      <div class="age-glow"></div>
+      <div class="age-brand"><span class="go">Club</span>Lifter</div>
+      <div class="age-icon">🍸</div>
+      <h1 class="age-title">Are you 21 or older?</h1>
+      <p class="age-sub">You must be of legal drinking age to use ClubLifter. Free-drink offers are available only at participating venues to guests 21 and over.</p>
+      <button class="age-btn-yes" onclick="confirmAge()">Yes, I'm 21 or older</button>
+      <button class="age-btn-no" onclick="denyAge()">No, I'm under 21</button>
+      <div class="age-deny-msg" id="ageDenyMsg">You must be 21 or older to use this app.</div>
+    </div>
+  </div>
+
   <!-- ═══ HOME SCREEN ═══ -->
   <div class="screen active" id="screen-home">
     <div class="hdr safe-top">
@@ -10496,11 +10541,21 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
   <!-- ═══ REVIEW PROMPT ═══ -->
   <div class="review-prompt" id="reviewPrompt">
     <div class="review-box">
-      <div class="review-emoji">⭐</div>
-      <div class="review-title">Enjoying your stay?</div>
-      <div class="review-sub" id="reviewClub">Leave a quick review — it helps a lot!</div>
-      <button class="review-btn" onclick="goToReview()">Leave a review</button>
-      <button class="review-skip" onclick="closeReview()">Not now</button>
+      <button class="review-close" onclick="closeReview()">✕</button>
+      <div class="review-glow"></div>
+      <div class="review-inner">
+        <div class="review-kicker">How was tonight?</div>
+        <div class="review-club" id="reviewClub">Hustler Club Las Vegas</div>
+        <div class="review-stars" id="reviewStars">
+          <button class="rstar" data-v="1">★</button>
+          <button class="rstar" data-v="2">★</button>
+          <button class="rstar" data-v="3">★</button>
+          <button class="rstar" data-v="4">★</button>
+          <button class="rstar" data-v="5">★</button>
+        </div>
+        <div class="review-hint" id="reviewHint">Tap a star to rate</div>
+        <button class="review-skip" onclick="closeReview()">Maybe later</button>
+      </div>
     </div>
   </div>
 
@@ -10544,12 +10599,40 @@ let currentCoords = null;
 let currentState = null;
 
 // ══════════════════════════════════════════════════════════════════
+//  AGE GATE (21+) — shown once; remembered after confirmation.
+//  On native, the answer is persisted via Preferences (see native.js).
+// ══════════════════════════════════════════════════════════════════
+let _ageVerified = false;
+function confirmAge(){
+  _ageVerified = true;
+  document.getElementById('ageGate').classList.add('hidden');
+  // Persist for native builds (window hook set by native.js if present)
+  if(window._persistAgeVerified) window._persistAgeVerified();
+  // Kick off the app now that age is confirmed
+  init();
+}
+function denyAge(){
+  document.getElementById('ageDenyMsg').classList.add('show');
+  // Hide the "yes" affordance so they can't just tap through after saying no
+  document.querySelector('.age-btn-yes').style.opacity = '.4';
+}
+function ageGateStart(){
+  // If already verified (native restored it), skip the gate and start.
+  if(_ageVerified){
+    document.getElementById('ageGate').classList.add('hidden');
+    init();
+  }
+  // Otherwise the gate stays visible and init() runs only after confirmAge().
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  STARTUP — get location, detect state, load clubs
 // ══════════════════════════════════════════════════════════════════
 async function init(){
   const coords = await getLocation();
   currentCoords = coords;
   await detectAndLoad(coords, false);
+  loadBanner();
 }
 
 function getLocation(){
@@ -10590,6 +10673,26 @@ async function detectAndLoad(coords, announce){
   if(announce && changed && detected.has_clubs){
     showWelcome(detected.state, detected.welcome_message);
   }
+}
+
+// ── Ad banner (rented to brand partners; audience is 21+) ──
+let _bannerId = null;
+async function loadBanner(){
+  try{
+    const d = await (await fetch(`${API_BASE}/api/app/banner`)).json();
+    const el = document.getElementById('adBanner');
+    if(d.success && d.banner && d.banner.image_url){
+      _bannerId = d.banner.id;
+      el.innerHTML = `<img src="${d.banner.image_url}" style="width:100%;height:100%;object-fit:cover;border-radius:16px;">`;
+      el.style.border = 'none';
+      el.style.cursor = d.banner.link_url ? 'pointer' : 'default';
+      el.onclick = d.banner.link_url ? ()=>{ 
+        fetch(`${API_BASE}/api/app/banner/click/${d.banner.id}`,{method:'POST'}).catch(()=>{});
+        window.open(d.banner.link_url, '_blank');
+      } : null;
+    }
+    // else: leave the "Your ad here" placeholder as-is
+  }catch(e){}
 }
 
 async function loadClubs(coords, state, detected){
@@ -10952,21 +11055,66 @@ function showLevelUp(level, name, perk){
   showWelcome(`Level ${level}: ${name}!`, perk ? `You unlocked: ${perk}` : `You reached ${name}!`);
 }
 
-// ── Review prompt ──
+// ── Review prompt (interactive stars) ──
 let _reviewedThisSession = {};
+let _reviewRating = 0;
 async function maybeShowReview(clubName){
   if(!clubName || _reviewedThisSession[clubName]) return;
   _reviewedThisSession[clubName] = true;
-  document.getElementById('reviewClub').innerText = `Tell everyone about your night at ${clubName}!`;
+  _reviewRating = 0;
+  document.getElementById('reviewClub').innerText = clubName;
+  // reset stars
+  document.querySelectorAll('#reviewStars .rstar').forEach(s=>s.classList.remove('lit'));
+  document.getElementById('reviewHint').innerText = 'Tap a star to rate';
+  document.getElementById('reviewHint').style.color = '';
   document.getElementById('reviewPrompt').classList.add('show');
+  wireReviewStars();
+}
+function wireReviewStars(){
+  const stars = document.querySelectorAll('#reviewStars .rstar');
+  stars.forEach(star=>{
+    star.onclick = ()=>{
+      const v = parseInt(star.dataset.v);
+      _reviewRating = v;
+      stars.forEach(s=>{
+        const sv = parseInt(s.dataset.v);
+        s.classList.toggle('lit', sv <= v);
+      });
+      // little bounce on the tapped star
+      star.classList.add('bounce');
+      setTimeout(()=>star.classList.remove('bounce'), 180);
+      const hint = document.getElementById('reviewHint');
+      const labels = {1:'Sorry to hear that',2:'We can do better',3:'Thanks for the honesty',4:'Glad you enjoyed it!',5:'Amazing — thank you!'};
+      hint.innerText = labels[v] || '';
+      hint.style.color = v >= 4 ? 'var(--g)' : 'var(--m)';
+      // After a beat, act on the rating
+      setTimeout(()=>handleRating(v), 650);
+    };
+  });
+}
+async function handleRating(v){
+  closeReview();
+  if(v >= 4){
+    // Happy — send them to the public Google review
+    try{
+      const d = await (await fetch(`${API_BASE}/api/app/club-review-link?club_name=${encodeURIComponent(_lastClub||'')}`)).json();
+      if(d.success && d.review_link){ window.open(d.review_link, '_blank'); }
+    }catch(e){}
+  }
+  // For 1–3 stars we simply thank them (private) — no public review, no reward.
+  // (Keeps low ratings as internal signal rather than public 1-star reviews.)
 }
 function closeReview(){ document.getElementById('reviewPrompt').classList.remove('show'); }
 async function goToReview(){
-  closeReview();
+  // kept for compatibility (direct link)
   try{
     const d = await (await fetch(`${API_BASE}/api/app/club-review-link?club_name=${encodeURIComponent(_lastClub||'')}`)).json();
     if(d.success && d.review_link){ window.open(d.review_link, '_blank'); }
   }catch(e){}
+}
+
+function esc(s){
+  return (s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
 function formatPhone(p){
@@ -10993,7 +11141,8 @@ function showScreen(name){
   }
 }
 
-init();
+// Start with the age gate. init() runs only after 21+ is confirmed (or restored).
+ageGateStart();
 </script>
 </body>
 </html>
