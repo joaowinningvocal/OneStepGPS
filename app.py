@@ -2738,16 +2738,21 @@ def _ride_status_info(c):
       arrived     → driver has arrived at the pickup location ("I'm here")
       picked_up   → driver has the guest, en route to the venue
       dropped_off → guest delivered to the venue
-      at_venue    → guest is inside the venue
-      left        → guest has left the venue
+      at_venue    → guest is at the venue (club_status = arrived)
+      left        → guest has left the venue (club_status = left)
+
+    The guest's club_status (where the guest actually is) takes priority for the
+    'at_venue' and 'left' states, because that's the final destination — a guest
+    can arrive at or leave the venue regardless of how they got there.
     """
-    # Guest has physically left the venue
+    # Guest has physically left the venue — final state, highest priority
     if c.club_status == "left":
         return "left", "Guest has left the venue"
-    # Delivered to the venue / arrived at destination
+    # Guest is at the venue (dispatcher marked them arrived, or they were dropped off)
+    if c.club_status == "arrived":
+        return "at_venue", "Guest has arrived at the venue"
+    # Delivered to the venue by the driver (dropoff done, but not yet marked arrived)
     if c.status == "dropped_off" or c.dropped_off_at:
-        if c.club_status == "arrived":
-            return "at_venue", "Guest has arrived at the venue"
         return "dropped_off", "Guest was dropped off at the venue"
     # Driver has the guest, on the way to the venue
     if c.status == "picked_up" or c.picked_up_at:
