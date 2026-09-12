@@ -2736,6 +2736,7 @@ def ai_lookup():
     c = _find_customer_by_phone(phone)
     if not c:
         return jsonify({"found": False, "message": "No booking found for that phone number."})
+    rs = ride_status(c)
     return jsonify({
         "found": True,
         "customer_id":     c.id,
@@ -2744,7 +2745,18 @@ def ai_lookup():
         "pickup_datetime": c.pickup_datetime,
         "pickup_location": c.endereco,
         "destination":     c.destination,
-        "status":          c.status,
+        # ── Ride lifecycle ──
+        # ride_status is the one field to read. The three raw flags below are
+        # kept so nothing that already consumes them breaks.
+        "ride_status":       rs,
+        "ride_status_text":  RIDE_STATUS_LABELS.get(rs, rs),
+        "status":            c.status,            # legacy: scheduled|picked_up|dropped_off
+        "dispatch_status":   c.dispatch_status,   # none|sent|confirmed|enroute
+        "club_status":       c.club_status,       # coming|arrived|left
+        "needs_transport":   bool(c.needs_transport),
+        "picked_up_at":      vegas_datetime(c.picked_up_at),
+        "dropped_off_at":    vegas_datetime(c.dropped_off_at),
+        "dropoff_verified":  bool(c.dropoff_verified),
         "driver_name":     c.completed_driver or c.motorista,
         "driver_assigned": bool(c.motorista and c.motorista not in ("", "Unavailable", "Waitlist")),
         "car":             c.completed_car or c.car_string_val,
@@ -4414,6 +4426,56 @@ def priority_level(customer):
     if price > 0:
         return 'medium'
     return 'low'
+
+# ─── RIDE LIFECYCLE ───────────────────────────────────────────────────────────
+# The database keeps FOUR independent state flags on a Customer, because each
+# internal dashboard needs a different slice of the truth:
+#   status          scheduled | picked_up | dropped_off   (the driver's leg)
+#   dispatch_status none | sent | confirmed | enroute      (the dispatch desk)
+#   club_status     coming | arrived | left                (the venue floor)
+#   motorista       "" | Unavailable | Waitlist | <name>   (the assignment)
+# External consumers (AI agents, partners, webhooks) should not have to know
+# any of that. ride_status() collapses all four into one ordered timeline.
+RIDE_STATUS_LABELS = {
+    "no_driver":     "Booked, waiting for a driver to be assigned",
+    "waitlist":      "On the waitlist, no driver available yet",
+    "scheduled":     "Booked and confirmed, driver assigned",
+    "dispatch_sent": "Ride sent to the driver, awaiting confirmation",
+    "confirmed":     "Driver confirmed the ride",
+    "enroute":       "Driver is on the way to the pickup location",
+    "picked_up":     "Guest is in the car, heading to the venue",
+    "at_venue":      "Guest arrived at the venue",
+    "left":          "Guest has left the venue",
+    "walk_in":       "Walk-in guest, no transport requested",
+}
+
+def ride_status(customer):
+    """One-field lifecycle for a ride. Latest stage wins.
+    Returns a key from RIDE_STATUS_LABELS."""
+    club   = (customer.club_status or "").strip()
+    stat   = (customer.status or "").strip()
+    disp   = (customer.dispatch_status or "none").strip()
+    driver = (customer.motorista or "").strip()
+
+    if club == "left":
+        return "left"
+    if club == "arrived" or stat == "dropped_off":
+        return "at_venue"
+    if not customer.needs_transport:
+        return "walk_in"
+    if stat == "picked_up":
+        return "picked_up"
+    if disp == "enroute":
+        return "enroute"
+    if disp == "confirmed":
+        return "confirmed"
+    if disp == "sent":
+        return "dispatch_sent"
+    if driver == "Waitlist":
+        return "waitlist"
+    if driver in ("", "Unavailable"):
+        return "no_driver"
+    return "scheduled"
 
 # Anti-starvation: a ride waiting longer than this many minutes is bumped up so
 # cheap/free guests are never stuck behind an endless stream of pricier ones.
