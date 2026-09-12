@@ -600,6 +600,7 @@ class Customer(db.Model):
     here_photo_at   = db.Column(db.DateTime, nullable=True)            # when photo was uploaded (for 24h cleanup)
     priority        = db.Column(db.Boolean, default=False)             # club managers can flag priority pickups
     picked_up_at    = db.Column(db.DateTime, nullable=True)            # when the driver collected the guest
+    driver_arrived_at = db.Column(db.DateTime, nullable=True)          # when the driver arrived at pickup (tapped "I'm here")
     dropped_off_at  = db.Column(db.DateTime, nullable=True)            # when the guest was dropped at the venue
     dropoff_verified = db.Column(db.Boolean, default=False)            # GPS confirmed arrival at the property
     # Frozen snapshot of WHO actually did the ride (captured at pickup/dropoff time).
@@ -2726,6 +2727,43 @@ def _find_customer_by_phone(phone):
             return c
     return None
 
+def _ride_status_info(c):
+    """Compute a single, clear ride status for the AI agent. Combines the driver's
+    progress to/from pickup with the guest's status at the venue.
+    Returns (code, human_text).
+
+    Progression:
+      scheduled   → ride booked, driver not yet on the way
+      enroute     → driver is on the way to pick up the guest
+      arrived     → driver has arrived at the pickup location ("I'm here")
+      picked_up   → driver has the guest, en route to the venue
+      dropped_off → guest delivered to the venue
+      at_venue    → guest is inside the venue
+      left        → guest has left the venue
+    """
+    # Guest has physically left the venue
+    if c.club_status == "left":
+        return "left", "Guest has left the venue"
+    # Delivered to the venue / arrived at destination
+    if c.status == "dropped_off" or c.dropped_off_at:
+        if c.club_status == "arrived":
+            return "at_venue", "Guest has arrived at the venue"
+        return "dropped_off", "Guest was dropped off at the venue"
+    # Driver has the guest, on the way to the venue
+    if c.status == "picked_up" or c.picked_up_at:
+        return "picked_up", "Guest picked up, en route to the venue"
+    # Waitlisted
+    if c.status == "waitlist":
+        return "waitlist", "Ride is waitlisted"
+    # Driver arrived at the pickup location (tapped "I'm here")
+    if c.dispatch_status == "arrived" or c.driver_arrived_at:
+        return "arrived", "Driver has arrived at the pickup location"
+    # Driver is on the way to pick up
+    if c.dispatch_status == "enroute":
+        return "enroute", "Driver is on the way to pick up the guest"
+    # Default: booked, driver not yet dispatched
+    return "scheduled", "Ride is scheduled, awaiting pickup"
+
 @app.route('/api/ai/lookup', methods=['GET'])
 @require_api_key
 def ai_lookup():
@@ -2736,7 +2774,7 @@ def ai_lookup():
     c = _find_customer_by_phone(phone)
     if not c:
         return jsonify({"found": False, "message": "No booking found for that phone number."})
-    rs = ride_status(c)
+    ride_status, ride_status_text = _ride_status_info(c)
     return jsonify({
         "found": True,
         "customer_id":     c.id,
@@ -2745,18 +2783,20 @@ def ai_lookup():
         "pickup_datetime": c.pickup_datetime,
         "pickup_location": c.endereco,
         "destination":     c.destination,
-        # ── Ride lifecycle ──
-        # ride_status is the one field to read. The three raw flags below are
-        # kept so nothing that already consumes them breaks.
-        "ride_status":       rs,
-        "ride_status_text":  RIDE_STATUS_LABELS.get(rs, rs),
-        "status":            c.status,            # legacy: scheduled|picked_up|dropped_off
-        "dispatch_status":   c.dispatch_status,   # none|sent|confirmed|enroute
-        "club_status":       c.club_status,       # coming|arrived|left
-        "needs_transport":   bool(c.needs_transport),
-        "picked_up_at":      vegas_datetime(c.picked_up_at),
-        "dropped_off_at":    vegas_datetime(c.dropped_off_at),
-        "dropoff_verified":  bool(c.dropoff_verified),
+        # ── Ride progression status (scheduled → picked_up → dropped_off → at_venue → left) ──
+        "status":          ride_status,        # the clear, unified status (use this)
+        "ride_status":     ride_status,         # alias (same value)
+        "ride_status_text": ride_status_text,   # human-readable
+        "transport_status": c.status,           # raw transport field: scheduled|picked_up|dropped_off
+        "club_status":     c.club_status,       # raw club field: coming|arrived|left
+        "picked_up":       bool(c.picked_up_at),
+        "picked_up_at":    vegas_datetime(c.picked_up_at) if c.picked_up_at else "",
+        "driver_arrived":  bool(c.driver_arrived_at),
+        "driver_arrived_at": vegas_datetime(c.driver_arrived_at) if c.driver_arrived_at else "",
+        "dropped_off":     bool(c.dropped_off_at),
+        "dropped_off_at":  vegas_datetime(c.dropped_off_at) if c.dropped_off_at else "",
+        "dropoff_verified": c.dropoff_verified,
+        # ── Driver + booking details ──
         "driver_name":     c.completed_driver or c.motorista,
         "driver_assigned": bool(c.motorista and c.motorista not in ("", "Unavailable", "Waitlist")),
         "car":             c.completed_car or c.car_string_val,
@@ -4129,6 +4169,11 @@ def driver_imhere(customer_id):
 
     car_str = c.car_string_val or "your ride"
     imhere_msg = f"Hi {c.nome}! Your ClubLifter driver {c.motorista} has arrived in a {car_str}. Come on out!"
+    # Record that the driver arrived at the pickup (so the AI/API can report it)
+    c.dispatch_status = "arrived"
+    if not c.driver_arrived_at:
+        c.driver_arrived_at = datetime.utcnow()
+    db.session.commit()
     fire_webhook({
         "type":            "imhere",
         "customer_id":     c.id,
@@ -4426,56 +4471,6 @@ def priority_level(customer):
     if price > 0:
         return 'medium'
     return 'low'
-
-# ─── RIDE LIFECYCLE ───────────────────────────────────────────────────────────
-# The database keeps FOUR independent state flags on a Customer, because each
-# internal dashboard needs a different slice of the truth:
-#   status          scheduled | picked_up | dropped_off   (the driver's leg)
-#   dispatch_status none | sent | confirmed | enroute      (the dispatch desk)
-#   club_status     coming | arrived | left                (the venue floor)
-#   motorista       "" | Unavailable | Waitlist | <name>   (the assignment)
-# External consumers (AI agents, partners, webhooks) should not have to know
-# any of that. ride_status() collapses all four into one ordered timeline.
-RIDE_STATUS_LABELS = {
-    "no_driver":     "Booked, waiting for a driver to be assigned",
-    "waitlist":      "On the waitlist, no driver available yet",
-    "scheduled":     "Booked and confirmed, driver assigned",
-    "dispatch_sent": "Ride sent to the driver, awaiting confirmation",
-    "confirmed":     "Driver confirmed the ride",
-    "enroute":       "Driver is on the way to the pickup location",
-    "picked_up":     "Guest is in the car, heading to the venue",
-    "at_venue":      "Guest arrived at the venue",
-    "left":          "Guest has left the venue",
-    "walk_in":       "Walk-in guest, no transport requested",
-}
-
-def ride_status(customer):
-    """One-field lifecycle for a ride. Latest stage wins.
-    Returns a key from RIDE_STATUS_LABELS."""
-    club   = (customer.club_status or "").strip()
-    stat   = (customer.status or "").strip()
-    disp   = (customer.dispatch_status or "none").strip()
-    driver = (customer.motorista or "").strip()
-
-    if club == "left":
-        return "left"
-    if club == "arrived" or stat == "dropped_off":
-        return "at_venue"
-    if not customer.needs_transport:
-        return "walk_in"
-    if stat == "picked_up":
-        return "picked_up"
-    if disp == "enroute":
-        return "enroute"
-    if disp == "confirmed":
-        return "confirmed"
-    if disp == "sent":
-        return "dispatch_sent"
-    if driver == "Waitlist":
-        return "waitlist"
-    if driver in ("", "Unavailable"):
-        return "no_driver"
-    return "scheduled"
 
 # Anti-starvation: a ride waiting longer than this many minutes is bumped up so
 # cheap/free guests are never stuck behind an endless stream of pricier ones.
@@ -6348,6 +6343,7 @@ with app.app_context():
     safe_migrate("customer", "here_photo_at",   "ALTER TABLE customer ADD COLUMN here_photo_at DATETIME")
     safe_migrate("customer", "priority",        "ALTER TABLE customer ADD COLUMN priority BOOLEAN DEFAULT 0")
     safe_migrate("customer", "picked_up_at",    "ALTER TABLE customer ADD COLUMN picked_up_at DATETIME")
+    safe_migrate("customer", "driver_arrived_at", "ALTER TABLE customer ADD COLUMN driver_arrived_at DATETIME")
     safe_migrate("customer", "dropped_off_at",  "ALTER TABLE customer ADD COLUMN dropped_off_at DATETIME")
     safe_migrate("customer", "dropoff_verified","ALTER TABLE customer ADD COLUMN dropoff_verified BOOLEAN DEFAULT 0")
     safe_migrate("customer", "completed_driver","ALTER TABLE customer ADD COLUMN completed_driver VARCHAR(120) DEFAULT ''")
