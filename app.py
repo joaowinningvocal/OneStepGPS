@@ -4715,6 +4715,7 @@ def api_v1_customer_status(customer_id):
     c = Customer.query.get(customer_id)
     if not c:
         return jsonify({"success": False, "error": "Customer not found"}), 404
+    ride_status, ride_status_text = _ride_status_info(c)
     return jsonify({
         "success": True,
         "customer_id": c.id, "customer_name": c.nome,
@@ -4722,8 +4723,18 @@ def api_v1_customer_status(customer_id):
         "driver_name": c.motorista, "driver_phone": c.motorista_phone,
         "car": c.car_string_val, "distance_km": c.distancia,
         "pickup_datetime": c.pickup_datetime, "destination": c.destination,
-        "pickup_status": c.status,          # scheduled | picked_up
-        "club_status": c.club_status,       # coming | arrived | left
+        # ── Clear, unified ride status (scheduled → enroute → arrived → picked_up → dropped_off → at_venue → left) ──
+        "status":          ride_status,        # the clear, unified status (use this)
+        "ride_status":     ride_status,         # alias (same value)
+        "ride_status_text": ride_status_text,   # human-readable
+        "pickup_status": ride_status,           # updated: now reflects the full progression (was raw c.status)
+        "transport_status": c.status,           # raw transport field: scheduled|picked_up|dropped_off
+        "club_status": c.club_status,           # raw club field: coming|arrived|left
+        "picked_up":      bool(c.picked_up_at),
+        "picked_up_at":   vegas_datetime(c.picked_up_at) if c.picked_up_at else "",
+        "driver_arrived": bool(c.driver_arrived_at),
+        "dropped_off":    bool(c.dropped_off_at),
+        "dropped_off_at": vegas_datetime(c.dropped_off_at) if c.dropped_off_at else "",
         "package": c.package, "guests": c.guests,
     })
 
