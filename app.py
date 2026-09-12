@@ -2842,6 +2842,84 @@ def ai_update_notes():
     db.session.commit()
     return jsonify({"success": True, "customer_id": cust.id, "notes": cust.details})
 
+@app.route('/api/v1/reschedule', methods=['POST'])
+@app.route('/api/ai/reschedule', methods=['POST'])
+@require_api_key
+def api_reschedule():
+    """Reschedule a booking to a new pickup date/time. Reuses the same logic as
+    the dispatcher reschedule: normalizes the date, re-arms proximity alerts,
+    fires the pickup_rescheduled webhook, and texts the assigned driver about the
+    new time.
+
+    POST JSON or form:
+      { "phone": "+17025307390", "pickup_datetime": "09/15/2026 11:00 PM" }
+      or { "customer_id": 462, "pickup_datetime": "09/15/2026 11:00 PM" }
+    """
+    data = request.get_json(silent=True) or request.form
+    raw = (data.get("pickup_datetime") or data.get("datetime") or "").strip()
+    if not raw:
+        return jsonify({"success": False, "error": "pickup_datetime is required"})
+
+    # Resolve the booking (by customer_id or phone)
+    cust = None
+    if data.get("customer_id"):
+        cust = Customer.query.get(_safe_int(data.get("customer_id")))
+    if not cust and data.get("phone"):
+        cust = _find_customer_by_phone(data.get("phone"))
+    if not cust:
+        return jsonify({"success": False, "error": "No booking found for that customer."})
+
+    # Normalize + validate the new date/time (same as dispatcher reschedule)
+    normalized = normalize_pickup_datetime(raw)
+    if parse_pickup_datetime(normalized) is None:
+        return jsonify({"success": False,
+                        "error": "Couldn't read that date/time. Use MM/DD/YYYY HH:MM AM/PM."})
+
+    old = cust.pickup_datetime
+    cust.pickup_datetime = normalized
+    # Re-arm proximity alerts so 1km/500m/arrived fire again for the new time
+    cust.notified_15km = False
+    cust.notified_10km = False
+    cust.notified_5km = False
+    db.session.commit()
+
+    # Fire the same webhook the dispatcher reschedule uses
+    fire_webhook({
+        "type":            "pickup_rescheduled",
+        "customer_id":     cust.id,
+        "customer_name":   cust.nome,
+        "customer_phone":  cust.phone,
+        "old_datetime":    old,
+        "new_datetime":    normalized,
+        "driver_name":     cust.motorista,
+        "destination":     cust.destination,
+        "changed_by":      "api",
+    })
+
+    # Notify the assigned driver about the new time (reuses the SMS system)
+    driver_notified = False
+    has_driver = cust.motorista and cust.motorista not in ("", "Unavailable", "Waitlist")
+    if has_driver:
+        driver_phone = clean_phone(cust.motorista_phone or "")
+        if not driver_phone:
+            drv = get_driver_record(cust.motorista)
+            driver_phone = clean_phone(drv.phone) if drv and drv.phone else ""
+        if driver_phone:
+            send_sms_bg(driver_phone,
+                f"ClubLifter: pickup time changed.\n"
+                f"Guest: {cust.nome}\nPickup: {cust.endereco}\n"
+                f"New time: {normalized}\nDrop-off: {cust.destination or 'N/A'}")
+            driver_notified = True
+
+    return jsonify({
+        "success": True,
+        "customer_id": cust.id,
+        "old_datetime": old,
+        "new_datetime": normalized,
+        "driver_name": cust.motorista if has_driver else None,
+        "driver_notified": driver_notified,
+    })
+
 @app.route('/api/ai/request-driver-call', methods=['POST'])
 @require_api_key
 def ai_request_driver_call():
