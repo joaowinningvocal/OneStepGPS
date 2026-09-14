@@ -6819,13 +6819,17 @@ def seed_gobest_clubs():
         print(f"[SEED] GoBest clubs seed failed: {e}", flush=True)
 
 def seed_demo_ride():
-    """Set up a ready-to-demo scenario tied to the DEMO_PHONE login: a driver who
-    is enroute, a car with a (simulated) GPS position, an active ride, and a couple
-    of chat messages. Lets you show Ride Back + Tracking + Chat immediately after
-    logging into the app with the demo phone. Idempotent — only creates if missing.
-    Controlled by DEMO_RIDE env (default on); set DEMO_RIDE=0 to skip."""
+    """Set up a ready-to-demo scenario: a driver who is enroute, a car with a
+    (simulated) GPS position, an active ride, and a couple of chat messages. Lets
+    you show Ride Back + Tracking + Chat after logging into the app.
+
+    The ride is tied to DEMO_RIDE_PHONE (defaults to DEMO_PHONE if unset). Set
+    DEMO_RIDE_PHONE to your own number to demo with a normal SMS login while still
+    seeing the ride. Idempotent. Set DEMO_RIDE=0 to skip."""
     if os.environ.get("DEMO_RIDE", "1").lower() in ("0", "false", "no"):
         return
+    # Whose number the demo ride belongs to — independent of the login demo phone
+    ride_phone = clean_phone(os.environ.get("DEMO_RIDE_PHONE", "") or DEMO_PHONE)
     try:
         # 1. Demo driver's car (a real display_name that likely won't collide;
         #    GPS is simulated by the tracker fallback if the name isn't in OneStepGPS).
@@ -6852,15 +6856,15 @@ def seed_demo_ride():
         elif not drv.assigned_car_id:
             drv.assigned_car_id = car.id; db.session.commit()
 
-        # 3. The demo ride, tied to DEMO_PHONE, driver enroute, so tracking+chat show
-        demo_ride = Customer.query.filter_by(phone=DEMO_PHONE, is_return_ride=False)\
+        # 3. The demo ride, tied to ride_phone, driver enroute, so tracking+chat show
+        demo_ride = Customer.query.filter_by(phone=ride_phone, is_return_ride=False)\
                                   .order_by(Customer.id.desc()).first()
         vt = vegas_today()
         today = f"{vt.month:02d}/{vt.day:02d}/{vt.year}"
         if not demo_ride:
             demo_ride = Customer(
                 nome="Demo Guest",
-                phone=DEMO_PHONE,
+                phone=ride_phone,
                 needs_transport=True,
                 endereco="Aria, 3730 S Las Vegas Blvd, Las Vegas, NV 89158",
                 destination="Hustler Club Las Vegas",
@@ -6886,7 +6890,7 @@ def seed_demo_ride():
             db.session.add(RideChatMessage(customer_id=demo_ride.id, sender="customer",
                 body="Perfect, I'll be at the north valet.", read_by_driver=True))
             db.session.commit()
-            print(f"[SEED] demo ride created for {DEMO_PHONE} (driver enroute)", flush=True)
+            print(f"[SEED] demo ride created for {ride_phone} (driver enroute)", flush=True)
     except Exception as e:
         db.session.rollback()
         print(f"[SEED] demo ride seed failed: {e}", flush=True)
