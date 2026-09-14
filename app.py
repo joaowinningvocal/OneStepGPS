@@ -3064,11 +3064,11 @@ def app_ride_status():
         except Exception as e:
             print(f"[APP-TRACK] gps lookup failed: {e}", flush=True)
 
-    # Demo fallback: if this is the demo car (no real GPS), simulate a moving
-    # position near the Strip so the tracking map has something to show.
+    # Demo fallback: only if this is the FAKE demo car (no real GPS device),
+    # simulate a moving position near the Strip so the map isn't empty. A real
+    # car (e.g. a Sprinter in OneStepGPS) uses its live GPS above.
     if car_lat is None and c.car_name == "ClubLifter Demo Car" and ride_status in ("enroute", "arrived", "picked_up"):
         import math, time as _t
-        # Slowly orbit a point on the Strip so the car appears to move between polls
         base_lat, base_lng = 36.1072, -115.1739   # near Aria
         t = _t.time() / 30.0
         car_lat = base_lat + 0.004 * math.sin(t)
@@ -6831,13 +6831,12 @@ def seed_demo_ride():
     # Whose number the demo ride belongs to — independent of the login demo phone
     ride_phone = clean_phone(os.environ.get("DEMO_RIDE_PHONE", "") or DEMO_PHONE)
     try:
-        # 1. Demo driver's car (a real display_name that likely won't collide;
-        #    GPS is simulated by the tracker fallback if the name isn't in OneStepGPS).
-        demo_car_name = "ClubLifter Demo Car"
+        # 1. Demo driver's car. Defaults to a REAL OneStepGPS vehicle so the
+        #    tracking map shows live GPS. Override with DEMO_RIDE_CAR if needed.
+        demo_car_name = (os.environ.get("DEMO_RIDE_CAR", "") or "2013 Mercedes Sprinter 3500").strip()
         car = Car.query.filter_by(name=demo_car_name).first()
         if not car:
-            car = Car(name=demo_car_name, model="Cadillac Escalade", color="Black",
-                      plate="DEMO-1", active=True)
+            car = Car(name=demo_car_name, model="", color="", plate="DEMO", active=True)
             db.session.add(car); db.session.commit()
 
         # 2. Demo driver account (role=driver) + Driver record, marked available
@@ -6850,10 +6849,14 @@ def seed_demo_ride():
             db.session.add(du); db.session.commit()
         drv = Driver.query.filter_by(name=demo_driver_user).first()
         if not drv:
-            drv = Driver(name=demo_driver_user, phone="7025550123", available=True,
-                         assigned_car_id=car.id)
+            drv = Driver(name=demo_driver_user, phone="7025550123", available=True)
             db.session.add(drv); db.session.commit()
-        elif not drv.assigned_car_id:
+        # Only claim the car for the demo driver if no other driver already owns it
+        # (a real GPS car like the Sprinter stays assigned to its real driver — the
+        # demo ride references it by car_name for tracking, which is enough).
+        other_owner = Driver.query.filter(Driver.assigned_car_id == car.id,
+                                           Driver.name != demo_driver_user).first()
+        if not other_owner and not drv.assigned_car_id:
             drv.assigned_car_id = car.id; db.session.commit()
 
         # 3. The demo ride, tied to ride_phone, driver enroute, so tracking+chat show
@@ -6874,7 +6877,7 @@ def seed_demo_ride():
                 motorista=demo_driver_user,
                 motorista_phone="7025550123",
                 car_name=demo_car_name,
-                car_string_val="Black Cadillac Escalade (DEMO-1)",
+                car_string_val=car.car_string() if hasattr(car, 'car_string') else demo_car_name,
                 status="scheduled",
                 club_status="coming",
                 dispatch_status="enroute",   # ← enroute so chat is available + tracking shows the car

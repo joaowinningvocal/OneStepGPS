@@ -11344,6 +11344,22 @@ let _trackMap = null, _carMarker = null, _destMarker = null;
 let _trackTimer = null, _chatTimer = null;
 let _activeRideId = null, _lastChatId = 0;
 
+// Rewrite the driver-side status text into a friendly, customer-facing one,
+// using the logged-in user's first name when we have it.
+function personalizeStatus(status, fallback){
+  const first = (_user && _user.name) ? _user.name.trim().split(' ')[0] : '';
+  const nameSuffix = first ? `, ${first}` : '';
+  const map = {
+    'enroute':   `Your driver is on the way to pick you up${nameSuffix}`,
+    'arrived':   `Your driver has arrived${nameSuffix}`,
+    'picked_up': `You're on your way to the venue${nameSuffix}`,
+    'dropped_off': `You've arrived — enjoy your night${nameSuffix}!`,
+    'at_venue':  `You're at the venue — enjoy${nameSuffix}!`,
+    'scheduled': `Your ride is scheduled${nameSuffix}`,
+  };
+  return map[status] || fallback || 'Your ride';
+}
+
 // Show the "track your ride" card on the home screen if there's an active ride
 async function checkActiveRide(){
   const card = document.getElementById('activeRideCard');
@@ -11352,7 +11368,7 @@ async function checkActiveRide(){
     const d = await (await fetch(`${API_BASE}/api/app/ride-status`,{headers:{'Authorization':`Bearer ${_token}`}})).json();
     if(d.success && d.has_ride){
       card.style.display='block';
-      document.getElementById('arcStatus').innerText = d.status_text || 'Your ride is active';
+      document.getElementById('arcStatus').innerText = personalizeStatus(d.status, d.status_text);
       document.getElementById('arcDest').innerText = 'To ' + (d.destination || d.pickup_location || 'your destination');
       const chat = document.getElementById('arcChat');
       chat.style.display = d.chat_available ? 'flex' : 'none';
@@ -11390,7 +11406,7 @@ async function refreshTracking(){
       return;
     }
     _activeRideId = d.customer_id;
-    document.getElementById('trackStatusText').innerText = d.status_text || 'Your ride';
+    document.getElementById('trackStatusText').innerText = personalizeStatus(d.status, d.status_text);
     document.getElementById('trackStatusSub').innerText = d.pickup_datetime || '';
     document.getElementById('trackFrom').innerText = d.pickup_location || '—';
     document.getElementById('trackTo').innerText = d.destination || '—';
