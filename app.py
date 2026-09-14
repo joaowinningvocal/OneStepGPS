@@ -2458,7 +2458,7 @@ import secrets as _secrets
 
 # Demo account for App Store / Play Store reviewers. Entering this phone number
 # skips the SMS step and accepts the fixed code below. Can be overridden via env.
-DEMO_PHONE = clean_phone(os.environ.get("DEMO_PHONE", "4155550100"))
+DEMO_PHONE = clean_phone(os.environ.get("DEMO_PHONE", "7025550100"))
 DEMO_CODE  = os.environ.get("DEMO_CODE", "424242")
 
 def _app_user_from_token():
@@ -3063,6 +3063,16 @@ def app_ride_status():
                     break
         except Exception as e:
             print(f"[APP-TRACK] gps lookup failed: {e}", flush=True)
+
+    # Demo fallback: if this is the demo car (no real GPS), simulate a moving
+    # position near the Strip so the tracking map has something to show.
+    if car_lat is None and c.car_name == "ClubLifter Demo Car" and ride_status in ("enroute", "arrived", "picked_up"):
+        import math, time as _t
+        # Slowly orbit a point on the Strip so the car appears to move between polls
+        base_lat, base_lng = 36.1072, -115.1739   # near Aria
+        t = _t.time() / 30.0
+        car_lat = base_lat + 0.004 * math.sin(t)
+        car_lng = base_lng + 0.004 * math.cos(t)
 
     # Unread driver messages for this customer
     unread = 0
@@ -6808,6 +6818,79 @@ def seed_gobest_clubs():
         db.session.rollback()
         print(f"[SEED] GoBest clubs seed failed: {e}", flush=True)
 
+def seed_demo_ride():
+    """Set up a ready-to-demo scenario tied to the DEMO_PHONE login: a driver who
+    is enroute, a car with a (simulated) GPS position, an active ride, and a couple
+    of chat messages. Lets you show Ride Back + Tracking + Chat immediately after
+    logging into the app with the demo phone. Idempotent — only creates if missing.
+    Controlled by DEMO_RIDE env (default on); set DEMO_RIDE=0 to skip."""
+    if os.environ.get("DEMO_RIDE", "1").lower() in ("0", "false", "no"):
+        return
+    try:
+        # 1. Demo driver's car (a real display_name that likely won't collide;
+        #    GPS is simulated by the tracker fallback if the name isn't in OneStepGPS).
+        demo_car_name = "ClubLifter Demo Car"
+        car = Car.query.filter_by(name=demo_car_name).first()
+        if not car:
+            car = Car(name=demo_car_name, model="Cadillac Escalade", color="Black",
+                      plate="DEMO-1", active=True)
+            db.session.add(car); db.session.commit()
+
+        # 2. Demo driver account (role=driver) + Driver record, marked available
+        demo_driver_user = "demo.driver"
+        du = User.query.filter_by(username=demo_driver_user).first()
+        if not du:
+            du = User(username=demo_driver_user,
+                      password_hash=generate_password_hash("demodriver123"),
+                      role="driver", is_active=True)
+            db.session.add(du); db.session.commit()
+        drv = Driver.query.filter_by(name=demo_driver_user).first()
+        if not drv:
+            drv = Driver(name=demo_driver_user, phone="7025550123", available=True,
+                         assigned_car_id=car.id)
+            db.session.add(drv); db.session.commit()
+        elif not drv.assigned_car_id:
+            drv.assigned_car_id = car.id; db.session.commit()
+
+        # 3. The demo ride, tied to DEMO_PHONE, driver enroute, so tracking+chat show
+        demo_ride = Customer.query.filter_by(phone=DEMO_PHONE, is_return_ride=False)\
+                                  .order_by(Customer.id.desc()).first()
+        vt = vegas_today()
+        today = f"{vt.month:02d}/{vt.day:02d}/{vt.year}"
+        if not demo_ride:
+            demo_ride = Customer(
+                nome="Demo Guest",
+                phone=DEMO_PHONE,
+                needs_transport=True,
+                endereco="Aria, 3730 S Las Vegas Blvd, Las Vegas, NV 89158",
+                destination="Hustler Club Las Vegas",
+                package="Free Ride, Entry & Drink",
+                guests=2,
+                pickup_datetime=f"{today} 11:00 PM",
+                motorista=demo_driver_user,
+                motorista_phone="7025550123",
+                car_name=demo_car_name,
+                car_string_val="Black Cadillac Escalade (DEMO-1)",
+                status="scheduled",
+                club_status="coming",
+                dispatch_status="enroute",   # ← enroute so chat is available + tracking shows the car
+                driver_arrived_at=None,
+                distancia=3.2,
+            )
+            db.session.add(demo_ride); db.session.commit()
+
+            # 4. A couple of starter chat messages so the chat isn't empty
+            db.session.add(RideChatMessage(customer_id=demo_ride.id, sender="driver",
+                body="Hey! I'm on my way to pick you up, about 5 minutes out.",
+                read_by_customer=False))
+            db.session.add(RideChatMessage(customer_id=demo_ride.id, sender="customer",
+                body="Perfect, I'll be at the north valet.", read_by_driver=True))
+            db.session.commit()
+            print(f"[SEED] demo ride created for {DEMO_PHONE} (driver enroute)", flush=True)
+    except Exception as e:
+        db.session.rollback()
+        print(f"[SEED] demo ride seed failed: {e}", flush=True)
+
 with app.app_context():
     db.create_all()
 
@@ -6899,6 +6982,7 @@ with app.app_context():
 
     seed_data()
     seed_gobest_clubs()
+    seed_demo_ride()
 
 # Start background distance tracker (runs in daemon thread)
 # Use WERKZEUG_RUN_MAIN guard to avoid double-starting in Flask debug mode reloader
