@@ -324,7 +324,10 @@
                                     <div class="detail-item"><span class="dlabel">⏱️ ETA to club</span><span class="dval" id="eta-{{ c.id }}"><button class="eta-btn" onclick="loadEta({{ c.id }})">Check ETA</button></span></div>
                                     {% endif %}
                                 </div>
-                                <div style="margin-top:14px;text-align:right;">
+                                <div style="margin-top:14px;text-align:right;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+                                    {% if c.destination and not c.is_return_ride %}
+                                    <button class="rideback-btn" onclick='openRideBack({{ c.id }}, {{ (c.destination or "")|tojson }}, {{ (c.endereco or "")|tojson }}, {{ "true" if c.has_return_ride else "false" }})'>🔄 Ride Back</button>
+                                    {% endif %}
                                     <button class="edit-btn-full" onclick='openEdit({{ c.id }}, {{ {"nome": c.nome, "phone": c.phone or "", "endereco": c.endereco or "", "destination": c.destination or "", "package": c.package or "", "guests": c.guests or 0, "details": c.details or "", "pickup_datetime": c.pickup_datetime or ""}|tojson }})'>✏️ Edit reservation</button>
                                 </div>
                             </div>
@@ -877,6 +880,60 @@ async function loadEta(id){
         </div>
     </div>
 </div>
+<div id="rideBackModal" class="em-overlay">
+    <div class="em-box" style="max-width:440px;">
+        <div class="em-title">🔄 Book Ride Back</div>
+        <div style="font-size:.85rem;color:var(--m2,#8892a0);margin-bottom:16px;line-height:1.5;">Books a new ride taking the guest from the venue back to their original pickup location.</div>
+        <input type="hidden" id="rb-id">
+        <div class="rb-route">
+            <div class="rb-leg"><span class="rb-dot rb-from"></span><div><div class="rb-label">Pickup (from)</div><div class="rb-val" id="rb-from">—</div></div></div>
+            <div class="rb-arrow">↓</div>
+            <div class="rb-leg"><span class="rb-dot rb-to"></span><div><div class="rb-label">Drop-off (to)</div><div class="rb-val" id="rb-to">—</div></div></div>
+        </div>
+        <div id="rb-warning" style="display:none;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.35);border-radius:9px;padding:10px 12px;font-size:.82rem;color:var(--gold,#fbbf24);margin-bottom:14px;">⚠️ This guest already has a return ride booked. Booking another will create a duplicate.</div>
+        <div class="em-field em-full" style="margin-bottom:16px;">
+            <label>Return pickup time (optional)</label>
+            <input id="rb-datetime" class="em-input" placeholder="MM/DD/YYYY HH:MM PM — leave blank for ASAP">
+        </div>
+        <div class="em-actions">
+            <button class="em-btn em-cancel" onclick="closeRideBack()">Cancel</button>
+            <button class="em-btn em-save" onclick="submitRideBack()">🔄 Book Ride Back</button>
+        </div>
+    </div>
+</div>
+<style>
+.rideback-btn{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-weight:700;font-size:.82rem;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.rideback-btn:hover{filter:brightness(1.1);}
+.rb-route{background:var(--s2,#161d2e);border:1px solid var(--bd,rgba(255,255,255,.07));border-radius:12px;padding:16px;margin-bottom:16px;}
+.rb-leg{display:flex;align-items:flex-start;gap:12px;}
+.rb-dot{width:12px;height:12px;border-radius:50%;margin-top:4px;flex-shrink:0;}
+.rb-from{background:#8a5cf6;}
+.rb-to{background:#22c55e;}
+.rb-label{font-size:.68rem;color:var(--m2,#8892a0);text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
+.rb-val{font-size:.92rem;color:var(--t,#e8eaf0);font-weight:600;margin-top:2px;}
+.rb-arrow{color:var(--m2,#8892a0);font-size:1.1rem;margin:4px 0 4px 5px;}
+</style>
+<script>
+function openRideBack(id, destination, origin, hasReturn){
+    document.getElementById('rb-id').value=id;
+    document.getElementById('rb-from').innerText=destination||'The venue';
+    document.getElementById('rb-to').innerText=origin||'Original pickup';
+    document.getElementById('rb-datetime').value='';
+    document.getElementById('rb-warning').style.display = hasReturn ? 'block' : 'none';
+    document.getElementById('rideBackModal').classList.add('show');
+}
+function closeRideBack(){document.getElementById('rideBackModal').classList.remove('show');}
+async function submitRideBack(){
+    const id=document.getElementById('rb-id').value;
+    const fd=new FormData();
+    fd.append('pickup_datetime',document.getElementById('rb-datetime').value.trim());
+    try{
+        const d=await(await fetch(`/admin/guestlist/ride-back/${id}`,{method:'POST',body:fd})).json();
+        if(d.success){ closeRideBack(); location.reload(); }
+        else{ alert(d.error||'Could not book ride back'); }
+    }catch(e){ alert('Could not book ride back'); }
+}
+</script>
 <div id="editModal" class="em-overlay">
     <div class="em-box">
         <div class="em-title">✏️ Edit Reservation</div>

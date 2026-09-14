@@ -514,6 +514,26 @@ class ChatRead(db.Model):
     channel       = db.Column(db.String(120), index=True)
     last_read_id  = db.Column(db.Integer, default=0)
 
+class RideChatMessage(db.Model):
+    """A message in the customer<->driver chat for a specific ride. The customer
+    sends from the app (identified by the ride); the driver sends from their
+    dashboard. Simple polling on both ends."""
+    id          = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, index=True, nullable=False)   # the ride this chat belongs to
+    sender      = db.Column(db.String(20), default="customer")         # "customer" or "driver"
+    body        = db.Column(db.Text, default="")
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    read_by_customer = db.Column(db.Boolean, default=False)
+    read_by_driver   = db.Column(db.Boolean, default=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "customer_id": self.customer_id, "sender": self.sender,
+            "body": self.body,
+            "time": vegas_time(self.created_at),
+            "ts": self.created_at.isoformat() if self.created_at else "",
+        }
+
 class DriverStop(db.Model):
     """A period where a vehicle stayed in the same place long enough to count as a stop.
     Built from the GPS samples the tracker already polls every couple of minutes."""
@@ -609,6 +629,10 @@ class Customer(db.Model):
     completed_car    = db.Column(db.String(200), default="")          # car they were in at the time
     dropoff_distance_mi = db.Column(db.Float, default=0.0)             # car-to-venue distance at drop-off
     promoter        = db.Column(db.String(80), default="")             # NEW: which promoter created this
+    # Ride Back: links a return ride to the original booking
+    is_return_ride  = db.Column(db.Boolean, default=False)             # this ride is a "ride back" (club → hotel)
+    return_of_id    = db.Column(db.Integer, nullable=True)             # the original ride this returns for
+    has_return_ride = db.Column(db.Boolean, default=False)             # the original has a return already booked
     # Pickup status: 'scheduled', 'picked_up'
     status          = db.Column(db.String(20), default="scheduled")
     # Distance notification flags (so we don't fire 2x)
@@ -2920,6 +2944,196 @@ def api_reschedule():
         "driver_notified": driver_notified,
     })
 
+@app.route('/api/v1/ride-back', methods=['POST'])
+@app.route('/api/ai/ride-back', methods=['POST'])
+@require_api_key
+def api_ride_back():
+    """Book a return ride (club → original pickup) for an existing booking.
+    POST JSON:
+      { "phone": "+17025307390", "pickup_datetime": "09/16/2026 2:00 AM" }
+      or { "customer_id": 462, "pickup_datetime": "..." }
+    pickup_datetime is optional; omit for an ASAP/unspecified return.
+    """
+    data = request.get_json(silent=True) or request.form
+    cust = None
+    if data.get("customer_id"):
+        cust = Customer.query.get(_safe_int(data.get("customer_id")))
+    if not cust and data.get("phone"):
+        cust = _find_customer_by_phone(data.get("phone"))
+    if not cust:
+        return jsonify({"success": False, "error": "No booking found for that customer."})
+    pickup_dt = (data.get("pickup_datetime") or data.get("datetime") or "").strip()
+    if pickup_dt and parse_pickup_datetime(normalize_pickup_datetime(pickup_dt)) is None:
+        return jsonify({"success": False, "error": "Couldn't read that date/time."})
+    ride, err = _create_return_ride(cust, pickup_dt, created_by="api")
+    if err:
+        return jsonify({"success": False, "error": err})
+    return jsonify({
+        "success": True,
+        "return_ride_id": ride.id,
+        "original_id": cust.id,
+        "pickup": ride.endereco,
+        "destination": ride.destination,
+        "pickup_datetime": ride.pickup_datetime,
+    })
+
+@app.route('/api/app/ride-back', methods=['POST'])
+def app_ride_back():
+    """App: a logged-in user books their own return ride (club → hotel/origin)."""
+    user = _app_user_from_token()
+    if not user:
+        return jsonify({"success": False, "error": "Not logged in", "need_login": True}), 401
+    # Find the user's most recent ORIGINAL ride (not a return ride) by phone
+    digits = clean_phone(user.phone)
+    target = digits[-10:] if len(digits) >= 10 else digits
+    cust = None
+    if target:
+        cust = (Customer.query
+                .filter(Customer.is_return_ride == False)
+                .filter((Customer.phone.like(f"%{target}")) | (Customer.phones_json.like(f"%{target}%")))
+                .order_by(Customer.id.desc()).first())
+    if not cust:
+        # fall back to the generic finder
+        cust = _find_customer_by_phone(user.phone)
+    if not cust:
+        return jsonify({"success": False, "error": "No active ride found to return from."})
+    if cust.is_return_ride:
+        return jsonify({"success": False, "error": "Your most recent ride is already a return ride."})
+    data = request.get_json(silent=True) or request.form
+    pickup_dt = (data.get("pickup_datetime") or "").strip()
+    if pickup_dt and parse_pickup_datetime(normalize_pickup_datetime(pickup_dt)) is None:
+        return jsonify({"success": False, "error": "Couldn't read that date/time."})
+    ride, err = _create_return_ride(cust, pickup_dt, created_by=f"app:{user.phone}")
+    if err:
+        return jsonify({"success": False, "error": err})
+    return jsonify({
+        "success": True,
+        "return_ride_id": ride.id,
+        "pickup": ride.endereco,
+        "destination": ride.destination,
+        "pickup_datetime": ride.pickup_datetime or "As soon as possible",
+    })
+
+def _app_active_ride(user):
+    """Find the logged-in app user's current active ride (scheduled or in progress,
+    not dropped off/left). Returns the most recent one."""
+    digits = clean_phone(user.phone)
+    target = digits[-10:] if len(digits) >= 10 else digits
+    if not target:
+        return None
+    return (Customer.query
+            .filter((Customer.phone.like(f"%{target}")) | (Customer.phones_json.like(f"%{target}%")))
+            .filter(Customer.club_status != "left")
+            .filter(Customer.status != "dropped_off")
+            .order_by(Customer.id.desc()).first())
+
+@app.route('/api/app/ride-status', methods=['GET'])
+def app_ride_status():
+    """App: live status of the user's current ride, including the driver's car
+    position (from OneStepGPS) once the driver is on the way. Powers the map."""
+    user = _app_user_from_token()
+    if not user:
+        return jsonify({"success": False, "error": "Not logged in", "need_login": True}), 401
+    c = _app_active_ride(user)
+    if not c:
+        return jsonify({"success": True, "has_ride": False})
+
+    ride_status, ride_status_text = _ride_status_info(c)
+    # Chat is available once the driver is on the way (enroute or later, before dropoff)
+    chat_available = ride_status in ("enroute", "arrived", "picked_up")
+    has_driver = bool(c.motorista and c.motorista not in ("", "Unavailable", "Waitlist"))
+
+    # Try to get the assigned car's live GPS position
+    car_lat = car_lng = None
+    if has_driver and c.car_name and ride_status in ("enroute", "arrived", "picked_up"):
+        try:
+            res = _safe_json_get(
+                "https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
+                headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
+                default=None)
+            lista = res if isinstance(res, list) else ([res] if res else [])
+            match = _match_car(c.car_name)
+            match_name = match.name if match else c.car_name
+            for v in lista:
+                if _norm_name(v.get("display_name", "")) == _norm_name(match_name):
+                    vlat = v.get("lat") or (v.get("last_tap", {}) or {}).get("lat")
+                    vlng = v.get("lng") or (v.get("last_tap", {}) or {}).get("lng")
+                    if vlat and vlng:
+                        car_lat, car_lng = float(vlat), float(vlng)
+                    break
+        except Exception as e:
+            print(f"[APP-TRACK] gps lookup failed: {e}", flush=True)
+
+    # Unread driver messages for this customer
+    unread = 0
+    if chat_available:
+        unread = RideChatMessage.query.filter_by(
+            customer_id=c.id, sender="driver", read_by_customer=False).count()
+
+    return jsonify({
+        "success": True,
+        "has_ride": True,
+        "customer_id": c.id,
+        "status": ride_status,
+        "status_text": ride_status_text,
+        "destination": c.destination,
+        "pickup_location": c.endereco,
+        "pickup_datetime": c.pickup_datetime,
+        "driver_name": c.motorista if has_driver else None,
+        "driver_assigned": has_driver,
+        "car": c.car_string_val if has_driver else "",
+        "car_lat": car_lat,
+        "car_lng": car_lng,
+        "chat_available": chat_available,
+        "unread_messages": unread,
+        "is_return_ride": c.is_return_ride,
+    })
+
+@app.route('/api/app/chat', methods=['GET'])
+def app_chat_get():
+    """App: fetch the customer<->driver chat messages for the user's active ride.
+    Optional ?after=<id> to get only newer messages (for polling)."""
+    user = _app_user_from_token()
+    if not user:
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+    c = _app_active_ride(user)
+    if not c:
+        return jsonify({"success": True, "messages": [], "customer_id": None})
+    after = _safe_int(request.args.get("after", 0))
+    q = RideChatMessage.query.filter_by(customer_id=c.id)
+    if after:
+        q = q.filter(RideChatMessage.id > after)
+    msgs = q.order_by(RideChatMessage.id.asc()).all()
+    # Mark driver messages as read by the customer
+    for m in msgs:
+        if m.sender == "driver" and not m.read_by_customer:
+            m.read_by_customer = True
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "customer_id": c.id,
+        "driver_name": c.motorista or "Your driver",
+        "messages": [m.to_dict() for m in msgs],
+    })
+
+@app.route('/api/app/chat/send', methods=['POST'])
+def app_chat_send():
+    """App: the customer sends a message to their driver."""
+    user = _app_user_from_token()
+    if not user:
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+    c = _app_active_ride(user)
+    if not c:
+        return jsonify({"success": False, "error": "No active ride."})
+    data = request.get_json(silent=True) or request.form
+    body = (data.get("body") or "").strip()
+    if not body:
+        return jsonify({"success": False, "error": "Message is empty."})
+    m = RideChatMessage(customer_id=c.id, sender="customer", body=body[:1000], read_by_driver=False)
+    db.session.add(m)
+    db.session.commit()
+    return jsonify({"success": True, "message": m.to_dict()})
+
 @app.route('/api/ai/request-driver-call', methods=['POST'])
 @require_api_key
 def ai_request_driver_call():
@@ -4186,6 +4400,66 @@ def customer_belongs_to_driver(c, username):
 
 def _driver_owns(customer):
     return customer_belongs_to_driver(customer, session.get("username"))
+
+@app.route('/driver/chat/<int:customer_id>', methods=['GET'])
+def driver_chat_get(customer_id):
+    """Driver dashboard: fetch the customer<->driver chat for one of the driver's
+    rides. ?after=<id> for polling only newer messages."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    c = Customer.query.get_or_404(customer_id)
+    if not _driver_owns(c):
+        return jsonify({"success": False, "error": "Not your ride"}), 403
+    after = _safe_int(request.args.get("after", 0))
+    q = RideChatMessage.query.filter_by(customer_id=c.id)
+    if after:
+        q = q.filter(RideChatMessage.id > after)
+    msgs = q.order_by(RideChatMessage.id.asc()).all()
+    # Mark customer messages as read by the driver
+    for m in msgs:
+        if m.sender == "customer" and not m.read_by_driver:
+            m.read_by_driver = True
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "customer_id": c.id,
+        "customer_name": c.nome,
+        "messages": [m.to_dict() for m in msgs],
+    })
+
+@app.route('/driver/chat/<int:customer_id>/send', methods=['POST'])
+def driver_chat_send(customer_id):
+    """Driver dashboard: send a message to the customer."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    c = Customer.query.get_or_404(customer_id)
+    if not _driver_owns(c):
+        return jsonify({"success": False, "error": "Not your ride"}), 403
+    body = (request.form.get("body") or "").strip()
+    if not body:
+        return jsonify({"success": False, "error": "Message is empty."})
+    m = RideChatMessage(customer_id=c.id, sender="driver", body=body[:1000], read_by_customer=False)
+    db.session.add(m)
+    db.session.commit()
+    return jsonify({"success": True, "message": m.to_dict()})
+
+@app.route('/driver/chat-unread', methods=['GET'])
+def driver_chat_unread():
+    """Driver dashboard: unread customer message counts per ride, for badges."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    driver_name = session.get("username")
+    # Rides that belong to this driver
+    my_rides = Customer.query.filter(Customer.motorista == driver_name).all()
+    counts = {}
+    total = 0
+    for c in my_rides:
+        n = RideChatMessage.query.filter_by(
+            customer_id=c.id, sender="customer", read_by_driver=False).count()
+        if n:
+            counts[str(c.id)] = n
+            total += n
+    return jsonify({"success": True, "unread_by_ride": counts, "total": total})
 
 @app.route('/driver/available', methods=['POST'])
 def driver_set_available():
@@ -5651,6 +5925,99 @@ def delete_location(loc_id):
     db.session.commit()
     return jsonify({"success": True})
 
+def _create_return_ride(orig, pickup_datetime=None, created_by="", geocode=True):
+    """Create a NEW ride that's the reverse of an existing one: the guest goes
+    from the original destination (the club) back to their original pickup
+    location (hotel/address). Enters the normal queue. Returns (new_customer, error).
+    """
+    if not orig:
+        return None, "Original ride not found."
+    if orig.is_return_ride:
+        return None, "This is already a return ride."
+    # The return ride swaps pickup <-> destination:
+    #   pickup  = the club (orig.destination)
+    #   dropoff = the original pickup address (orig.endereco)
+    return_pickup_addr = (orig.destination or "").strip()
+    return_dropoff     = (orig.endereco or "").strip()
+    if not return_pickup_addr:
+        return None, "The original ride has no destination to return from."
+
+    # Resolve the club's address for geocoding (destination is a club name)
+    pickup_geocode_addr = return_pickup_addr
+    club = Club.query.filter(func.lower(Club.name) == return_pickup_addr.lower()).first()
+    if club and club.address:
+        pickup_geocode_addr = club.address
+
+    new_dt = normalize_pickup_datetime(pickup_datetime) if pickup_datetime else ""
+    ride = Customer(
+        nome=orig.nome,
+        phone=orig.phone,
+        phones_json=orig.phones_json,
+        endereco=pickup_geocode_addr,       # pickup is now the club/venue address
+        details=(f"Return ride for #{orig.id}" + (f" — {orig.details}" if orig.details else "")),
+        destination=return_dropoff,          # dropoff is the original pickup (hotel)
+        package=orig.package,
+        guests=orig.guests,
+        pickup_datetime=new_dt,
+        needs_transport=True,
+        promoter=created_by or orig.promoter,
+        is_return_ride=True,
+        return_of_id=orig.id,
+        status="scheduled",
+        club_status="coming",
+    )
+    # Try to geocode + assign a driver for the return pickup
+    if geocode and pickup_geocode_addr:
+        try:
+            enc = urllib.parse.quote(pickup_geocode_addr)
+            r = requests.get(
+                f"https://nominatim.openstreetmap.org/search?q={enc}&format=json&limit=1",
+                headers={'User-Agent': 'ClubLifter_ReturnRide'}, timeout=8)
+            if r.text and r.text.strip():
+                data = r.json()
+                if data:
+                    lat = float(data[0]['lat']); lng = float(data[0]['lng']) if 'lng' in data[0] else float(data[0]['lon'])
+        except Exception as e:
+            print(f"[RETURN-RIDE] geocode failed: {e}", flush=True)
+
+    db.session.add(ride)
+    # Mark the original as having a return
+    orig.has_return_ride = True
+    db.session.commit()
+
+    fire_webhook({
+        "type":            "return_ride_created",
+        "customer_id":     ride.id,
+        "original_id":     orig.id,
+        "customer_name":   ride.nome,
+        "customer_phone":  ride.phone,
+        "pickup_address":  ride.endereco,
+        "destination":     ride.destination,
+        "pickup_datetime": ride.pickup_datetime,
+        "created_by":      created_by,
+    })
+    return ride, None
+
+@app.route('/admin/guestlist/ride-back/<int:customer_id>', methods=['POST'])
+def admin_ride_back(customer_id):
+    """Book a return ride (club → original pickup) for an existing booking."""
+    if not can_dispatch():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    orig = Customer.query.get_or_404(customer_id)
+    pickup_dt = (request.form.get('pickup_datetime', '') or "").strip()
+    if pickup_dt and parse_pickup_datetime(normalize_pickup_datetime(pickup_dt)) is None:
+        return jsonify({"success": False, "error": "Couldn't read that date/time."})
+    ride, err = _create_return_ride(orig, pickup_dt, created_by=session.get("username", ""))
+    if err:
+        return jsonify({"success": False, "error": err})
+    return jsonify({
+        "success": True,
+        "return_ride_id": ride.id,
+        "pickup": ride.endereco,
+        "destination": ride.destination,
+        "pickup_datetime": ride.pickup_datetime,
+    })
+
 @app.route('/admin/guestlist/edit/<int:customer_id>', methods=['POST'])
 def edit_customer(customer_id):
     """Edit a ride's details — name, phone, pickup address, destination, guests,
@@ -6438,6 +6805,9 @@ with app.app_context():
     safe_migrate("customer", "priority",        "ALTER TABLE customer ADD COLUMN priority BOOLEAN DEFAULT 0")
     safe_migrate("customer", "picked_up_at",    "ALTER TABLE customer ADD COLUMN picked_up_at DATETIME")
     safe_migrate("customer", "driver_arrived_at", "ALTER TABLE customer ADD COLUMN driver_arrived_at DATETIME")
+    safe_migrate("customer", "is_return_ride",  "ALTER TABLE customer ADD COLUMN is_return_ride BOOLEAN DEFAULT 0")
+    safe_migrate("customer", "return_of_id",    "ALTER TABLE customer ADD COLUMN return_of_id INTEGER")
+    safe_migrate("customer", "has_return_ride", "ALTER TABLE customer ADD COLUMN has_return_ride BOOLEAN DEFAULT 0")
     safe_migrate("customer", "dropped_off_at",  "ALTER TABLE customer ADD COLUMN dropped_off_at DATETIME")
     safe_migrate("customer", "dropoff_verified","ALTER TABLE customer ADD COLUMN dropoff_verified BOOLEAN DEFAULT 0")
     safe_migrate("customer", "completed_driver","ALTER TABLE customer ADD COLUMN completed_driver VARCHAR(120) DEFAULT ''")

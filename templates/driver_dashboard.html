@@ -170,6 +170,7 @@
                         <div class="pk-actions">
                             <button class="ab ab-enroute" onclick="sendEnroute({{ p.id }})">🚗 I'm Enroute</button>
                             <button class="ab ab-here" onclick="openHere({{ p.id }})">📍 I'm Here</button>
+                            <button class="ab ab-chat ab-full" onclick="openDriverChat({{ p.id }}, {{ p.nome|tojson }})">💬 Chat with guest<span class="dchat-badge" id="dchatbadge-{{ p.id }}" style="display:none;">0</span></button>
                             <button class="ab ab-call ab-full" onclick="startCall({{ p.id }})">📞 Start Call</button>
                             <button class="ab ab-custom ab-full" onclick="openCustom({{ p.id }})">✍️ Custom Message</button>
                             <button class="ab ab-pick {{ 'done' if p.status in ['picked_up','dropped_off'] else '' }}" id="pickbtn-{{ p.id }}" onclick="markPicked({{ p.id }})">
@@ -836,5 +837,102 @@ document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if
 })();
 </script>
 
+<div class="dchat-overlay" id="dchatOverlay">
+    <div class="dchat-box">
+        <div class="dchat-hdr">
+            <div><div class="dchat-title" id="dchatTitle">Chat</div><div class="dchat-sub">Guest ↔ You</div></div>
+            <button class="dchat-close" onclick="closeDriverChat()">✕</button>
+        </div>
+        <div class="dchat-messages" id="dchatMessages"></div>
+        <div class="dchat-input-bar">
+            <input id="dchatInput" class="dchat-input" placeholder="Message the guest…" onkeydown="if(event.key==='Enter')sendDriverChat()">
+            <button class="dchat-send" onclick="sendDriverChat()">➤</button>
+        </div>
+    </div>
+</div>
+<style>
+.ab-chat{background:linear-gradient(135deg,#3b82f6,#2563eb);position:relative;}
+.dchat-badge{position:absolute;top:-6px;right:8px;background:#ef4444;color:#fff;font-size:.62rem;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;}
+.dchat-overlay{display:none;position:fixed;inset:0;background:rgba(4,6,12,.75);backdrop-filter:blur(4px);z-index:9999;align-items:flex-end;justify-content:center;}
+.dchat-overlay.show{display:flex;}
+.dchat-box{background:var(--s,#0f1420);border:1px solid var(--bhi,rgba(138,92,246,.45));border-radius:20px 20px 0 0;width:100%;max-width:560px;height:75vh;display:flex;flex-direction:column;overflow:hidden;}
+.dchat-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;background:var(--s2,#161d2e);border-bottom:1px solid var(--bd);}
+.dchat-title{font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;color:var(--t,#e8eaf0);}
+.dchat-sub{font-size:.76rem;color:var(--m2,#8892a0);}
+.dchat-close{background:rgba(255,255,255,.08);border:none;color:var(--t,#e8eaf0);width:34px;height:34px;border-radius:50%;font-size:.9rem;cursor:pointer;}
+.dchat-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;}
+.dchat-msg{max-width:78%;padding:11px 14px;border-radius:16px;font-size:.9rem;line-height:1.4;word-break:break-word;}
+.dchat-msg.mine{align-self:flex-end;background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;border-bottom-right-radius:5px;}
+.dchat-msg.theirs{align-self:flex-start;background:var(--s2,#1e1738);color:var(--t,#e8eaf0);border-bottom-left-radius:5px;}
+.dchat-msg .dm-time{font-size:.66rem;opacity:.6;margin-top:3px;}
+.dchat-empty{text-align:center;color:var(--m2,#8892a0);font-size:.86rem;padding:40px 20px;margin:auto;}
+.dchat-input-bar{display:flex;gap:10px;padding:12px 14px;background:var(--s2,#161d2e);border-top:1px solid var(--bd);}
+.dchat-input{flex:1;background:var(--s,#0f1420);border:1px solid var(--bd);border-radius:22px;padding:12px 16px;color:var(--t,#e8eaf0);font-size:.92rem;font-family:'DM Sans',sans-serif;}
+.dchat-input:focus{outline:none;border-color:var(--acc);}
+.dchat-send{background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;border:none;width:44px;height:44px;border-radius:50%;font-size:1.1rem;cursor:pointer;flex-shrink:0;}
+</style>
+<script>
+let _dchatRideId=null, _dchatLastId=0, _dchatTimer=null;
+async function openDriverChat(rideId, guestName){
+    _dchatRideId=rideId; _dchatLastId=0;
+    document.getElementById('dchatTitle').innerText = 'Chat with ' + (guestName||'guest');
+    document.getElementById('dchatMessages').innerHTML='<div class="dchat-empty">Loading…</div>';
+    document.getElementById('dchatOverlay').classList.add('show');
+    await loadDriverChat(true);
+    if(_dchatTimer) clearInterval(_dchatTimer);
+    _dchatTimer=setInterval(()=>loadDriverChat(false), 4000);
+}
+function closeDriverChat(){
+    if(_dchatTimer){ clearInterval(_dchatTimer); _dchatTimer=null; }
+    document.getElementById('dchatOverlay').classList.remove('show');
+    if(typeof refreshChatBadges==='function') refreshChatBadges();
+}
+async function loadDriverChat(full){
+    if(!_dchatRideId) return;
+    try{
+        const url = full ? `/driver/chat/${_dchatRideId}` : `/driver/chat/${_dchatRideId}?after=${_dchatLastId}`;
+        const d = await (await fetch(url)).json();
+        if(!d.success) return;
+        const box=document.getElementById('dchatMessages');
+        if(full){
+            if(!d.messages.length){ box.innerHTML='<div class="dchat-empty">No messages yet.</div>'; }
+            else{ box.innerHTML=''; d.messages.forEach(addDriverMsg); }
+        }else{ d.messages.forEach(addDriverMsg); }
+        if(d.messages.length){ _dchatLastId=d.messages[d.messages.length-1].id; box.scrollTop=box.scrollHeight; }
+    }catch(e){}
+}
+function addDriverMsg(m){
+    const box=document.getElementById('dchatMessages');
+    const e=box.querySelector('.dchat-empty'); if(e) e.remove();
+    const div=document.createElement('div');
+    div.className='dchat-msg '+(m.sender==='driver'?'mine':'theirs');
+    div.innerHTML=`${(m.body||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}<div class="dm-time">${m.time||''}</div>`;
+    box.appendChild(div); box.scrollTop=box.scrollHeight;
+}
+async function sendDriverChat(){
+    const input=document.getElementById('dchatInput');
+    const body=input.value.trim(); if(!body) return;
+    input.value='';
+    const fd=new FormData(); fd.append('body',body);
+    try{
+        const d=await(await fetch(`/driver/chat/${_dchatRideId}/send`,{method:'POST',body:fd})).json();
+        if(d.success){ addDriverMsg(d.message); _dchatLastId=d.message.id; }
+    }catch(e){}
+}
+// Poll unread badges across all rides
+async function refreshChatBadges(){
+    try{
+        const d=await(await fetch('/driver/chat-unread')).json();
+        if(!d.success) return;
+        document.querySelectorAll('.dchat-badge').forEach(b=>b.style.display='none');
+        for(const [rid,n] of Object.entries(d.unread_by_ride||{})){
+            const b=document.getElementById('dchatbadge-'+rid);
+            if(b){ b.style.display='inline-flex'; b.innerText=n; }
+        }
+    }catch(e){}
+}
+setInterval(refreshChatBadges, 10000);
+refreshChatBadges();
+</script>
 </body>
 </html>
