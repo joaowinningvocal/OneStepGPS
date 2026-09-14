@@ -228,7 +228,10 @@
         <div class="form-col">
             <div class="card">
                 <div class="card-inner">
-                    <div class="ctitle">Schedule Pickup</div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;">
+                        <div class="ctitle" style="margin-bottom:0;">Schedule Pickup</div>
+                        <button type="button" class="ride-back-top-btn" onclick="openRideBackPicker()">🔄 Ride Back</button>
+                    </div>
                     <form id="markerForm">
 
                         <div class="f">
@@ -1260,5 +1263,151 @@ document.getElementById('valetModal').addEventListener('click',function(e){if(e.
 .slm-save{background:linear-gradient(135deg,var(--accent,#8a5cf6),var(--accent2,#6d28d9));color:#fff;}
 .slm-save:hover{filter:brightness(1.1);}
 </style>
+<div id="rbPickerModal" class="rbp-overlay">
+    <div class="rbp-box">
+        <div class="rbp-title">🔄 Book a Ride Back</div>
+        <div class="rbp-sub">Pick a guest, and we'll schedule a ride from their club back to their hotel or another venue.</div>
+
+        <!-- Step 1: pick guest -->
+        <div id="rbpStep1">
+            <label class="rbp-label">Today's guests</label>
+            <div id="rbpGuestList" class="rbp-guest-list"><div class="rbp-loading">Loading guests…</div></div>
+        </div>
+
+        <!-- Step 2: choose destination + time -->
+        <div id="rbpStep2" style="display:none;">
+            <div class="rbp-selected" id="rbpSelected"></div>
+            <div class="rbp-route">
+                <div class="rbp-leg"><span class="rbp-dot rbp-from"></span><div><div class="rbp-leg-label">Pickup (their club)</div><div class="rbp-leg-val" id="rbpClub">—</div></div></div>
+                <div class="rbp-arrow">↓</div>
+                <div class="rbp-leg"><span class="rbp-dot rbp-to"></span><div style="flex:1;"><div class="rbp-leg-label">Drop-off</div>
+                    <select id="rbpDest" class="rbp-input" onchange="rbpDestChanged()">
+                        <option value="__original__">Original pickup</option>
+                        <optgroup label="Or another venue" id="rbpHotelOpts"></optgroup>
+                    </select>
+                    <div id="rbpOriginalNote" class="rbp-note"></div>
+                </div></div>
+            </div>
+            <label class="rbp-label">Return time (optional)</label>
+            <input id="rbpTime" class="rbp-input" placeholder="MM/DD/YYYY HH:MM PM — blank for ASAP">
+            <div class="rbp-actions">
+                <button class="rbp-btn rbp-back" onclick="rbpBackToList()">← Back</button>
+                <button class="rbp-btn rbp-go" onclick="rbpSubmit()">🔄 Book Ride Back</button>
+            </div>
+        </div>
+
+        <button class="rbp-close" onclick="closeRideBackPicker()">✕</button>
+    </div>
+</div>
+<style>
+.ride-back-top-btn{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:9px;padding:8px 14px;font-weight:700;font-size:.8rem;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.ride-back-top-btn:hover{filter:brightness(1.1);}
+.rbp-overlay{display:none;position:fixed;inset:0;background:rgba(4,6,12,.75);backdrop-filter:blur(5px);z-index:9999;align-items:center;justify-content:center;padding:20px;}
+.rbp-overlay.show{display:flex;}
+.rbp-box{position:relative;background:var(--s,#0f1420);border:1px solid var(--bhi,rgba(138,92,246,.45));border-radius:18px;padding:26px;max-width:480px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.6);}
+.rbp-title{font-family:'Syne',sans-serif;font-weight:800;font-size:1.3rem;color:var(--t,#e8eaf0);margin-bottom:5px;}
+.rbp-sub{font-size:.85rem;color:var(--m2,#8892a0);margin-bottom:20px;line-height:1.5;}
+.rbp-label{display:block;font-size:.72rem;color:var(--m2,#8892a0);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
+.rbp-guest-list{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;}
+.rbp-guest{display:flex;align-items:center;gap:12px;background:var(--s2,#161d2e);border:1px solid var(--bd,rgba(255,255,255,.07));border-radius:12px;padding:12px 14px;cursor:pointer;transition:border-color .15s;}
+.rbp-guest:hover{border-color:var(--bhi,rgba(138,92,246,.45));}
+.rbp-guest-av{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--acc,#8a5cf6),var(--acc2,#6d28d9));display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;flex-shrink:0;font-size:.95rem;}
+.rbp-guest-info{flex:1;min-width:0;}
+.rbp-guest-name{font-weight:700;font-size:.92rem;color:var(--t,#e8eaf0);}
+.rbp-guest-club{font-size:.78rem;color:var(--m2,#8892a0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rbp-guest-tag{font-size:.62rem;font-weight:700;color:var(--gold,#fbbf24);background:rgba(251,191,36,.1);padding:2px 7px;border-radius:5px;}
+.rbp-loading,.rbp-empty{text-align:center;color:var(--m2,#8892a0);font-size:.86rem;padding:30px;}
+.rbp-selected{background:rgba(138,92,246,.1);border:1px solid var(--bhi);border-radius:10px;padding:10px 12px;font-size:.85rem;color:var(--acc3,#a78bfa);font-weight:600;margin-bottom:16px;}
+.rbp-route{background:var(--s2,#161d2e);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:16px;}
+.rbp-leg{display:flex;align-items:flex-start;gap:12px;}
+.rbp-dot{width:12px;height:12px;border-radius:50%;margin-top:5px;flex-shrink:0;}
+.rbp-from{background:#8a5cf6;}
+.rbp-to{background:#22c55e;}
+.rbp-leg-label{font-size:.68rem;color:var(--m2,#8892a0);text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
+.rbp-leg-val{font-size:.9rem;color:var(--t,#e8eaf0);font-weight:600;margin-top:2px;}
+.rbp-arrow{color:var(--m2,#8892a0);font-size:1.1rem;margin:4px 0 4px 5px;}
+.rbp-input{width:100%;box-sizing:border-box;background:var(--s,#0f1420);border:1px solid var(--bd,rgba(255,255,255,.1));border-radius:9px;padding:10px 12px;color:var(--t,#e8eaf0);font-size:.9rem;font-family:'DM Sans',sans-serif;margin-top:6px;}
+.rbp-input:focus{outline:none;border-color:var(--acc,#8a5cf6);}
+.rbp-note{font-size:.76rem;color:var(--m,#5a6270);margin-top:6px;}
+.rbp-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;}
+.rbp-btn{padding:11px 18px;border-radius:10px;font-weight:700;font-size:.85rem;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;}
+.rbp-back{background:transparent;border:1px solid var(--bd);color:var(--m2,#8892a0);}
+.rbp-go{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;}
+.rbp-close{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.06);border:none;color:var(--m2,#8892a0);width:32px;height:32px;border-radius:50%;font-size:.85rem;cursor:pointer;}
+.rbp-close:hover{color:var(--t,#e8eaf0);}
+</style>
+<script>
+let _rbpGuest = null;
+async function openRideBackPicker(){
+    document.getElementById('rbpStep1').style.display='block';
+    document.getElementById('rbpStep2').style.display='none';
+    document.getElementById('rbPickerModal').classList.add('show');
+    // Populate the hotel dropdown from the existing HOTELS list
+    const opts = document.getElementById('rbpHotelOpts');
+    if(opts && !opts.dataset.filled){
+        opts.innerHTML = HOTELS.map(h=>`<option value="${(h.addr||h.name).replace(/"/g,'&quot;')}">${h.name}</option>`).join('');
+        opts.dataset.filled='1';
+    }
+    // Load today's guests
+    const list = document.getElementById('rbpGuestList');
+    list.innerHTML='<div class="rbp-loading">Loading guests…</div>';
+    try{
+        const d = await (await fetch('/admin/rideback/today-guests')).json();
+        if(d.success && d.guests.length){
+            list.innerHTML = d.guests.map(g=>`
+                <div class="rbp-guest" onclick='rbpSelectGuest(${JSON.stringify(g)})'>
+                    <div class="rbp-guest-av">${(g.name||'?').charAt(0).toUpperCase()}</div>
+                    <div class="rbp-guest-info">
+                        <div class="rbp-guest-name">${escHtml(g.name)}</div>
+                        <div class="rbp-guest-club">📍 ${escHtml(g.club||'No club')}</div>
+                    </div>
+                    ${g.has_return?'<span class="rbp-guest-tag">HAS RETURN</span>':''}
+                </div>`).join('');
+        }else{
+            list.innerHTML='<div class="rbp-empty">No guests with rides today yet.</div>';
+        }
+    }catch(e){ list.innerHTML='<div class="rbp-empty">Could not load guests.</div>'; }
+}
+function escHtml(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function rbpSelectGuest(g){
+    _rbpGuest = g;
+    document.getElementById('rbpStep1').style.display='none';
+    document.getElementById('rbpStep2').style.display='block';
+    document.getElementById('rbpSelected').innerText = `👤 ${g.name}`;
+    document.getElementById('rbpClub').innerText = g.club || 'Their club';
+    document.getElementById('rbpDest').value = '__original__';
+    document.getElementById('rbpTime').value = '';
+    rbpDestChanged();
+}
+function rbpDestChanged(){
+    const sel = document.getElementById('rbpDest');
+    const note = document.getElementById('rbpOriginalNote');
+    if(sel.value === '__original__'){
+        note.innerText = _rbpGuest ? `→ ${_rbpGuest.original_pickup || 'Original pickup location'}` : '';
+    }else{
+        note.innerText = '';
+    }
+}
+function rbpBackToList(){
+    document.getElementById('rbpStep1').style.display='block';
+    document.getElementById('rbpStep2').style.display='none';
+}
+function closeRideBackPicker(){ document.getElementById('rbPickerModal').classList.remove('show'); }
+async function rbpSubmit(){
+    if(!_rbpGuest) return;
+    const destSel = document.getElementById('rbpDest').value;
+    const fd = new FormData();
+    fd.append('pickup_datetime', document.getElementById('rbpTime').value.trim());
+    if(destSel !== '__original__'){ fd.append('dropoff', destSel); }
+    try{
+        const d = await (await fetch(`/admin/guestlist/ride-back/${_rbpGuest.id}`,{method:'POST',body:fd})).json();
+        if(d.success){
+            closeRideBackPicker();
+            alert(`Ride back booked!\nFrom: ${d.pickup}\nTo: ${d.destination}\nWhen: ${d.pickup_datetime||'ASAP'}`);
+            location.reload();
+        }else{ alert(d.error || 'Could not book ride back'); }
+    }catch(e){ alert('Could not book ride back'); }
+}
+</script>
 </body>
 </html>

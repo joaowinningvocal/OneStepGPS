@@ -5925,10 +5925,11 @@ def delete_location(loc_id):
     db.session.commit()
     return jsonify({"success": True})
 
-def _create_return_ride(orig, pickup_datetime=None, created_by="", geocode=True):
+def _create_return_ride(orig, pickup_datetime=None, created_by="", geocode=True, custom_dropoff=None):
     """Create a NEW ride that's the reverse of an existing one: the guest goes
     from the original destination (the club) back to their original pickup
-    location (hotel/address). Enters the normal queue. Returns (new_customer, error).
+    location (hotel/address), OR to a custom drop-off if provided.
+    Enters the normal queue. Returns (new_customer, error).
     """
     if not orig:
         return None, "Original ride not found."
@@ -5936,9 +5937,9 @@ def _create_return_ride(orig, pickup_datetime=None, created_by="", geocode=True)
         return None, "This is already a return ride."
     # The return ride swaps pickup <-> destination:
     #   pickup  = the club (orig.destination)
-    #   dropoff = the original pickup address (orig.endereco)
+    #   dropoff = the original pickup address (orig.endereco), or a custom one
     return_pickup_addr = (orig.destination or "").strip()
-    return_dropoff     = (orig.endereco or "").strip()
+    return_dropoff     = (custom_dropoff or "").strip() or (orig.endereco or "").strip()
     if not return_pickup_addr:
         return None, "The original ride has no destination to return from."
 
@@ -6000,14 +6001,17 @@ def _create_return_ride(orig, pickup_datetime=None, created_by="", geocode=True)
 
 @app.route('/admin/guestlist/ride-back/<int:customer_id>', methods=['POST'])
 def admin_ride_back(customer_id):
-    """Book a return ride (club → original pickup) for an existing booking."""
+    """Book a return ride (club → original pickup, or a custom drop-off) for an
+    existing booking."""
     if not can_dispatch():
         return jsonify({"success": False, "error": "Unauthorized"})
     orig = Customer.query.get_or_404(customer_id)
     pickup_dt = (request.form.get('pickup_datetime', '') or "").strip()
+    custom_dropoff = (request.form.get('dropoff', '') or "").strip()
     if pickup_dt and parse_pickup_datetime(normalize_pickup_datetime(pickup_dt)) is None:
         return jsonify({"success": False, "error": "Couldn't read that date/time."})
-    ride, err = _create_return_ride(orig, pickup_dt, created_by=session.get("username", ""))
+    ride, err = _create_return_ride(orig, pickup_dt, created_by=session.get("username", ""),
+                                    custom_dropoff=custom_dropoff or None)
     if err:
         return jsonify({"success": False, "error": err})
     return jsonify({
@@ -6017,6 +6021,44 @@ def admin_ride_back(customer_id):
         "destination": ride.destination,
         "pickup_datetime": ride.pickup_datetime,
     })
+
+@app.route('/admin/rideback/today-guests', methods=['GET'])
+def rideback_today_guests():
+    """List today's guests (most recent first) for the Ride Back picker on the
+    dashboard. Only rides that have a destination and aren't themselves returns."""
+    if not can_dispatch():
+        return jsonify({"success": False, "error": "Unauthorized"})
+    vt = vegas_today()
+    today_variants = [f"{vt.month:02d}/{vt.day:02d}/{vt.year}", f"{vt.month:02d}/{vt.day:02d}/{str(vt.year)[2:]}"]
+    guests = []
+    seen = set()
+    # Pull recent rides, filter to today by the stored pickup date
+    rides = (Customer.query
+             .filter(Customer.is_return_ride == False)
+             .filter(Customer.destination != "")
+             .order_by(Customer.id.desc()).limit(200).all())
+    for c in rides:
+        dt = (c.pickup_datetime or "")
+        date_part = dt.split(" ")[0] if dt else ""
+        is_today = any(date_part == tv for tv in today_variants)
+        # also include very recent ones (created today) even if no date parsed
+        if not is_today and c.created_at and c.created_at.date() != datetime.utcnow().date():
+            continue
+        if c.id in seen:
+            continue
+        seen.add(c.id)
+        guests.append({
+            "id": c.id,
+            "name": c.nome,
+            "phone": c.phone,
+            "club": c.destination,           # where they are now (their club)
+            "original_pickup": c.endereco,   # where they came from (default return dropoff)
+            "pickup_datetime": c.pickup_datetime,
+            "has_return": c.has_return_ride,
+        })
+        if len(guests) >= 50:
+            break
+    return jsonify({"success": True, "guests": guests})
 
 @app.route('/admin/guestlist/edit/<int:customer_id>', methods=['POST'])
 def edit_customer(customer_id):
