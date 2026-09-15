@@ -10535,7 +10535,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
   <!-- ═══ REDEEM SCREEN ═══ -->
   <div class="screen redeem" id="screen-redeem">
     <div class="scan-hdr">
-      <button class="back" onclick="showScreen('home')">‹</button>
+      <button class="back" onclick="closeRedeem()">‹</button>
       <h2>Your free drink</h2>
     </div>
     <div class="redeem-body">
@@ -10553,7 +10553,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
           <div class="ticket-idcode" id="redeemCode">GB-0000</div>
         </div>
       </div>
-      <button class="redeem-done" onclick="showScreen('home')">Done</button>
+      <button class="redeem-done" onclick="closeRedeem()">Done</button>
     </div>
   </div>
 
@@ -11068,8 +11068,7 @@ async function redeem(code){
     _lastClub = d.club_name;
     // If logged in, also record a check-in (earns points / levels up)
     if(_token){ recordCheckin(code, d.club_name); }
-    // Offer a review a few seconds after redeeming
-    setTimeout(()=>maybeShowReview(d.club_name), 4500);
+    // Review is offered when they CLOSE the drink ticket (happy moment) — see closeRedeem()
   }catch(e){
     document.getElementById('scanFail').classList.add('show');
   }
@@ -11250,6 +11249,16 @@ function showLevelUp(level, name, perk){
 // ── Review prompt (interactive stars) ──
 let _reviewedThisSession = {};
 let _reviewRating = 0;
+
+// Called when the guest closes the drink ticket — they just got a free drink, so
+// this is the happy moment to ask for a review. Goes home, then prompts.
+function closeRedeem(){
+  const club = _lastClub;
+  showScreen('home'); setNav('navExplore');
+  // Small delay so the home screen settles before the review sheet slides up
+  setTimeout(()=>maybeShowReview(club), 500);
+}
+
 async function maybeShowReview(clubName){
   if(!clubName || _reviewedThisSession[clubName]) return;
   _reviewedThisSession[clubName] = true;

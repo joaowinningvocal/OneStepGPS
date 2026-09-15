@@ -55,6 +55,8 @@
         .stop-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--acc);color:#fff;font-size:.74rem;font-weight:800;margin-right:6px;}
         .pk-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:9px;}
         .pk-name{font-family:'Syne',sans-serif;font-weight:700;font-size:1rem;}
+        .priority-badge{display:inline-block;background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#1a1033;font-size:.62rem;font-weight:800;padding:2px 8px;border-radius:6px;margin-left:8px;letter-spacing:.05em;vertical-align:middle;}
+        .pickup.is-priority{border-color:rgba(251,191,36,.5)!important;box-shadow:0 0 0 1px rgba(251,191,36,.3), 0 4px 20px rgba(251,191,36,.12);}
         .pk-time{font-size:.72rem;font-weight:700;color:var(--b);background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.35);border-radius:7px;padding:3px 9px;white-space:nowrap;}
         .pk-dist{font-size:.74rem;color:var(--acc);font-weight:600;margin-bottom:8px;}
         .pk-row{font-size:.8rem;color:var(--m2);margin-bottom:5px;display:flex;gap:6px;}
@@ -144,11 +146,12 @@
                     </div>
                     {% endif %}
                     {% for p in route.stops %}
-                    <div class="pickup {{ 'done' if p.status=='picked_up' else '' }}" id="pk-{{ p.id }}">
+                    <div class="pickup {{ 'done' if p.status=='picked_up' else '' }} {{ 'is-priority' if p.priority else '' }}" id="pk-{{ p.id }}">
                         <div class="pk-top">
                             <div class="pk-name">
                                 {% if route.is_multi %}<span class="stop-num">{{ p.stop_no }}</span>{% endif %}
                                 {{ p.nome }}
+                                {% if p.priority %}<span class="priority-badge">⭐ PRIORITY</span>{% endif %}
                             </div>
                             <div class="pk-time">{{ p.time or '—' }}</div>
                         </div>
@@ -171,6 +174,7 @@
                             <button class="ab ab-enroute" onclick="sendEnroute({{ p.id }})">🚗 I'm Enroute</button>
                             <button class="ab ab-here" onclick="openHere({{ p.id }})">📍 I'm Here</button>
                             <button class="ab ab-chat ab-full" onclick="openDriverChat({{ p.id }}, {{ p.nome|tojson }})">💬 Chat with guest<span class="dchat-badge" id="dchatbadge-{{ p.id }}" style="display:none;">0</span></button>
+                            <button class="ab ab-late ab-full" onclick="openRunningLate({{ p.id }})">⏰ Running Late</button>
                             <button class="ab ab-call ab-full" onclick="startCall({{ p.id }})">📞 Start Call</button>
                             <button class="ab ab-custom ab-full" onclick="openCustom({{ p.id }})">✍️ Custom Message</button>
                             <button class="ab ab-pick {{ 'done' if p.status in ['picked_up','dropped_off'] else '' }}" id="pickbtn-{{ p.id }}" onclick="markPicked({{ p.id }})">
@@ -933,6 +937,140 @@ async function refreshChatBadges(){
 }
 setInterval(refreshChatBadges, 10000);
 refreshChatBadges();
+</script>
+<div class="rl-overlay" id="rlOverlay">
+    <div class="rl-box">
+        <div class="rl-title">⏰ Running Late</div>
+        <div class="rl-sub">Let the guest know you're on your way but a bit behind. This texts them right away.</div>
+        <input type="hidden" id="rl-id">
+        <label class="rl-label">How many minutes late? (optional)</label>
+        <div class="rl-mins">
+            <button type="button" class="rl-min-btn" onclick="setLateMin(5)">5 min</button>
+            <button type="button" class="rl-min-btn" onclick="setLateMin(10)">10 min</button>
+            <button type="button" class="rl-min-btn" onclick="setLateMin(15)">15 min</button>
+            <input id="rl-minutes" class="rl-min-input" type="number" min="0" placeholder="or type">
+        </div>
+        <label class="rl-label">Reason (optional)</label>
+        <div class="rl-reasons">
+            <button type="button" class="rl-reason-btn" onclick="setLateReason('heavy traffic')">🚦 Traffic</button>
+            <button type="button" class="rl-reason-btn" onclick="setLateReason('finishing another ride')">🚗 Another ride</button>
+            <button type="button" class="rl-reason-btn" onclick="setLateReason('parking')">🅿️ Parking</button>
+        </div>
+        <input id="rl-reason" class="rl-input" placeholder="Or type a reason…">
+        <div class="rl-actions">
+            <button class="rl-btn rl-cancel" onclick="closeRunningLate()">Cancel</button>
+            <button class="rl-btn rl-send" onclick="sendRunningLate()">Send heads-up</button>
+        </div>
+    </div>
+</div>
+<style>
+.ab-late{background:linear-gradient(135deg,#f59e0b,#d97706);}
+.rl-overlay{display:none;position:fixed;inset:0;background:rgba(4,6,12,.75);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:20px;}
+.rl-overlay.show{display:flex;}
+.rl-box{background:var(--s,#0f1420);border:1px solid rgba(245,158,11,.4);border-radius:18px;padding:24px;max-width:440px;width:100%;max-height:88vh;overflow-y:auto;}
+.rl-title{font-family:'Syne',sans-serif;font-weight:800;font-size:1.3rem;color:var(--t,#e8eaf0);margin-bottom:5px;}
+.rl-sub{font-size:.85rem;color:var(--m2,#8892a0);margin-bottom:20px;line-height:1.5;}
+.rl-label{display:block;font-size:.72rem;color:var(--m2,#8892a0);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px;}
+.rl-mins,.rl-reasons{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;}
+.rl-min-btn,.rl-reason-btn{background:var(--s2,#161d2e);border:1px solid var(--bd,rgba(255,255,255,.1));color:var(--t,#e8eaf0);padding:9px 14px;border-radius:9px;font-size:.84rem;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.rl-min-btn.sel,.rl-reason-btn.sel{background:rgba(245,158,11,.2);border-color:#f59e0b;color:#fbbf24;}
+.rl-min-input{width:90px;background:var(--s2,#161d2e);border:1px solid var(--bd);border-radius:9px;padding:9px 12px;color:var(--t,#e8eaf0);font-size:.84rem;font-family:'DM Sans',sans-serif;}
+.rl-input{width:100%;box-sizing:border-box;background:var(--s2,#161d2e);border:1px solid var(--bd);border-radius:9px;padding:10px 12px;color:var(--t,#e8eaf0);font-size:.9rem;font-family:'DM Sans',sans-serif;margin-top:6px;}
+.rl-input:focus,.rl-min-input:focus{outline:none;border-color:#f59e0b;}
+.rl-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;}
+.rl-btn{padding:11px 18px;border-radius:10px;font-weight:700;font-size:.85rem;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;}
+.rl-cancel{background:transparent;border:1px solid var(--bd);color:var(--m2,#8892a0);}
+.rl-send{background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;}
+</style>
+<script>
+function openRunningLate(id){
+    document.getElementById('rl-id').value=id;
+    document.getElementById('rl-minutes').value='';
+    document.getElementById('rl-reason').value='';
+    document.querySelectorAll('.rl-min-btn,.rl-reason-btn').forEach(b=>b.classList.remove('sel'));
+    document.getElementById('rlOverlay').classList.add('show');
+}
+function closeRunningLate(){ document.getElementById('rlOverlay').classList.remove('show'); }
+function setLateMin(m){
+    document.getElementById('rl-minutes').value=m;
+    document.querySelectorAll('.rl-min-btn').forEach(b=>b.classList.toggle('sel', b.textContent.startsWith(m+' ')));
+}
+function setLateReason(r){
+    document.getElementById('rl-reason').value=r;
+    document.querySelectorAll('.rl-reason-btn').forEach(b=>b.classList.remove('sel'));
+    event.target.classList.add('sel');
+}
+async function sendRunningLate(){
+    const id=document.getElementById('rl-id').value;
+    const fd=new FormData();
+    fd.append('minutes',document.getElementById('rl-minutes').value||'');
+    fd.append('reason',document.getElementById('rl-reason').value.trim());
+    try{
+        const d=await(await fetch(`/driver/running-late/${id}`,{method:'POST',body:fd})).json();
+        if(d.success){ closeRunningLate(); if(typeof toast==='function')toast('Guest notified you\'re running late'); else alert('Guest notified'); }
+        else{ alert(d.error||'Could not send'); }
+    }catch(e){ alert('Could not send'); }
+}
+</script>
+<div class="dn-overlay" id="dnOverlay">
+    <div class="dn-box">
+        <div class="dn-icon">📋</div>
+        <div class="dn-title">Ride updates</div>
+        <div class="dn-sub">While you were away, these rides changed:</div>
+        <div class="dn-list" id="dnList"></div>
+        <button class="dn-btn" onclick="dismissNotices()">Got it</button>
+    </div>
+</div>
+<style>
+.dn-overlay{display:none;position:fixed;inset:0;background:rgba(4,6,12,.8);backdrop-filter:blur(6px);z-index:10000;align-items:center;justify-content:center;padding:20px;}
+.dn-overlay.show{display:flex;}
+.dn-box{background:var(--s,#0f1420);border:1px solid var(--bhi,rgba(138,92,246,.45));border-radius:20px;padding:28px 24px;max-width:420px;width:100%;max-height:82vh;overflow-y:auto;text-align:center;}
+.dn-icon{font-size:2.6rem;margin-bottom:12px;}
+.dn-title{font-family:'Syne',sans-serif;font-weight:800;font-size:1.4rem;color:var(--t,#e8eaf0);margin-bottom:6px;}
+.dn-sub{font-size:.86rem;color:var(--m2,#8892a0);margin-bottom:20px;}
+.dn-list{display:flex;flex-direction:column;gap:10px;margin-bottom:22px;text-align:left;}
+.dn-item{display:flex;align-items:flex-start;gap:12px;background:var(--s2,#161d2e);border:1px solid var(--bd,rgba(255,255,255,.07));border-radius:12px;padding:12px 14px;}
+.dn-item.cancelled{border-color:rgba(239,68,68,.35);}
+.dn-item.reassigned{border-color:rgba(245,158,11,.35);}
+.dn-item-icon{font-size:1.3rem;flex-shrink:0;}
+.dn-item-body{flex:1;min-width:0;}
+.dn-item-name{font-weight:700;font-size:.92rem;color:var(--t,#e8eaf0);}
+.dn-item-detail{font-size:.8rem;color:var(--m2,#8892a0);margin-top:2px;}
+.dn-item-time{font-size:.72rem;color:var(--m,#5a6270);margin-top:3px;}
+.dn-btn{width:100%;background:linear-gradient(135deg,var(--acc,#8a5cf6),var(--acc2,#6d28d9));color:#fff;border:none;padding:14px;border-radius:13px;font-weight:700;font-size:.95rem;cursor:pointer;font-family:'DM Sans',sans-serif;}
+</style>
+<script>
+async function checkDriverNotices(){
+    try{
+        const d=await(await fetch('/driver/notices')).json();
+        if(d.success && d.notices && d.notices.length){
+            const list=document.getElementById('dnList');
+            list.innerHTML=d.notices.map(n=>{
+                const isCancel=n.kind==='cancelled';
+                const icon=isCancel?'❌':'🔄';
+                const verb=isCancel?'Cancelled':'Reassigned';
+                return `<div class="dn-item ${n.kind}">
+                    <div class="dn-item-icon">${icon}</div>
+                    <div class="dn-item-body">
+                        <div class="dn-item-name">${escN(n.guest_name)}${n.guest_time?' · '+escN(n.guest_time):''}</div>
+                        <div class="dn-item-detail">${verb} — ${escN(n.detail||'')}</div>
+                        <div class="dn-item-time">${escN(n.when||'')}</div>
+                    </div>
+                </div>`;
+            }).join('');
+            document.getElementById('dnOverlay').classList.add('show');
+        }
+    }catch(e){}
+}
+function escN(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+async function dismissNotices(){
+    document.getElementById('dnOverlay').classList.remove('show');
+    try{ await fetch('/driver/notices/seen',{method:'POST'}); }catch(e){}
+}
+// Check on load, and every 30s while the dashboard is open (so a driver still
+// logged in sees a transfer/cancel that happens mid-shift)
+checkDriverNotices();
+setInterval(checkDriverNotices, 30000);
 </script>
 </body>
 </html>

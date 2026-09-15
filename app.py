@@ -80,6 +80,15 @@ if database_url.startswith("postgres://"):
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Keep logins alive much longer so drivers don't have to sign in repeatedly during
+# a shift. Sessions last 30 days and refresh on each request.
+from datetime import timedelta as _timedelta
+app.config['PERMANENT_SESSION_LIFETIME'] = _timedelta(days=30)
+app.config['SESSION_REFRESH_EACH_REQUEST'] = True
+
+@app.before_request
+def _make_session_permanent():
+    session.permanent = True
 db = SQLAlchemy(app)
 
 # ─── SETTINGS ─────────────────────────────────────────────────────────────────
@@ -534,6 +543,26 @@ class RideChatMessage(db.Model):
             "ts": self.created_at.isoformat() if self.created_at else "",
         }
 
+class DriverNotice(db.Model):
+    """A notice for a driver about a ride that was reassigned away from them or
+    cancelled. Shown as a pop-up when the driver next opens their dashboard, so
+    they don't miss it even if they didn't see the SMS."""
+    id          = db.Column(db.Integer, primary_key=True)
+    driver_name = db.Column(db.String(120), index=True, nullable=False)
+    kind        = db.Column(db.String(20), default="reassigned")   # "reassigned" or "cancelled"
+    guest_name  = db.Column(db.String(120), default="")
+    guest_time  = db.Column(db.String(50), default="")             # the pickup time
+    detail      = db.Column(db.String(255), default="")            # e.g. "moved to Alex"
+    seen        = db.Column(db.Boolean, default=False)
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "kind": self.kind, "guest_name": self.guest_name,
+            "guest_time": self.guest_time, "detail": self.detail,
+            "when": vegas_time(self.created_at),
+        }
+
 class DriverStop(db.Model):
     """A period where a vehicle stayed in the same place long enough to count as a stop.
     Built from the GPS samples the tracker already polls every couple of minutes."""
@@ -610,6 +639,7 @@ class Customer(db.Model):
     car_photo       = db.Column(db.String(255), default="")   # photo filename of assigned car
     distancia       = db.Column(db.Float)
     package         = db.Column(db.String(100))
+    price_total     = db.Column(db.Float, nullable=True)                # NEW: total spend (from CartVIP) — drives priority when set
     guests          = db.Column(db.Integer)
     pickup_datetime = db.Column(db.String(50), default="")
     destination     = db.Column(db.String(100), default="")
@@ -1588,6 +1618,7 @@ def cadastrar_cep():
     destination       = request.form.get('destination', '').strip()
     needs_transport   = request.form.get('needs_transport', 'true').lower() == 'true'
     force_waitlist    = request.form.get('force_waitlist', 'false').lower() == 'true'
+    is_priority       = request.form.get('priority', '0') in ('1', 'true', 'yes', 'on')
 
     # Parse extra phones JSON array
     try:
@@ -1685,7 +1716,7 @@ def cadastrar_cep():
                 nome=nome, phone=client_phone, phones_json=json.dumps(extra_phones),
                 endereco="(walk-in)", details=details,
                 motorista="(walk-in)", motorista_phone="",
-                distancia=0, package=package,
+                distancia=0, package=package, priority=is_priority,
                 guests=guests, pickup_datetime=pickup_datetime,
                 destination=destination,
                 needs_transport=False, club_status="coming",
@@ -1913,6 +1944,7 @@ def cadastrar_cep():
             car_string_val=(chosen_car.car_string() if chosen_car else ""),
             car_photo=car_photo,
             distancia=distancia_arredondada, package=package,
+            priority=is_priority,
             guests=guests, pickup_datetime=pickup_datetime,
             destination=destination,
             needs_transport=True, club_status="coming",
@@ -4299,6 +4331,15 @@ def report_problem():
                 "new_driver_phone": new_driver.phone,
             })
             reassigned.append({"customer": customer.nome, "new_driver": new_driver.name})
+            # Record a notice for the OLD driver so they see it on next login
+            try:
+                db.session.add(DriverNotice(
+                    driver_name=old_driver, kind="reassigned",
+                    guest_name=customer.nome, guest_time=customer.pickup_datetime,
+                    detail=f"moved to {new_driver.name}"))
+                db.session.commit()
+            except Exception:
+                pass
 
     # Give the driver who went unavailable a short heads-up of what left them
     if reassigned and driver_profile and driver_profile.phone:
@@ -4411,6 +4452,29 @@ def customer_belongs_to_driver(c, username):
 def _driver_owns(customer):
     return customer_belongs_to_driver(customer, session.get("username"))
 
+@app.route('/driver/notices', methods=['GET'])
+def driver_notices():
+    """Unseen notices (reassigned/cancelled rides) for the logged-in driver — shown
+    as a pop-up when they open the dashboard."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    driver_name = session.get("username")
+    notices = (DriverNotice.query
+               .filter_by(driver_name=driver_name, seen=False)
+               .order_by(DriverNotice.created_at.desc()).limit(20).all())
+    return jsonify({"success": True, "notices": [n.to_dict() for n in notices]})
+
+@app.route('/driver/notices/seen', methods=['POST'])
+def driver_notices_seen():
+    """Mark the driver's notices as seen (after they dismiss the pop-up)."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    driver_name = session.get("username")
+    DriverNotice.query.filter_by(driver_name=driver_name, seen=False)\
+                      .update({"seen": True})
+    db.session.commit()
+    return jsonify({"success": True})
+
 @app.route('/driver/chat/<int:customer_id>', methods=['GET'])
 def driver_chat_get(customer_id):
     """Driver dashboard: fetch the customer<->driver chat for one of the driver's
@@ -4515,6 +4579,48 @@ def driver_enroute(customer_id):
     })
     send_sms_many(c.get_phones() or [c.phone], enroute_msg)
     return jsonify({"success": True})
+
+@app.route('/driver/running-late/<int:customer_id>', methods=['POST'])
+def driver_running_late(customer_id):
+    """Driver is running late but still coming → text the customer a heads-up.
+    Optional 'reason' and 'minutes' in the form."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"})
+    c = Customer.query.get_or_404(customer_id)
+    if not _driver_owns(c):
+        return jsonify({"success": False, "error": "Not your pickup"})
+    reason = (request.form.get("reason") or "").strip()
+    minutes = _safe_int(request.form.get("minutes"))
+    # Build a friendly, reassuring message
+    late_msg = f"Hi {c.nome}, this is your ClubLifter driver {c.motorista}. "
+    if minutes:
+        late_msg += f"I'm running about {minutes} minutes late"
+    else:
+        late_msg += "I'm running a little behind"
+    if reason:
+        late_msg += f" ({reason})"
+    late_msg += ", but I'm on my way — thanks for your patience!"
+
+    fire_webhook({
+        "type":            "running_late",
+        "customer_id":     c.id,
+        "customer_name":   c.nome,
+        "customer_phone":  c.phone,
+        "customer_phones": c.get_phones(),
+        "driver_name":     c.motorista,
+        "reason":          reason,
+        "minutes_late":    minutes,
+        "message":         late_msg,
+    })
+    send_sms_many(c.get_phones() or [c.phone], late_msg)
+    # Also drop a note in the ride chat so it's visible in-app
+    try:
+        db.session.add(RideChatMessage(customer_id=c.id, sender="driver",
+            body=late_msg, read_by_customer=False))
+        db.session.commit()
+    except Exception:
+        pass
+    return jsonify({"success": True, "message": late_msg})
 
 @app.route('/driver/imhere/<int:customer_id>', methods=['POST'])
 def driver_imhere(customer_id):
@@ -4820,8 +4926,17 @@ def _package_price(pkg_name):
     p = Package.query.filter_by(name=pkg_name).first()
     return (p.price or 0) if p else 0
 
+def _effective_price(customer):
+    """The price that drives priority. Uses the ride's total spend (price_total,
+    sent by CartVIP) when set; otherwise falls back to the package's price."""
+    pt = getattr(customer, 'price_total', None)
+    if pt is not None and pt > 0:
+        return pt
+    return _package_price(customer.package)
+
 def priority_level(customer):
-    """Human-readable priority tier for a ride, by package price.
+    """Human-readable priority tier for a ride, by total spend (price_total) when
+    set, otherwise by package price.
       manual star  → 'starred' (always wins)
       $1000+       → 'vip'
       $300–$999    → 'high'
@@ -4830,7 +4945,7 @@ def priority_level(customer):
     """
     if getattr(customer, 'priority', False):
         return 'starred'
-    price = _package_price(customer.package)
+    price = _effective_price(customer)
     if price >= 1000:
         return 'vip'
     if price >= 300:
@@ -4851,7 +4966,7 @@ def priority_sort_key(customer, now=None):
     if now is None:
         now = datetime.utcnow()
     starred = 0 if getattr(customer, 'priority', False) else 1
-    price = _package_price(customer.package)
+    price = _effective_price(customer)
 
     waited_min = 0
     if customer.created_at:
@@ -4955,6 +5070,11 @@ def api_v1_schedule():
     package     = (data.get("package") or "").strip()
     guests      = int(data.get("guests") or 0)
     destination = (data.get("destination") or "").strip()
+    # CartVIP can send the total spend, which drives ride priority
+    try:
+        price_total = float(data.get("price_total")) if data.get("price_total") not in (None, "") else None
+    except (TypeError, ValueError):
+        price_total = None
 
     requested_dt = parse_pickup_datetime(pickup_datetime)
     # Normalize the stored date so 2-digit years / loose formats are consistent
@@ -4997,6 +5117,7 @@ def api_v1_schedule():
         car_name=(chosen_car.name if chosen_car else ""),
         car_string_val=car_string, car_photo=car_photo,
         distancia=a["distance_km"], package=package, guests=guests,
+        price_total=price_total,
         pickup_datetime=pickup_datetime, destination=destination,
         needs_transport=True, club_status="coming",
         promoter="cartvip", status='scheduled', created_at=datetime.utcnow()
@@ -5054,6 +5175,7 @@ def api_v1_walkin():
         endereco="(walk-in)", details=(data.get("details") or "").strip(),
         motorista="(walk-in)", motorista_phone="",
         distancia=0, package=(data.get("package") or "").strip(),
+        price_total=price_total,
         guests=int(data.get("guests") or 0),
         pickup_datetime=(data.get("pickup_datetime") or "").strip(),
         destination=(data.get("destination") or "").strip(),
@@ -5564,6 +5686,15 @@ def reassign_pickup(customer_id):
                 f"ClubLifter: {c.nome}"
                 f"{(' (' + _time_txt + ')') if _time_txt else ''} "
                 f"was reassigned to another driver and is no longer yours.")
+        # Record a notice for the previous driver
+        try:
+            db.session.add(DriverNotice(
+                driver_name=previous, kind="reassigned",
+                guest_name=c.nome, guest_time=c.pickup_datetime,
+                detail=f"moved to {drv.name}"))
+            db.session.commit()
+        except Exception:
+            pass
 
     return jsonify({"success": True, "driver": drv.name,
                     "car": c.car_string_val or "", "previous": previous})
@@ -5874,6 +6005,17 @@ def delete_guest(customer_id):
                 f"ClubLifter: {customer.nome}"
                 f"{(' (' + _time_txt + ')') if _time_txt else ''} "
                 f"was cancelled and is no longer on your list.")
+        # Record a cancel notice for the assigned driver (if any)
+        assigned = customer.motorista
+        if assigned and assigned not in ("", "Unavailable", "Waitlist", "(walk-in)"):
+            try:
+                db.session.add(DriverNotice(
+                    driver_name=assigned, kind="cancelled",
+                    guest_name=customer.nome, guest_time=customer.pickup_datetime,
+                    detail="ride cancelled"))
+                db.session.commit()
+            except Exception:
+                pass
 
     db.session.delete(customer)
     db.session.commit()
@@ -6940,6 +7082,7 @@ with app.app_context():
     safe_migrate("customer", "is_return_ride",  "ALTER TABLE customer ADD COLUMN is_return_ride BOOLEAN DEFAULT 0")
     safe_migrate("customer", "return_of_id",    "ALTER TABLE customer ADD COLUMN return_of_id INTEGER")
     safe_migrate("customer", "has_return_ride", "ALTER TABLE customer ADD COLUMN has_return_ride BOOLEAN DEFAULT 0")
+    safe_migrate("customer", "price_total",    "ALTER TABLE customer ADD COLUMN price_total FLOAT")
     safe_migrate("customer", "dropped_off_at",  "ALTER TABLE customer ADD COLUMN dropped_off_at DATETIME")
     safe_migrate("customer", "dropoff_verified","ALTER TABLE customer ADD COLUMN dropoff_verified BOOLEAN DEFAULT 0")
     safe_migrate("customer", "completed_driver","ALTER TABLE customer ADD COLUMN completed_driver VARCHAR(120) DEFAULT ''")

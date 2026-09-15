@@ -152,6 +152,17 @@
         /* SUBMIT */
         .btn-go { width:100%; padding:13px; background:linear-gradient(135deg,var(--accent),var(--accent2)); border:none; border-radius:13px; font-family:'Syne',sans-serif; font-weight:700; font-size:.88rem; letter-spacing:.8px; color:#fff; cursor:pointer; transition:.3s; margin-top:4px; box-shadow:0 4px 18px rgba(138,92,246,.3); }
         .btn-go:hover { transform:translateY(-2px); box-shadow:0 8px 26px rgba(138,92,246,.5); }
+        .priority-toggle{display:flex;align-items:center;gap:12px;background:var(--s2,#161d2e);border:1px solid var(--bd,rgba(255,255,255,.07));border-radius:12px;padding:12px 14px;cursor:pointer;transition:border-color .15s;}
+        .priority-toggle.on{border-color:var(--gold,#fbbf24);background:rgba(251,191,36,.08);}
+        .pt-check{font-size:1.3rem;filter:grayscale(1);opacity:.5;transition:.15s;}
+        .priority-toggle.on .pt-check{filter:none;opacity:1;}
+        .pt-text{flex:1;display:flex;flex-direction:column;}
+        .pt-title{font-weight:700;font-size:.9rem;color:var(--t,#e8eaf0);}
+        .pt-sub{font-size:.76rem;color:var(--m2,#8892a0);}
+        .pt-switch{width:44px;height:24px;background:rgba(255,255,255,.12);border-radius:12px;position:relative;transition:background .15s;flex-shrink:0;}
+        .pt-switch::after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:transform .18s;}
+        .priority-toggle.on .pt-switch{background:var(--gold,#fbbf24);}
+        .priority-toggle.on .pt-switch::after{transform:translateX(20px);}
 
         /* DRIVER RESULT */
         .dr-box { display:none; margin-top:13px; background:rgba(138,92,246,.06); border:1px solid rgba(138,92,246,.25); border-radius:13px; padding:13px 15px; }
@@ -353,6 +364,18 @@
                             <select name="manual_driver" id="manualDriver" class="fs">
                                 <option value="">Select a driver…</option>
                             </select>
+                        </div>
+
+                        <div class="f">
+                            <label class="priority-toggle" onclick="togglePriority(event)">
+                                <span class="pt-check" id="ptCheck">⭐</span>
+                                <span class="pt-text">
+                                    <span class="pt-title">Assign as priority</span>
+                                    <span class="pt-sub">Marks this ride high-priority for the driver</span>
+                                </span>
+                                <span class="pt-switch" id="ptSwitch"></span>
+                            </label>
+                            <input type="hidden" name="priority" id="priorityInput" value="0">
                         </div>
 
                         <button type="submit" class="btn-go">SCHEDULE PICKUP</button>
@@ -677,6 +700,13 @@ async function onDriverModeChange(){
 
 
 
+
+function togglePriority(e){
+    const t = e.currentTarget;
+    const on = !t.classList.contains('on');
+    t.classList.toggle('on', on);
+    document.getElementById('priorityInput').value = on ? '1' : '0';
+}
 
 document.getElementById('markerForm').onsubmit=async(e)=>{
     e.preventDefault();
