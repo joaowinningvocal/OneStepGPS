@@ -28,6 +28,8 @@
         .logo span{color:var(--violet);}
         .nav-cta{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:.82rem;letter-spacing:.02em;padding:9px 20px;border:1px solid var(--violet);border-radius:100px;color:var(--ink);transition:.2s;}
         .nav-cta:hover{background:var(--violet);box-shadow:0 0 24px rgba(138,92,246,.45);}
+        .nav-signup{position:relative;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:.82rem;letter-spacing:.02em;padding:9px 20px;border-radius:100px;background:linear-gradient(135deg,var(--violet),var(--violet2));color:#fff;cursor:default;opacity:.9;white-space:nowrap;}
+        .signup-soon{position:absolute;top:-7px;right:-6px;background:#fbbf24;color:#1a1033;font-size:.5rem;font-weight:800;padding:2px 5px;border-radius:5px;letter-spacing:.03em;}
 
         /* HERO */
         .hero{position:relative;padding:170px 0 110px;overflow:hidden;}
@@ -121,7 +123,10 @@
     <nav>
         <div class="wrap">
             <div class="logo">Club<span>Lifter</span></div>
-            <a href="/login" class="nav-cta">Log in</a>
+            <div style="display:flex;align-items:center;gap:12px;">
+                <a href="/login" class="nav-cta">Log in</a>
+                <span class="nav-signup" title="Guest sign-up is coming soon">Sign up<span class="signup-soon">SOON</span></span>
+            </div>
         </div>
     </nav>
 

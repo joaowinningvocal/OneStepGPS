@@ -1172,11 +1172,12 @@ def privacy_policy():
     and Google Play). No login."""
     return render_template('privacy.html')
 
-@app.route('/app')
+@app.route('/app-preview')
 def gobest_app():
-    """Serve the GoBest consumer app as a web page — used for demos and testing
-    without a native build. The same HTML is bundled into the native app via
-    Capacitor. No login required; it only calls the public /api/app/* endpoints."""
+    """Serve the ClubLifter consumer app as a web page — a preview of the native
+    app for demos/testing. The same HTML is bundled into the native app via
+    Capacitor. No login required; it only calls the public /api/app/* endpoints.
+    (Moved from /app, which is now the staff dashboard.)"""
     return render_template('gobest_app.html')
 
 # ─── DEMO QR CODES ────────────────────────────────────────────────────────────
@@ -1511,6 +1512,17 @@ def app_banner_delete(banner_id):
     return jsonify({"success": True})
 
 @app.route('/')
+def front_page():
+    """Public promotional front page for ClubLifter. Has Log In and Sign Up
+    (Sign Up = coming soon). No login required. The dashboard now lives at /app."""
+    # If someone who's already logged in hits the landing, send them to their app.
+    if session.get("logged"):
+        if session.get("role") == "driver":
+            return redirect(url_for("driver_dashboard"))
+        return redirect(url_for("index"))
+    return render_template('landing.html')
+
+@app.route('/app')
 def index():
     if not session.get("logged"):
         return redirect(url_for("login"))
@@ -2617,6 +2629,76 @@ def app_profile():
                      for n in sorted(APP_LEVELS)]
     return jsonify({"success": True, "user": out})
 
+@app.route('/api/app/account/delete', methods=['POST'])
+def app_account_delete():
+    """Permanently delete the logged-in user's account and personal data. Required
+    by App Store guidelines for any app with account creation. Removes the AppUser
+    and their check-in history; the auth token is invalidated immediately."""
+    user = _app_user_from_token()
+    if not user:
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+    uid = user.id
+    try:
+        # Delete the user's check-in history
+        CheckIn.query.filter_by(user_id=uid).delete()
+        # Delete any pending OTP codes for this phone
+        try:
+            OTPCode.query.filter_by(phone=user.phone).delete()
+        except Exception:
+            pass
+        # Delete the account itself
+        db.session.delete(user)
+        db.session.commit()
+        return jsonify({"success": True, "message": "Your account and personal data have been permanently deleted."})
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ACCOUNT-DELETE] failed for user {uid}: {e}", flush=True)
+        return jsonify({"success": False, "error": "Could not delete account. Please try again."})
+
+@app.route('/api/app/chat/report', methods=['POST'])
+def app_chat_report():
+    """Report an inappropriate chat message (App Store content-moderation
+    requirement). Flags the message for staff review. Body: {message_id, reason}."""
+    user = _app_user_from_token()
+    if not user:
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+    data = request.get_json(silent=True) or request.form
+    msg_id = _safe_int(data.get("message_id"))
+    reason = (data.get("reason") or "").strip()[:300]
+    msg = RideChatMessage.query.get(msg_id) if msg_id else None
+    if not msg:
+        return jsonify({"success": False, "error": "Message not found."})
+    # Record the report as a webhook + server log so staff can act on it.
+    fire_webhook({
+        "type":          "chat_message_reported",
+        "message_id":    msg.id,
+        "customer_id":   msg.customer_id,
+        "message_body":  msg.body,
+        "message_sender": msg.sender,
+        "reported_by_phone": user.phone,
+        "reason":        reason,
+    })
+    print(f"[CHAT-REPORT] msg {msg.id} reported by {user.phone}: {reason}", flush=True)
+    return jsonify({"success": True, "message": "Thanks — this message has been reported to our team for review."})
+
+@app.route('/api/app/chat/block', methods=['POST'])
+def app_chat_block():
+    """Block further chat on the user's active ride (App Store blocking
+    requirement). Stops the customer from seeing/sending more messages on it."""
+    user = _app_user_from_token()
+    if not user:
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+    c = _app_active_ride(user)
+    if not c:
+        return jsonify({"success": False, "error": "No active ride."})
+    fire_webhook({
+        "type":          "ride_chat_blocked",
+        "customer_id":   c.id,
+        "blocked_by_phone": user.phone,
+    })
+    print(f"[CHAT-BLOCK] ride {c.id} chat blocked by {user.phone}", flush=True)
+    return jsonify({"success": True, "message": "You won't receive further messages on this ride."})
+
 @app.route('/api/app/checkin', methods=['POST'])
 def app_checkin():
     """Record a check-in when a logged-in user scans a club QR. Awards points
@@ -2869,6 +2951,7 @@ def ai_lookup():
         "report_reason":   c.report_reason,
         "priority_level":  priority_level(c),
         "package_price":   _package_price(c.package),
+        "price_total":     c.price_total,
     })
 
 @app.route('/api/ai/update-notes', methods=['POST'])
@@ -6102,12 +6185,20 @@ def _create_return_ride(orig, pickup_datetime=None, created_by="", geocode=True,
         pickup_geocode_addr = club.address
 
     new_dt = normalize_pickup_datetime(pickup_datetime) if pickup_datetime else ""
+    # Human-readable note of who booked this return, shown on the ride.
+    if (created_by or "").startswith("app:"):
+        booked_note = "Return ride — scheduled by client via the app"
+    elif created_by == "api":
+        booked_note = "Return ride — scheduled via API"
+    else:
+        who = created_by or "manager"
+        booked_note = f"Return ride — scheduled by {who}"
     ride = Customer(
         nome=orig.nome,
         phone=orig.phone,
         phones_json=orig.phones_json,
         endereco=pickup_geocode_addr,       # pickup is now the club/venue address
-        details=(f"Return ride for #{orig.id}" + (f" — {orig.details}" if orig.details else "")),
+        details=(booked_note + (f" — {orig.details}" if orig.details else "")),
         destination=return_dropoff,          # dropoff is the original pickup (hotel)
         package=orig.package,
         guests=orig.guests,
@@ -6968,7 +7059,9 @@ def seed_demo_ride():
     The ride is tied to DEMO_RIDE_PHONE (defaults to DEMO_PHONE if unset). Set
     DEMO_RIDE_PHONE to your own number to demo with a normal SMS login while still
     seeing the ride. Idempotent. Set DEMO_RIDE=0 to skip."""
-    if os.environ.get("DEMO_RIDE", "1").lower() in ("0", "false", "no"):
+    # Demo scenario is OFF by default now that the project is live. Set
+    # DEMO_RIDE=1 to re-enable the demo ride/driver/chat for a walkthrough.
+    if os.environ.get("DEMO_RIDE", "0").lower() in ("0", "false", "no"):
         return
     # Whose number the demo ride belongs to — independent of the login demo phone
     ride_phone = clean_phone(os.environ.get("DEMO_RIDE_PHONE", "") or DEMO_PHONE)

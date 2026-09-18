@@ -82,6 +82,7 @@
         .btn-export{font-size:.74rem;font-weight:700;padding:7px 14px;border-radius:9px;border:1px solid var(--bd);background:var(--s2);color:var(--m2);cursor:pointer;text-decoration:none;display:inline-block;}
         .btn-export:hover{color:var(--g);border-color:rgba(34,197,94,.4);}
         .prio-star{background:none;border:none;color:#3a4252;font-size:1.05rem;cursor:pointer;padding:0 4px;transition:.15s;vertical-align:middle;}
+        .return-badge{display:inline-block;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.4);color:#60a5fa;font-size:.6rem;font-weight:800;padding:2px 7px;border-radius:5px;margin-left:6px;letter-spacing:.05em;vertical-align:middle;cursor:help;}
         .prio-star:hover{color:#fbbf24;transform:scale(1.15);}
         .prio-star.on{color:#fbbf24;text-shadow:0 0 8px rgba(251,191,36,.5);}
         .prio-row{background:rgba(251,191,36,.05);}
@@ -256,7 +257,7 @@
                         <td><span class="b-time edit-time" onclick="editTime({{ c.id }}, '{{ c.pickup_datetime|e }}')" title="Click to change pickup time">{{ c.pickup_datetime.split(' ')[1] ~ ' ' ~ c.pickup_datetime.split(' ')[2] if c.pickup_datetime and c.pickup_datetime.split(' ')|length >= 3 else '—' }}</span></td>
                         <td class="name name-click">
                             <button class="prio-star {{ 'on' if c.priority else '' }}" id="prio-{{ c.id }}" onclick="event.stopPropagation();togglePriority({{ c.id }})" title="Mark as priority">★</button>
-                            <span onclick="toggleDetails({{ c.id }})" style="cursor:pointer;"><span class="caret" id="caret-{{ c.id }}">▸</span> {{ c.nome }}{% if c.reported %} <span title="Reported by {{ c.reported_by }}: {{ c.report_reason }}" style="cursor:help;">🚩</span>{% endif %}</span>
+                            <span onclick="toggleDetails({{ c.id }})" style="cursor:pointer;"><span class="caret" id="caret-{{ c.id }}">▸</span> {{ c.nome }}{% if c.reported %} <span title="Reported by {{ c.reported_by }}: {{ c.report_reason }}" style="cursor:help;">🚩</span>{% endif %}{% if c.is_return_ride %} <span class="return-badge" title="{{ c.details }}">↩ RETURN</span>{% endif %}</span>
                         </td>
                         <td style="font-size:.78rem;">
                             {% for p in c.get_phones() %}

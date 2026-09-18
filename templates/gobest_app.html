@@ -225,6 +225,8 @@ body{
 .prof-checkin .cin-pts{font-size:.8rem;color:var(--g);font-weight:700;}
 .prof-empty{text-align:center;color:var(--m2);font-size:.86rem;padding:24px;}
 .prof-logout{width:100%;background:none;border:1px solid var(--bd);color:var(--m2);padding:14px;border-radius:12px;font-weight:600;font-size:.9rem;cursor:pointer;margin-top:24px;font-family:'DM Sans',sans-serif;}
+.prof-delete{width:100%;background:none;border:1px solid rgba(239,68,68,.3);color:#ef4444;padding:14px;border-radius:12px;font-weight:600;font-size:.9rem;cursor:pointer;margin-top:12px;font-family:'DM Sans',sans-serif;}
+.prof-delete:active{background:rgba(239,68,68,.1);}
 .ride-back-btn{width:100%;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;padding:15px;border-radius:13px;font-weight:700;font-size:.95rem;cursor:pointer;font-family:'DM Sans',sans-serif;box-shadow:0 6px 20px rgba(34,197,94,.35);}
 .track-ride-btn{width:100%;background:linear-gradient(135deg,var(--acc,#8a5cf6),var(--acc2,#6d28d9));color:#fff;border:none;padding:15px;border-radius:13px;font-weight:700;font-size:.95rem;cursor:pointer;font-family:'DM Sans',sans-serif;box-shadow:0 6px 20px rgba(138,92,246,.35);}
 .track-ride-btn:active{filter:brightness(1.1);}
@@ -315,6 +317,12 @@ body{
 .chat-hdr .back{background:rgba(255,255,255,.08);border:none;color:var(--t);width:38px;height:38px;border-radius:50%;font-size:1.3rem;cursor:pointer;}
 .chat-hdr-name{font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;}
 .chat-hdr-status{font-size:.76rem;color:var(--g,#22c55e);}
+.chat-menu-btn{background:rgba(255,255,255,.08);border:none;color:var(--t,#e8eaf0);width:38px;height:38px;border-radius:50%;font-size:1.3rem;cursor:pointer;line-height:1;}
+.chat-menu{position:absolute;top:60px;right:16px;background:var(--surf2,#1e1738);border:1px solid var(--bd);border-radius:12px;padding:6px;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,.4);}
+.chat-menu button{display:block;width:100%;background:none;border:none;color:var(--t,#e8eaf0);padding:11px 18px;font-size:.9rem;text-align:left;cursor:pointer;border-radius:8px;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.chat-menu button:active{background:rgba(255,255,255,.06);}
+.chat-msg .msg-report{display:block;font-size:.62rem;color:var(--m2,#8892a0);margin-top:4px;cursor:pointer;opacity:.7;}
+.chat-msg .msg-report:active{opacity:1;color:#ef4444;}
 .chat-messages{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px;display:flex;flex-direction:column;gap:10px;}
 .chat-msg{max-width:78%;padding:11px 14px;border-radius:16px;font-size:.9rem;line-height:1.4;word-break:break-word;}
 .chat-msg.mine{align-self:flex-end;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;border-bottom-right-radius:5px;}
@@ -10628,6 +10636,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
       <div id="profRecent"><div class="prof-empty">No check-ins yet — scan a venue's QR to start.</div></div>
 
       <button class="prof-logout" onclick="appLogout()">Log out</button>
+      <button class="prof-delete" onclick="confirmDeleteAccount()">Delete my account</button>
     </div>
   </div>
 
@@ -10705,6 +10714,10 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
       <div class="chat-hdr-info">
         <div class="chat-hdr-name" id="chatHdrName">Your driver</div>
         <div class="chat-hdr-status">Chat with your driver</div>
+      </div>
+      <button class="chat-menu-btn" onclick="toggleChatMenu()">⋯</button>
+      <div class="chat-menu" id="chatMenu" style="display:none;">
+        <button onclick="blockChat()">🚫 Block messages</button>
       </div>
     </div>
     <div class="chat-messages" id="chatMessages"></div>
@@ -11153,6 +11166,27 @@ function appLogout(){
   showScreen('home'); setNav('navExplore');
 }
 
+// ── Account deletion (App Store requirement) ──
+async function confirmDeleteAccount(){
+  if(!_token){ return; }
+  // First confirmation
+  if(!confirm('Delete your account?\n\nThis permanently removes your profile, points, and check-in history. This cannot be undone.')) return;
+  // Second confirmation (Apple wants deletion to be deliberate)
+  if(!confirm('Are you absolutely sure?\n\nTap OK to permanently delete your account.')) return;
+  try{
+    const d = await (await fetch(`${API_BASE}/api/app/account/delete`,{
+      method:'POST', headers:{'Authorization':`Bearer ${_token}`}
+    })).json();
+    if(d.success){
+      alert('Your account has been permanently deleted.');
+      _token=null; _user=null;
+      showScreen('home'); setNav('navExplore');
+    }else{
+      alert(d.error || 'Could not delete account. Please try again.');
+    }
+  }catch(e){ alert('Could not delete account. Please try again.'); }
+}
+
 // ── Ride Back ──
 async function bookRideBack(){
   if(!_token){ showScreen('login'); return; }
@@ -11484,9 +11518,37 @@ function addChatMsg(m){
   const empty = box.querySelector('.chat-empty'); if(empty) empty.remove();
   const div = document.createElement('div');
   div.className = 'chat-msg ' + (m.sender==='customer' ? 'mine' : 'theirs');
-  div.innerHTML = `${esc(m.body)}<div class="msg-time">${m.time||''}</div>`;
+  // Only the driver's messages get a Report link (you don't report your own)
+  const reportLink = (m.sender!=='customer' && m.id)
+    ? `<span class="msg-report" onclick="reportMessage(${m.id})">⚑ Report</span>` : '';
+  div.innerHTML = `${esc(m.body)}<div class="msg-time">${m.time||''}</div>${reportLink}`;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
+}
+async function reportMessage(id){
+  if(!confirm('Report this message as inappropriate?\n\nOur team will review it.')) return;
+  try{
+    const d = await (await fetch(`${API_BASE}/api/app/chat/report`,{
+      method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${_token}`},
+      body:JSON.stringify({message_id:id, reason:'Reported from app'})
+    })).json();
+    alert(d.message || (d.success ? 'Reported.' : 'Could not report.'));
+  }catch(e){ alert('Could not report right now.'); }
+}
+function toggleChatMenu(){
+  const m = document.getElementById('chatMenu');
+  m.style.display = m.style.display==='none' ? 'block' : 'none';
+}
+async function blockChat(){
+  document.getElementById('chatMenu').style.display='none';
+  if(!confirm('Block messages on this ride?\n\nYou won\'t receive further messages from this driver.')) return;
+  try{
+    const d = await (await fetch(`${API_BASE}/api/app/chat/block`,{
+      method:'POST',headers:{'Authorization':`Bearer ${_token}`}
+    })).json();
+    alert(d.message || (d.success ? 'Blocked.' : 'Could not block.'));
+    if(d.success) backFromChat();
+  }catch(e){ alert('Could not block right now.'); }
 }
 async function sendChatMsg(){
   const input = document.getElementById('chatInput');
