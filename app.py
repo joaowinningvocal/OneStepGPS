@@ -89,6 +89,21 @@ app.config['SESSION_REFRESH_EACH_REQUEST'] = True
 @app.before_request
 def _make_session_permanent():
     session.permanent = True
+
+@app.before_request
+def _redirect_to_www():
+    """Redirect the bare domain (clublifter.com) to www.clublifter.com, preserving
+    the full path and query string. Fixes 404s when someone types
+    clublifter.com/app directly. Only redirects the known apex host so it never
+    interferes with Railway's own *.up.railway.app domain or local dev."""
+    host = (request.host or "").split(":")[0].lower()
+    # Only act on the bare apex domain; leave www, railway, and localhost alone.
+    if host == "clublifter.com":
+        target = "https://www.clublifter.com" + request.full_path
+        # full_path can add a trailing "?" when there's no query string — trim it.
+        if target.endswith("?"):
+            target = target[:-1]
+        return redirect(target, code=301)
 db = SQLAlchemy(app)
 
 # ─── SETTINGS ─────────────────────────────────────────────────────────────────
