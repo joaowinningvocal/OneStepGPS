@@ -48,18 +48,24 @@ body{
 .state-hero{margin:16px 0 22px;}
 .state-hero .eyebrow{font-size:.72rem;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--acc3);margin-bottom:6px;}
 .active-ride-card{position:relative;background:linear-gradient(135deg,#153027,#0e2a20);border:1px solid rgba(34,197,94,.4);border-radius:18px;padding:18px 20px;margin-bottom:18px;cursor:pointer;overflow:hidden;transition:transform .15s;}
-.active-ride-card:active{transform:scale(.985);}
+.active-ride-card:not(.empty):active{transform:scale(.985);}
+.active-ride-card.empty{background:var(--surf,#161129);border:1px solid var(--bd,rgba(255,255,255,.08));cursor:default;}
+.active-ride-card.empty .arc-glow{display:none;}
+.active-ride-card.empty .arc-label{color:var(--m2,#8892a0);}
+.active-ride-card.empty .arc-status{font-size:1.05rem;color:var(--t,#f0edf7);}
+.active-ride-card.empty .arc-route{color:var(--m,#9a92b0);margin-bottom:0;}
+.active-ride-card.empty .arc-route::before{content:'🚗 ';}
 .arc-glow{position:absolute;top:-40px;right:-30px;width:160px;height:120px;background:radial-gradient(ellipse,rgba(34,197,94,.35),transparent 70%);filter:blur(25px);pointer-events:none;}
 .arc-top{display:flex;align-items:center;gap:10px;margin-bottom:10px;position:relative;}
 .arc-pulse{width:10px;height:10px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 rgba(34,197,94,.5);animation:pulseDot 1.8s infinite;}
 .arc-label{font-size:.7rem;font-weight:700;letter-spacing:.14em;color:#4ade80;flex:1;}
 .arc-chat{position:relative;background:rgba(255,255,255,.1);border-radius:10px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:1rem;}
 .arc-badge{position:absolute;top:-5px;right:-5px;background:#ef4444;color:#fff;font-size:.6rem;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 4px;}
-.arc-status{font-family:'Syne',sans-serif;font-weight:800;font-size:1.3rem;line-height:1.1;margin-bottom:6px;position:relative;}
+.arc-status{font-family:'Syne',sans-serif;font-weight:700;font-size:1.2rem;line-height:1.15;margin-bottom:6px;position:relative;letter-spacing:-.01em;}
 .arc-route{font-size:.86rem;color:var(--m,#9a92b0);margin-bottom:14px;position:relative;}
 .arc-route::before{content:'📍 ';}
 .arc-cta{font-size:.82rem;font-weight:700;color:#4ade80;position:relative;}
-.state-hero h1{font-family:'Syne',sans-serif;font-weight:800;font-size:2.3rem;line-height:1.02;letter-spacing:-.02em;margin-bottom:10px;}
+.state-hero h1{font-family:'Syne',sans-serif;font-weight:700;font-size:2.1rem;line-height:1.05;letter-spacing:-.02em;margin-bottom:10px;}
 .state-hero p{font-size:.92rem;color:var(--m);line-height:1.5;max-width:90%;}
 
 .section-label{display:flex;align-items:center;justify-content:space-between;margin:24px 0 12px;}
@@ -67,7 +73,7 @@ body{
 .ad-banner .ad-tag{position:absolute;top:8px;left:10px;font-size:.58rem;font-weight:700;letter-spacing:.1em;color:var(--m2);background:var(--s2);padding:2px 7px;border-radius:5px;}
 .ad-banner .ad-text{font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;color:var(--m2);}
 .section-label h2{font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;}
-.section-label .count{font-size:.76rem;color:var(--m2);font-weight:600;}
+.section-label .count{font-size:.76rem;color:var(--m2);font-weight:600;font-variant-numeric:tabular-nums;}
 
 /* ── Club card ── */
 .club{display:flex;gap:14px;background:linear-gradient(135deg,var(--surf),var(--surf2));border:1px solid var(--bd);border-radius:18px;padding:14px;margin-bottom:12px;position:relative;overflow:hidden;transition:transform .15s;}
@@ -193,32 +199,32 @@ body{
 .profile-body{flex:1;padding:24px 20px calc(100px + env(safe-area-inset-bottom));position:relative;z-index:2;overflow-y:auto;}
 .profile-header{text-align:center;margin-bottom:24px;}
 .profile-avatar{width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--pink,#ec4899));display:flex;align-items:center;justify-content:center;font-size:2.4rem;margin:0 auto 12px;}
-.profile-name{font-family:'Syne',sans-serif;font-weight:800;font-size:1.5rem;}
-.profile-phone{color:var(--m);font-size:.86rem;margin-top:2px;}
+.profile-name{font-family:'Syne',sans-serif;font-weight:700;font-size:1.5rem;letter-spacing:-.01em;}
+.profile-phone{color:var(--m);font-size:.86rem;margin-top:2px;font-variant-numeric:tabular-nums;}
 .level-card{background:linear-gradient(135deg,var(--surf,#161129),var(--surf2,#1e1738));border:1px solid var(--bhi);border-radius:18px;padding:20px;margin-bottom:16px;}
 .level-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
 .level-label{font-size:.72rem;color:var(--m2);text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
-.level-name{font-family:'Syne',sans-serif;font-weight:800;font-size:1.5rem;color:var(--acc3);}
-.level-badge{width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--gold,#fbbf24),#f59e0b);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:800;font-size:1.3rem;color:#1a1033;}
-.level-bar-wrap{height:10px;background:rgba(255,255,255,.08);border-radius:6px;overflow:hidden;margin-bottom:8px;}
+.level-name{font-family:'Syne',sans-serif;font-weight:700;font-size:1.4rem;color:var(--acc3);letter-spacing:-.01em;line-height:1;}
+.level-badge{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--gold,#fbbf24),#f59e0b);display:flex;align-items:center;justify-content:center;font-family:'DM Sans',sans-serif;font-weight:800;font-size:1.15rem;color:#1a1033;font-variant-numeric:tabular-nums;flex-shrink:0;}
+.level-bar-wrap{height:8px;background:rgba(255,255,255,.08);border-radius:6px;overflow:hidden;margin-bottom:8px;}
 .level-bar{height:100%;background:linear-gradient(90deg,var(--acc),var(--pink,#ec4899));border-radius:6px;transition:width .6s cubic-bezier(.2,.8,.2,1);}
-.level-progress{font-size:.8rem;color:var(--m);text-align:center;}
+.level-progress{font-size:.8rem;color:var(--m);text-align:center;font-variant-numeric:tabular-nums;}
 .level-perk{margin-top:14px;padding:12px;background:rgba(251,191,36,.08);border:1px dashed rgba(251,191,36,.3);border-radius:11px;font-size:.86rem;color:var(--gold,#fbbf24);text-align:center;font-weight:600;}
 .level-perk:empty{display:none;}
 .prof-stats{display:flex;gap:12px;margin-bottom:24px;}
-.prof-stat{flex:1;background:var(--surf,#161129);border:1px solid var(--bd);border-radius:14px;padding:16px;text-align:center;}
-.prof-stat b{display:block;font-family:'Syne',sans-serif;font-size:1.8rem;font-weight:800;color:var(--acc3);}
-.prof-stat span{font-size:.74rem;color:var(--m2);text-transform:uppercase;letter-spacing:.4px;}
-.prof-section-title{font-family:'Syne',sans-serif;font-weight:700;font-size:1rem;margin:18px 0 10px;}
+.prof-stat{flex:1;background:var(--surf,#161129);border:1px solid var(--bd);border-radius:14px;padding:18px 16px;text-align:center;}
+.prof-stat b{display:block;font-family:'DM Sans',sans-serif;font-size:2rem;font-weight:700;color:var(--acc3);letter-spacing:-.03em;line-height:1;margin-bottom:6px;font-variant-numeric:tabular-nums;}
+.prof-stat span{font-size:.7rem;color:var(--m2);text-transform:uppercase;letter-spacing:.6px;font-weight:600;}
+.prof-section-title{font-family:'Syne',sans-serif;font-weight:700;font-size:1rem;margin:18px 0 10px;letter-spacing:-.01em;}
 .ladder-item{display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;margin-bottom:8px;background:var(--surf,#161129);border:1px solid var(--bd);}
 .ladder-item.reached{border-color:var(--bhi);}
 .ladder-item.current{background:linear-gradient(135deg,rgba(138,92,246,.2),rgba(236,72,153,.1));border-color:var(--acc);}
-.ladder-lvl{width:34px;height:34px;border-radius:50%;background:var(--surf2,#1e1738);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.9rem;flex-shrink:0;font-family:'Syne',sans-serif;}
+.ladder-lvl{width:32px;height:32px;border-radius:50%;background:var(--surf2,#1e1738);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.88rem;flex-shrink:0;font-family:'DM Sans',sans-serif;font-variant-numeric:tabular-nums;}
 .ladder-item.reached .ladder-lvl{background:linear-gradient(135deg,var(--gold,#fbbf24),#f59e0b);color:#1a1033;}
 .ladder-info{flex:1;min-width:0;}
 .ladder-name{font-weight:700;font-size:.92rem;}
 .ladder-perk{font-size:.76rem;color:var(--m);line-height:1.3;}
-.ladder-pts{font-size:.72rem;color:var(--m2);font-weight:600;white-space:nowrap;}
+.ladder-pts{font-size:.72rem;color:var(--m2);font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums;}
 .prof-checkin{display:flex;justify-content:space-between;align-items:center;padding:11px 14px;background:var(--surf,#161129);border:1px solid var(--bd);border-radius:11px;margin-bottom:7px;}
 .prof-checkin .cin-club{font-weight:600;font-size:.88rem;}
 .prof-checkin .cin-date{font-size:.76rem;color:var(--m2);}
@@ -10473,18 +10479,18 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
         <h1 id="heroState">—</h1>
         <p id="heroSub">Finding the best clubs near you…</p>
       </div>
-      <div class="active-ride-card" id="activeRideCard" style="display:none;" onclick="openTracking()">
+      <div class="active-ride-card" id="activeRideCard" style="display:none;">
         <div class="arc-glow"></div>
         <div class="arc-top">
-          <div class="arc-pulse"></div>
-          <div class="arc-label">YOUR RIDE</div>
+          <div class="arc-pulse" id="arcPulse"></div>
+          <div class="arc-label" id="arcLabel">YOUR RIDE</div>
           <div class="arc-chat" id="arcChat" style="display:none;">💬<span class="arc-badge" id="arcBadge">0</span></div>
         </div>
         <div class="arc-status" id="arcStatus">Driver on the way</div>
         <div class="arc-route">
           <span id="arcDest">—</span>
         </div>
-        <div class="arc-cta">Tap to track live →</div>
+        <div class="arc-cta" id="arcCta">Tap to track live →</div>
       </div>
       <div class="ad-banner" id="adBanner">
         <div class="ad-tag">AD</div>
@@ -11403,25 +11409,45 @@ function personalizeStatus(status, fallback){
   return map[status] || fallback || 'Your ride';
 }
 
-// Show the "track your ride" card on the home screen if there's an active ride
+// Show the "track your ride" card on the home screen. If there's an active ride
+// it shows live status; otherwise it shows a friendly placeholder.
 async function checkActiveRide(){
   const card = document.getElementById('activeRideCard');
-  if(!_token){ if(card) card.style.display='none'; return; }
+  if(!card) return;
+  // Logged-out users don't see the ride card at all.
+  if(!_token){ card.style.display='none'; return; }
   try{
     const d = await (await fetch(`${API_BASE}/api/app/ride-status`,{headers:{'Authorization':`Bearer ${_token}`}})).json();
     if(d.success && d.has_ride){
+      // Active ride → live status card
       card.style.display='block';
+      card.classList.remove('empty');
+      card.onclick = openTracking;
+      document.getElementById('arcLabel').innerText = 'YOUR RIDE';
       document.getElementById('arcStatus').innerText = personalizeStatus(d.status, d.status_text);
+      document.getElementById('arcDest').style.display = '';
       document.getElementById('arcDest').innerText = 'To ' + (d.destination || d.pickup_location || 'your destination');
+      document.getElementById('arcCta').style.display = '';
+      document.getElementById('arcPulse').style.display = '';
       const chat = document.getElementById('arcChat');
       chat.style.display = d.chat_available ? 'flex' : 'none';
       const badge = document.getElementById('arcBadge');
       if(d.unread_messages > 0){ badge.style.display='flex'; badge.innerText=d.unread_messages; }
       else{ badge.style.display='none'; }
     }else{
-      card.style.display='none';
+      // No ride → friendly placeholder (not clickable)
+      card.style.display='block';
+      card.classList.add('empty');
+      card.onclick = null;
+      document.getElementById('arcLabel').innerText = 'YOUR RIDES';
+      document.getElementById('arcStatus').innerText = 'No ride scheduled';
+      document.getElementById('arcDest').style.display = '';
+      document.getElementById('arcDest').innerText = 'Your rides to the club appear here when scheduled.';
+      document.getElementById('arcCta').style.display = 'none';
+      document.getElementById('arcPulse').style.display = 'none';
+      document.getElementById('arcChat').style.display = 'none';
     }
-  }catch(e){ if(card) card.style.display='none'; }
+  }catch(e){ card.style.display='none'; }
 }
 
 async function openTracking(){
