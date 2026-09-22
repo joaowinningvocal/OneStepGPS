@@ -7278,6 +7278,7 @@ def seed_demo_ride():
                                   .order_by(Customer.id.desc()).first()
         vt = vegas_today()
         today = f"{vt.month:02d}/{vt.day:02d}/{vt.year}"
+        car_str = car.car_string() if hasattr(car, 'car_string') else demo_car_name
         if not demo_ride:
             demo_ride = Customer(
                 nome="Demo Guest",
@@ -7291,7 +7292,7 @@ def seed_demo_ride():
                 motorista=demo_driver_user,
                 motorista_phone="7025550123",
                 car_name=demo_car_name,
-                car_string_val=car.car_string() if hasattr(car, 'car_string') else demo_car_name,
+                car_string_val=car_str,
                 status="scheduled",
                 club_status="coming",
                 dispatch_status="enroute",   # ← enroute so chat is available + tracking shows the car
@@ -7299,8 +7300,28 @@ def seed_demo_ride():
                 distancia=3.2,
             )
             db.session.add(demo_ride); db.session.commit()
+        else:
+            # A demo ride already exists for this number (from an earlier run). Make
+            # sure it's in the right state for the demo: driver assigned + en route,
+            # not finished. Without this, an old scheduled/driverless ride would show
+            # no chat and no live status.
+            changed = False
+            if demo_ride.motorista != demo_driver_user:
+                demo_ride.motorista = demo_driver_user
+                demo_ride.motorista_phone = "7025550123"; changed = True
+            if demo_ride.car_name != demo_car_name:
+                demo_ride.car_name = demo_car_name
+                demo_ride.car_string_val = car_str; changed = True
+            if demo_ride.dispatch_status != "enroute":
+                demo_ride.dispatch_status = "enroute"; changed = True
+            if demo_ride.club_status in ("left",) or demo_ride.status == "dropped_off":
+                demo_ride.club_status = "coming"; demo_ride.status = "scheduled"; changed = True
+            if changed:
+                db.session.commit()
+                print(f"[SEED] refreshed existing demo ride #{demo_ride.id} to enroute+driver", flush=True)
 
-            # 4. A couple of starter chat messages so the chat isn't empty
+        # 4. Starter chat messages so the chat isn't empty (only if none exist yet)
+        if RideChatMessage.query.filter_by(customer_id=demo_ride.id).count() == 0:
             db.session.add(RideChatMessage(customer_id=demo_ride.id, sender="driver",
                 body="Hey! I'm on my way to pick you up, about 5 minutes out.",
                 read_by_customer=False))
