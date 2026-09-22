@@ -7321,6 +7321,23 @@ def seed_demo_ride():
         # is left in a "scheduled, no driver" state that the app might pick.
         _pd = clean_phone(ride_phone)
         tail = _pd[-10:] if len(_pd) >= 10 else _pd
+        # Remove any leftover TEST ride-backs on the demo number — those are created
+        # when you tap "Book a ride back" while testing, and they pile up as newer
+        # rides that the app then picks instead of the real demo ride (that's why it
+        # showed "scheduled" with no driver). They're demo junk, safe to delete.
+        junk = (Customer.query
+                .filter(Customer.is_return_ride == True)
+                .filter((Customer.phone.like(f"%{tail}")) |
+                        (Customer.phones_json.like(f"%{tail}%")))
+                .all())
+        if junk:
+            for j in junk:
+                # Also clear their chat messages
+                RideChatMessage.query.filter_by(customer_id=j.id).delete()
+                db.session.delete(j)
+            db.session.commit()
+            print(f"[SEED] removed {len(junk)} leftover test ride-back(s) on demo number", flush=True)
+
         existing_rides = (Customer.query
                           .filter(Customer.is_return_ride == False)
                           .filter((Customer.phone.like(f"%{tail}")) |
