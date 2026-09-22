@@ -5142,6 +5142,117 @@ def _assign_driver_and_car(lat_cli, lng_cli, requested_dt):
         "car": chosen_car,
     }
 
+def _normalize_street_address(address):
+    """Clean up common address quirks that make Nominatim fail even on valid,
+    real addresses:
+      - Non-standard street-type abbreviations ("bl" -> "Blvd", "st" stays, etc.)
+      - Apartment/unit/suite parts ("apt 2057", "#12", "unit 4") which throw off
+        the geocoder — the building geocodes fine without them.
+    Returns (cleaned_address, cleaned_without_unit)."""
+    import re
+    a = " ".join((address or "").split())  # collapse whitespace
+
+    # Normalize some street-type abbreviations that Nominatim doesn't accept.
+    # Word-boundary, case-insensitive. "blvd" it understands; "bl"/"blv" it doesn't.
+    repl = [
+        (r'\bbl\b',   'Blvd'),
+        (r'\bblv\b',  'Blvd'),
+        (r'\bblvd\b', 'Blvd'),
+        (r'\bav\b',   'Ave'),
+        (r'\bave\b',  'Ave'),
+        (r'\bst\b',   'St'),
+        (r'\brd\b',   'Rd'),
+        (r'\bdr\b',   'Dr'),
+        (r'\bln\b',   'Ln'),
+        (r'\bpkwy\b', 'Pkwy'),
+        (r'\bhwy\b',  'Hwy'),
+        (r'\bctr\b',  'Center'),
+    ]
+    for pat, rep in repl:
+        a = re.sub(pat, rep, a, flags=re.IGNORECASE)
+
+    # Build a version with the apartment/unit/suite chunk removed. Matches things
+    # like "apt 2057", "apt. 2057", "unit 4", "ste 300", "suite 300", "# 12", "#12".
+    unit_pat = r'\s*(?:,\s*)?(?:apt\.?|apartment|unit|ste\.?|suite|#)\s*[\w-]+'
+    without_unit = re.sub(unit_pat, '', a, flags=re.IGNORECASE)
+    without_unit = " ".join(without_unit.split()).rstrip(',').strip()
+
+    return a, without_unit
+
+def _geocode_pickup_flexible(address):
+    """Best-effort geocoding for a pickup address. Real, valid addresses often fail
+    a single strict Nominatim lookup because of apartment numbers or non-standard
+    abbreviations ("2535 s las vegas bl", "...apt 2057..."). We normalize the
+    address and try several variations. Returns (lat, lng) or (None, None).
+
+    Attempt order (first hit wins):
+      1. Normalized address, unit removed  (best for building-level geocoding)
+      2. Normalized address as-is
+      3. Original address as given
+      4. Each of the above with ", Las Vegas, NV, USA" appended if no city hint
+      5. City-biased structured fallback
+    Every lookup is wrapped so a network/rate-limit hiccup never raises."""
+    address = (address or "").strip()
+    if not address:
+        return None, None
+
+    def _try(query):
+        try:
+            enc = urllib.parse.quote(query)
+            r = requests.get(
+                f"https://nominatim.openstreetmap.org/search?q={enc}&format=json&limit=1&addressdetails=1",
+                headers={'User-Agent': 'ClubLifter_CartVIP'}, timeout=10)
+            data = r.json() if (r.text and r.text.strip()) else []
+            if data:
+                return float(data[0]['lat']), float(data[0]['lon'])
+        except Exception as e:
+            print(f"[geocode] attempt failed: {e}", flush=True)
+        return None, None
+
+    normalized, no_unit = _normalize_street_address(address)
+
+    # De-duplicate while preserving order.
+    bases, seen = [], set()
+    for cand in (no_unit, normalized, address):
+        c = cand.strip()
+        if c and c.lower() not in seen:
+            seen.add(c.lower()); bases.append(c)
+
+    def _has_city_hint(s):
+        low = s.lower()
+        return any(tok in low for tok in
+                   (" nv", "nevada", "las vegas", "henderson", ", usa", "california"))
+
+    # Build the full candidate list: each base, plus a city-qualified version.
+    candidates = []
+    for b in bases:
+        candidates.append(b)
+        if not _has_city_hint(b):
+            candidates.append(f"{b}, Las Vegas, NV, USA")
+
+    for cand in candidates:
+        lat, lng = _try(cand)
+        if lat is not None:
+            if cand != address:
+                print(f"[geocode] resolved '{address}' via '{cand}'", flush=True)
+            return lat, lng
+
+    # City-biased structured fallback on the unit-stripped address.
+    try:
+        enc = urllib.parse.quote(no_unit or address)
+        r = requests.get(
+            "https://nominatim.openstreetmap.org/search?"
+            f"q={enc}&city=Las+Vegas&state=Nevada&country=USA&format=json&limit=1",
+            headers={'User-Agent': 'ClubLifter_CartVIP'}, timeout=10)
+        data = r.json() if (r.text and r.text.strip()) else []
+        if data:
+            print(f"[geocode] resolved '{address}' via city-biased fallback", flush=True)
+            return float(data[0]['lat']), float(data[0]['lon'])
+    except Exception as e:
+        print(f"[geocode] fallback failed: {e}", flush=True)
+
+    return None, None
+
 @app.route('/api/v1/schedule', methods=['POST'])
 @require_api_key
 def api_v1_schedule():
@@ -5178,39 +5289,46 @@ def api_v1_schedule():
     # Normalize the stored date so 2-digit years / loose formats are consistent
     pickup_datetime = normalize_pickup_datetime(pickup_datetime) or pickup_datetime
 
-    # Geocode (tolerant of empty / non-JSON / rate-limit responses)
-    try:
-        encoded = urllib.parse.quote(pickup_address)
-        _r = requests.get(
-            f"https://nominatim.openstreetmap.org/search?q={encoded}&format=json&limit=1",
-            headers={'User-Agent': 'ClubLifter_CartVIP'}, timeout=10)
-        geo = _r.json() if (_r.text and _r.text.strip()) else []
-        if not geo:
-            return jsonify({"success": False, "error": "Address not found"}), 422
-        lat_cli, lng_cli = float(geo[0]['lat']), float(geo[0]['lon'])
-    except Exception as e:
-        print(f"[API/schedule] geocode failed: {e}", flush=True)
-        return jsonify({"success": False, "error": "Could not resolve that pickup address."}), 502
-
-    a = _assign_driver_and_car(lat_cli, lng_cli, requested_dt)
+    # Geocode the pickup address. This is best-effort and MUST NOT lose the
+    # booking: many addresses come in slightly misspelled, informal, or without a
+    # city ("Fontaine bleau Casino"), which a single strict lookup rejects. We try
+    # several variations, and if none resolve we still create the booking without
+    # coordinates so dispatch can assign a driver manually — losing the ride is far
+    # worse than one that needs a manual pickup location.
+    lat_cli, lng_cli = _geocode_pickup_flexible(pickup_address)
+    geocoded = lat_cli is not None and lng_cli is not None
+    if geocoded:
+        a = _assign_driver_and_car(lat_cli, lng_cli, requested_dt)
+    else:
+        print(f"[API/schedule] could not geocode '{pickup_address}' — booking without coords", flush=True)
+        a = {"driver_name": "", "driver_phone": "", "car": None,
+             "distance_km": 0, "chosen_car": None}
     chosen_car = a["car"]
     car_string = chosen_car.car_string() if chosen_car else ""
     car_photo  = chosen_car.photo if chosen_car else ""
     car_photo_url = f"{PUBLIC_BASE_URL}/uploads/{car_photo}" if car_photo else ""
 
-    # Register marker on OneStepGPS (best-effort)
-    try:
-        headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-        requests.post(URL_API, json={
-            "display_name": name, "active": True, "status": "active", "marker_type": "point",
-            "detail": {"description": pickup_address, "lat_lng": {"lat": lat_cli, "lng": lng_cli}}
-        }, headers=headers_api, timeout=8)
-    except Exception:
-        pass
+    # Register marker on OneStepGPS (best-effort, only if we have coordinates)
+    if geocoded:
+        try:
+            headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+            requests.post(URL_API, json={
+                "display_name": name, "active": True, "status": "active", "marker_type": "point",
+                "detail": {"description": pickup_address, "lat_lng": {"lat": lat_cli, "lng": lng_cli}}
+            }, headers=headers_api, timeout=8)
+        except Exception:
+            pass
+
+    # If we couldn't geocode, prepend a clear note so dispatch sets the pickup
+    # location manually (and knows why no driver was auto-assigned).
+    stored_details = details
+    if not geocoded:
+        flag = "⚠️ PICKUP NEEDS REVIEW (address couldn't be mapped)"
+        stored_details = (flag + (" — " + details if details else ""))
 
     customer = Customer(
         nome=name, phone=client_phone, phones_json=json.dumps([p for p in extra_phones if p]),
-        endereco=pickup_address, details=details,
+        endereco=pickup_address, details=stored_details,
         motorista=a["driver_name"], motorista_phone=a["driver_phone"],
         car_name=(chosen_car.name if chosen_car else ""),
         car_string_val=car_string, car_photo=car_photo,
@@ -5227,11 +5345,20 @@ def api_v1_schedule():
     if pickup_datetime and len(pickup_datetime.split(' ')) >= 3:
         parts = pickup_datetime.split(' ')
         time_part = f"{parts[1]} {parts[2]}"
-    sms_text = (f"Hi {name}! Your ClubLifter ride is booked. {a['driver_name']} will pick you up"
-                f"{' at ' + time_part if time_part else ''}"
-                f"{' in a ' + car_string if car_string else ''}. See you soon!"
-                f"{chr(10)}Heads up: your driver may call from this number to reach you — "
-                f"please keep an eye out and answer so they can find you.")
+    has_driver = bool(a.get("driver_name"))
+    if has_driver:
+        sms_text = (f"Hi {name}! Your ClubLifter ride is booked. {a['driver_name']} will pick you up"
+                    f"{' at ' + time_part if time_part else ''}"
+                    f"{' in a ' + car_string if car_string else ''}. See you soon!"
+                    f"{chr(10)}Heads up: your driver may call from this number to reach you — "
+                    f"please keep an eye out and answer so they can find you.")
+    else:
+        # Booking made, but a driver will be assigned shortly (e.g. pickup location
+        # still being confirmed). Don't name a driver that doesn't exist yet.
+        sms_text = (f"Hi {name}! Your ClubLifter ride is booked"
+                    f"{' for ' + time_part if time_part else ''}. "
+                    f"We're confirming your pickup and your driver details will follow shortly. "
+                    f"See you soon!")
     fire_webhook({
         "type": "scheduled", "source": "cartvip",
         "customer_name": name, "customer_phone": client_phone,
