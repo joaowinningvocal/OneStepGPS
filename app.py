@@ -3192,6 +3192,46 @@ def _app_active_ride(user):
             .filter(Customer.status != "dropped_off")
             .order_by(Customer.id.desc()).first())
 
+@app.route('/api/debug/demo-ride', methods=['GET'])
+def debug_demo_ride():
+    """Diagnostic: show every ride matching a phone's last 10 digits and which one
+    the app would pick. Call with ?phone=7025307390. TEMPORARY — no auth so it can
+    be opened directly in a browser for debugging; remove after."""
+    phone = request.args.get("phone", "") or os.environ.get("DEMO_RIDE_PHONE", "")
+    digits = clean_phone(phone)
+    tail = digits[-10:] if len(digits) >= 10 else digits
+    all_rides = (Customer.query
+                 .filter((Customer.phone.like(f"%{tail}")) | (Customer.phones_json.like(f"%{tail}%")))
+                 .order_by(Customer.id.desc()).all())
+    def _info(c):
+        code, text = _ride_status_info(c)
+        return {
+            "id": c.id, "nome": c.nome, "phone": c.phone,
+            "is_return_ride": c.is_return_ride,
+            "motorista": c.motorista, "car_name": c.car_name,
+            "status": c.status, "club_status": c.club_status,
+            "dispatch_status": c.dispatch_status,
+            "computed_status": code, "computed_text": text,
+            "needs_transport": c.needs_transport,
+        }
+    # What _app_active_ride would pick:
+    picked = (Customer.query
+              .filter((Customer.phone.like(f"%{tail}")) | (Customer.phones_json.like(f"%{tail}%")))
+              .filter(Customer.club_status != "left")
+              .filter(Customer.status != "dropped_off")
+              .order_by(Customer.id.desc()).first())
+    return jsonify({
+        "success": True,
+        "searched_phone": phone,
+        "tail_10_digits": tail,
+        "demo_ride_env": os.environ.get("DEMO_RIDE", "(unset)"),
+        "demo_ride_phone_env": os.environ.get("DEMO_RIDE_PHONE", "(unset)"),
+        "total_matching_rides": len(all_rides),
+        "app_would_pick_id": picked.id if picked else None,
+        "app_would_pick": _info(picked) if picked else None,
+        "all_rides": [_info(c) for c in all_rides],
+    })
+
 @app.route('/api/app/ride-status', methods=['GET'])
 def app_ride_status():
     """App: live status of the user's current ride, including the driver's car
@@ -7273,9 +7313,22 @@ def seed_demo_ride():
         if not other_owner and not drv.assigned_car_id:
             drv.assigned_car_id = car.id; db.session.commit()
 
-        # 3. The demo ride, tied to ride_phone, driver enroute, so tracking+chat show
-        demo_ride = Customer.query.filter_by(phone=ride_phone, is_return_ride=False)\
-                                  .order_by(Customer.id.desc()).first()
+        # 3. The demo ride, tied to ride_phone, driver enroute, so tracking+chat
+        # show. Match by the LAST 10 DIGITS (same as the app's _app_active_ride),
+        # because a stored number may be "+17025307390" while DEMO_RIDE_PHONE is
+        # "7025307390" — an exact match would miss it and we'd end up with a stale
+        # ride still showing. We fix ALL of the user's active rides so none of them
+        # is left in a "scheduled, no driver" state that the app might pick.
+        _pd = clean_phone(ride_phone)
+        tail = _pd[-10:] if len(_pd) >= 10 else _pd
+        existing_rides = (Customer.query
+                          .filter(Customer.is_return_ride == False)
+                          .filter((Customer.phone.like(f"%{tail}")) |
+                                  (Customer.phones_json.like(f"%{tail}%")))
+                          .filter(Customer.club_status != "left")
+                          .filter(Customer.status != "dropped_off")
+                          .order_by(Customer.id.desc()).all())
+        demo_ride = existing_rides[0] if existing_rides else None
         vt = vegas_today()
         today = f"{vt.month:02d}/{vt.day:02d}/{vt.year}"
         car_str = car.car_string() if hasattr(car, 'car_string') else demo_car_name
@@ -7301,24 +7354,25 @@ def seed_demo_ride():
             )
             db.session.add(demo_ride); db.session.commit()
         else:
-            # A demo ride already exists for this number (from an earlier run). Make
-            # sure it's in the right state for the demo: driver assigned + en route,
-            # not finished. Without this, an old scheduled/driverless ride would show
-            # no chat and no live status.
+            # One or more demo rides already exist for this number (from earlier
+            # runs). Put EACH of them into the right state — driver assigned + en
+            # route — so the app never picks a stale "scheduled, no driver" one
+            # (which would show no chat and no live status).
             changed = False
-            if demo_ride.motorista != demo_driver_user:
-                demo_ride.motorista = demo_driver_user
-                demo_ride.motorista_phone = "7025550123"; changed = True
-            if demo_ride.car_name != demo_car_name:
-                demo_ride.car_name = demo_car_name
-                demo_ride.car_string_val = car_str; changed = True
-            if demo_ride.dispatch_status != "enroute":
-                demo_ride.dispatch_status = "enroute"; changed = True
-            if demo_ride.club_status in ("left",) or demo_ride.status == "dropped_off":
-                demo_ride.club_status = "coming"; demo_ride.status = "scheduled"; changed = True
+            for r in existing_rides:
+                if r.motorista != demo_driver_user:
+                    r.motorista = demo_driver_user
+                    r.motorista_phone = "7025550123"; changed = True
+                if r.car_name != demo_car_name:
+                    r.car_name = demo_car_name
+                    r.car_string_val = car_str; changed = True
+                if r.dispatch_status != "enroute":
+                    r.dispatch_status = "enroute"; changed = True
+                if r.club_status == "left" or r.status == "dropped_off":
+                    r.club_status = "coming"; r.status = "scheduled"; changed = True
             if changed:
                 db.session.commit()
-                print(f"[SEED] refreshed existing demo ride #{demo_ride.id} to enroute+driver", flush=True)
+                print(f"[SEED] refreshed {len(existing_rides)} existing demo ride(s) to enroute+driver", flush=True)
 
         # 4. Starter chat messages so the chat isn't empty (only if none exist yet)
         if RideChatMessage.query.filter_by(customer_id=demo_ride.id).count() == 0:
