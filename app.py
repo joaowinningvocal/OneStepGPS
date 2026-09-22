@@ -2644,6 +2644,41 @@ def app_profile():
                      for n in sorted(APP_LEVELS)]
     return jsonify({"success": True, "user": out})
 
+@app.route('/api/app/history', methods=['GET'])
+def app_history():
+    """Full visit history for the logged-in user: every check-in (most recent
+    first) plus a per-venue summary (how many times they've been to each club)."""
+    user = _app_user_from_token()
+    if not user:
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+    checkins = (CheckIn.query.filter_by(user_id=user.id)
+                .order_by(CheckIn.created_at.desc()).all())
+    visits = [{
+        "club_name": c.club_name,
+        "points": c.points,
+        "date": c.created_at.strftime("%b %d, %Y") if c.created_at else "",
+        "time": c.created_at.strftime("%-I:%M %p") if c.created_at else "",
+    } for c in checkins]
+    # Per-venue summary
+    by_club = {}
+    for c in checkins:
+        key = c.club_name or "Unknown"
+        if key not in by_club:
+            by_club[key] = {"club_name": key, "visits": 0, "points": 0, "last": ""}
+        by_club[key]["visits"] += 1
+        by_club[key]["points"] += (c.points or 0)
+        if not by_club[key]["last"] and c.created_at:
+            by_club[key]["last"] = c.created_at.strftime("%b %d, %Y")
+    venues = sorted(by_club.values(), key=lambda v: v["visits"], reverse=True)
+    return jsonify({
+        "success": True,
+        "total_visits": len(checkins),
+        "total_points": sum(c.points or 0 for c in checkins),
+        "venues_count": len(by_club),
+        "visits": visits,
+        "venues": venues,
+    })
+
 @app.route('/api/app/account/delete', methods=['POST'])
 def app_account_delete():
     """Permanently delete the logged-in user's account and personal data. Required
@@ -3169,9 +3204,11 @@ def app_ride_status():
         return jsonify({"success": True, "has_ride": False})
 
     ride_status, ride_status_text = _ride_status_info(c)
-    # Chat is available once the driver is on the way (enroute or later, before dropoff)
-    chat_available = ride_status in ("enroute", "arrived", "picked_up")
-    has_driver = bool(c.motorista and c.motorista not in ("", "Unavailable", "Waitlist"))
+    has_driver = bool(c.motorista and c.motorista not in ("", "Unavailable", "Waitlist", "(walk-in)"))
+    # Chat is available for any active (not-yet-finished) ride that has a driver
+    # assigned — including while it's still "scheduled" — so the guest can reach
+    # their driver before the driver marks themselves en route.
+    chat_available = has_driver and ride_status in ("scheduled", "enroute", "arrived", "picked_up")
 
     # Try to get the assigned car's live GPS position
     car_lat = car_lng = None

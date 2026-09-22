@@ -233,6 +233,29 @@ body{
 .prof-logout{width:100%;background:none;border:1px solid var(--bd);color:var(--m2);padding:14px;border-radius:12px;font-weight:600;font-size:.9rem;cursor:pointer;margin-top:24px;font-family:'DM Sans',sans-serif;}
 .prof-delete{width:100%;background:none;border:1px solid rgba(239,68,68,.3);color:#ef4444;padding:14px;border-radius:12px;font-weight:600;font-size:.9rem;cursor:pointer;margin-top:12px;font-family:'DM Sans',sans-serif;}
 .prof-delete:active{background:rgba(239,68,68,.1);}
+.prof-history-btn{width:100%;background:var(--surf,#161129);border:1px solid var(--bd);color:var(--acc3,#a78bfa);padding:13px;border-radius:12px;font-weight:600;font-size:.88rem;cursor:pointer;margin-top:10px;font-family:'DM Sans',sans-serif;}
+.prof-history-btn:active{filter:brightness(1.15);}
+/* History screen */
+.history-screen{background:var(--bg,#08060f);}
+.hist-hdr{display:flex;align-items:center;gap:12px;padding:14px 18px;padding-top:calc(14px + env(safe-area-inset-top));background:var(--surf,#161129);border-bottom:1px solid var(--bd);position:relative;z-index:5;}
+.hist-hdr .back{background:rgba(255,255,255,.08);border:none;color:var(--t,#e8eaf0);width:38px;height:38px;border-radius:50%;font-size:1.3rem;cursor:pointer;}
+.hist-hdr-title{font-family:'Syne',sans-serif;font-weight:700;font-size:1.15rem;letter-spacing:-.01em;}
+.hist-body{flex:1;overflow-y:auto;padding:20px;padding-bottom:calc(40px + env(safe-area-inset-bottom));}
+.hist-summary{display:flex;gap:10px;margin-bottom:20px;}
+.hist-stat{flex:1;background:var(--surf,#161129);border:1px solid var(--bd);border-radius:14px;padding:16px 10px;text-align:center;}
+.hist-stat b{display:block;font-family:'DM Sans',sans-serif;font-size:1.7rem;font-weight:700;color:var(--acc3,#a78bfa);letter-spacing:-.03em;line-height:1;margin-bottom:5px;font-variant-numeric:tabular-nums;}
+.hist-stat span{font-size:.66rem;color:var(--m2,#8892a0);text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
+.hist-tabs{display:flex;gap:8px;margin-bottom:16px;}
+.hist-tab{flex:1;background:var(--surf,#161129);border:1px solid var(--bd);color:var(--m2,#8892a0);padding:11px;border-radius:10px;font-weight:700;font-size:.85rem;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.hist-tab.active{background:rgba(138,92,246,.15);border-color:var(--bhi);color:var(--acc3,#a78bfa);}
+.hist-item{display:flex;align-items:center;gap:12px;background:var(--surf,#161129);border:1px solid var(--bd);border-radius:12px;padding:13px 15px;margin-bottom:8px;}
+.hist-item-icon{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,var(--acc),var(--acc2));display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0;}
+.hist-item-info{flex:1;min-width:0;}
+.hist-item-name{font-weight:700;font-size:.94rem;color:var(--t,#e8eaf0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.hist-item-sub{font-size:.76rem;color:var(--m,#9a92b0);margin-top:2px;}
+.hist-item-pts{font-size:.78rem;color:var(--g,#22c55e);font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.hist-item-badge{background:rgba(138,92,246,.15);color:var(--acc3,#a78bfa);font-size:.72rem;font-weight:800;padding:4px 10px;border-radius:20px;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.hist-empty{text-align:center;color:var(--m2,#8892a0);font-size:.9rem;padding:50px 20px;}
 .ride-back-btn{width:100%;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;padding:15px;border-radius:13px;font-weight:700;font-size:.95rem;cursor:pointer;font-family:'DM Sans',sans-serif;box-shadow:0 6px 20px rgba(34,197,94,.35);}
 .track-ride-btn{width:100%;background:linear-gradient(135deg,var(--acc,#8a5cf6),var(--acc2,#6d28d9));color:#fff;border:none;padding:15px;border-radius:13px;font-weight:700;font-size:.95rem;cursor:pointer;font-family:'DM Sans',sans-serif;box-shadow:0 6px 20px rgba(138,92,246,.35);}
 .track-ride-btn:active{filter:brightness(1.1);}
@@ -266,7 +289,8 @@ body{
 .rstar{background:none;border:none;font-size:2.5rem;line-height:1;cursor:pointer;color:rgba(255,255,255,.15);transition:transform .15s cubic-bezier(.2,1.5,.4,1),color .15s;padding:2px;-webkit-tap-highlight-color:transparent;}
 .rstar.lit{color:#fbbf24;text-shadow:0 0 16px rgba(251,191,36,.6);}
 .rstar.bounce{transform:scale(1.3);}
-.review-hint{font-size:.9rem;color:var(--m);margin-bottom:22px;min-height:20px;transition:color .2s;font-weight:500;}
+.review-hint{font-size:.9rem;color:var(--m);margin-bottom:10px;min-height:20px;transition:color .2s;font-weight:500;}
+.review-note{font-size:.76rem;color:var(--m2,#8892a0);margin-bottom:20px;line-height:1.4;}
 .review-skip{width:100%;background:none;border:none;color:var(--m2);font-size:.88rem;font-weight:600;cursor:pointer;padding:8px;font-family:'DM Sans',sans-serif;}
 .review-skip:hover{color:var(--m);}
 /* Low-rating feedback state */
@@ -10640,9 +10664,27 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
 
       <div class="prof-section-title">Recent check-ins</div>
       <div id="profRecent"><div class="prof-empty">No check-ins yet — scan a venue's QR to start.</div></div>
+      <button class="prof-history-btn" onclick="openHistory()">🕑 View full visit history</button>
 
       <button class="prof-logout" onclick="appLogout()">Log out</button>
       <button class="prof-delete" onclick="confirmDeleteAccount()">Delete my account</button>
+    </div>
+  </div>
+
+  <!-- ═══ VISIT HISTORY SCREEN ═══ -->
+  <div class="screen history-screen" id="screen-history">
+    <div class="hist-hdr">
+      <button class="back" onclick="showScreen('profile');setNav('navProfile')">‹</button>
+      <div class="hist-hdr-title">Your history</div>
+    </div>
+    <div class="hist-body">
+      <div class="hist-summary" id="histSummary"></div>
+      <div class="hist-tabs">
+        <button class="hist-tab active" id="histTabVisits" onclick="switchHistTab('visits')">Visits</button>
+        <button class="hist-tab" id="histTabVenues" onclick="switchHistTab('venues')">By venue</button>
+      </div>
+      <div id="histVisits"></div>
+      <div id="histVenues" style="display:none;"></div>
     </div>
   </div>
 
@@ -10676,6 +10718,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
           <button class="rstar" data-v="5">★</button>
         </div>
         <div class="review-hint" id="reviewHint">Tap a star to rate</div>
+        <div class="review-note">Loved it? We'll take you to Google to share your review.</div>
         <button class="review-skip" onclick="closeReview()">Maybe later</button>
       </div>
     </div>
@@ -11184,13 +11227,86 @@ async function confirmDeleteAccount(){
       method:'POST', headers:{'Authorization':`Bearer ${_token}`}
     })).json();
     if(d.success){
+      // Fully sign out: clear in-memory + persisted token (native) and reset UI.
+      fullSignOut();
       alert('Your account has been permanently deleted.');
-      _token=null; _user=null;
-      showScreen('home'); setNav('navExplore');
     }else{
       alert(d.error || 'Could not delete account. Please try again.');
     }
   }catch(e){ alert('Could not delete account. Please try again.'); }
+}
+
+// ── Visit history ──
+async function openHistory(){
+  if(!_token){ showScreen('login'); return; }
+  showScreen('history');
+  document.getElementById('histVisits').innerHTML = '<div class="hist-empty">Loading…</div>';
+  document.getElementById('histVenues').innerHTML = '';
+  try{
+    const d = await (await fetch(`${API_BASE}/api/app/history`,{headers:{'Authorization':`Bearer ${_token}`}})).json();
+    if(!d.success){ document.getElementById('histVisits').innerHTML='<div class="hist-empty">Could not load history.</div>'; return; }
+    // Summary
+    document.getElementById('histSummary').innerHTML = `
+      <div class="hist-stat"><b>${d.total_visits}</b><span>Visits</span></div>
+      <div class="hist-stat"><b>${d.venues_count}</b><span>Venues</span></div>
+      <div class="hist-stat"><b>${d.total_points}</b><span>Points</span></div>`;
+    // Visits list
+    const vbox = document.getElementById('histVisits');
+    if(d.visits && d.visits.length){
+      vbox.innerHTML = d.visits.map(v=>`
+        <div class="hist-item">
+          <div class="hist-item-icon">🎉</div>
+          <div class="hist-item-info">
+            <div class="hist-item-name">${esc(v.club_name)}</div>
+            <div class="hist-item-sub">${esc(v.date)}${v.time?' · '+esc(v.time):''}</div>
+          </div>
+          <div class="hist-item-pts">+${v.points} pts</div>
+        </div>`).join('');
+    }else{
+      vbox.innerHTML = '<div class="hist-empty">No visits yet.<br>Scan a venue\'s QR to check in and start your history!</div>';
+    }
+    // Venues summary
+    const nbox = document.getElementById('histVenues');
+    if(d.venues && d.venues.length){
+      nbox.innerHTML = d.venues.map(v=>`
+        <div class="hist-item">
+          <div class="hist-item-icon">📍</div>
+          <div class="hist-item-info">
+            <div class="hist-item-name">${esc(v.club_name)}</div>
+            <div class="hist-item-sub">Last visit: ${esc(v.last||'—')} · ${v.points} pts earned</div>
+          </div>
+          <div class="hist-item-badge">${v.visits}×</div>
+        </div>`).join('');
+    }else{
+      nbox.innerHTML = '<div class="hist-empty">No venues visited yet.</div>';
+    }
+  }catch(e){ document.getElementById('histVisits').innerHTML='<div class="hist-empty">Could not load history.</div>'; }
+}
+function switchHistTab(which){
+  const visits = which==='visits';
+  document.getElementById('histVisits').style.display = visits ? 'block' : 'none';
+  document.getElementById('histVenues').style.display = visits ? 'none' : 'block';
+  document.getElementById('histTabVisits').classList.toggle('active', visits);
+  document.getElementById('histTabVenues').classList.toggle('active', !visits);
+}
+
+// Clears all auth state (memory + native storage) and returns to the login screen.
+function fullSignOut(){
+  _token = null; _user = null;
+  _pendingCheckinCode = null;
+  // Wipe any persisted token immediately on native (don't wait for the poller).
+  try{
+    if(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences){
+      window.Capacitor.Plugins.Preferences.remove({ key: 'cl_token' });
+    }
+  }catch(e){}
+  // Reset the login form fields.
+  const lp=document.getElementById('loginPhone'); if(lp) lp.value='';
+  const lc=document.getElementById('loginCode'); if(lc) lc.value='';
+  const ln=document.getElementById('loginName'); if(ln) ln.value='';
+  if(typeof backToPhone==='function'){ try{ backToPhone(); }catch(e){} }
+  // Send them to the login screen (age gate already passed).
+  showScreen('login');
 }
 
 // ── Ride Back ──
@@ -11336,10 +11452,14 @@ function wireReviewStars(){
 async function handleRating(v){
   closeReview();
   if(v >= 4){
-    // Happy — send them to the public Google review
+    // Happy — offer to send them to the public Google review, with a clear notice
+    // first that they're leaving the app for Google.
+    const go = confirm("Thanks for the "+v+"-star rating! 🎉\n\nWe'll open Google Maps so you can post your review there. Continue?");
+    if(!go) return;
     try{
       const d = await (await fetch(`${API_BASE}/api/app/club-review-link?club_name=${encodeURIComponent(_lastClub||'')}`)).json();
       if(d.success && d.review_link){ window.open(d.review_link, '_blank'); }
+      else{ alert("Couldn't open the review page right now — thanks for the love, though!"); }
     }catch(e){}
   }
   // For 1–3 stars we simply thank them (private) — no public review, no reward.
