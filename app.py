@@ -6166,6 +6166,62 @@ def api_live_drivers():
         print(f"[TRACKING] failed: {e}", flush=True)
         return jsonify({"error": str(e), "drivers": [], "offline_drivers": []})
 
+@app.route('/admin/guestlist/statuses')
+def guestlist_statuses():
+    """Lightweight JSON of current statuses for the guest list, so the page can
+    auto-refresh badges (coming/arrived/left + transport status) every few seconds
+    without a full reload. Honors the same type/club/date filters as the page."""
+    if not session.get("logged") or not can_dispatch():
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+
+    filter_type = request.args.get('type', 'all')
+    filter_club = request.args.get('club', 'all')
+    view_all    = request.args.get('view', '') == 'all'
+    filter_date_iso = request.args.get('date', vegas_today().strftime("%Y-%m-%d"))
+
+    q = Customer.query
+    if filter_type == 'transport':
+        q = q.filter_by(needs_transport=True)
+    elif filter_type == 'walkin':
+        q = q.filter_by(needs_transport=False)
+    if filter_club != 'all':
+        q = q.filter_by(destination=filter_club)
+
+    if view_all:
+        rows = q.order_by(Customer.id.desc()).all()
+    else:
+        rows = q.order_by(Customer.pickup_datetime).all()
+        try:
+            y, m, d = filter_date_iso.split("-")
+            match = f"{int(m)}/{int(d)}/{y}"
+            padded = f"{int(m):02d}/{int(d):02d}/{y}"
+            rows = [c for c in rows
+                    if match in (c.pickup_datetime or "") or padded in (c.pickup_datetime or "")]
+        except Exception:
+            pass
+
+    items = []
+    coming = arrived = left = 0
+    for c in rows:
+        cs = c.club_status or "coming"
+        if cs == "arrived": arrived += 1
+        elif cs == "left":  left += 1
+        else:               coming += 1
+        code, _ = _ride_status_info(c)
+        items.append({
+            "id": c.id,
+            "club_status": cs,
+            "ride_status": code,
+            "dispatch_status": c.dispatch_status,
+            "transport_status": c.status,
+        })
+    return jsonify({
+        "success": True,
+        "total": len(rows),
+        "coming": coming, "arrived": arrived, "left": left,
+        "items": items,
+    })
+
 @app.route('/admin/guestlist')
 def admin_guestlist():
     if not session.get("logged") or not can_dispatch():

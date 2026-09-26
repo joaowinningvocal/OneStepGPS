@@ -191,10 +191,10 @@
 
     <!-- STATS -->
     <div class="stats">
-        <div class="stat total"><div class="stat-v">{{ total }}</div><div class="stat-l">📋 Total Guests</div></div>
-        <div class="stat coming"><div class="stat-v">{{ coming }}</div><div class="stat-l">🚗 Coming</div></div>
-        <div class="stat arrived"><div class="stat-v">{{ arrived }}</div><div class="stat-l">🎉 Arrived</div></div>
-        <div class="stat left"><div class="stat-v">{{ left }}</div><div class="stat-l">👋 Left</div></div>
+        <div class="stat total"><div class="stat-v" id="statTotal">{{ total }}</div><div class="stat-l">📋 Total Guests</div></div>
+        <div class="stat coming"><div class="stat-v" id="statComing">{{ coming }}</div><div class="stat-l">🚗 Coming</div></div>
+        <div class="stat arrived"><div class="stat-v" id="statArrived">{{ arrived }}</div><div class="stat-l">🎉 Arrived</div></div>
+        <div class="stat left"><div class="stat-v" id="statLeft">{{ left }}</div><div class="stat-l">👋 Left</div></div>
     </div>
 
     <!-- FILTERS -->
@@ -296,10 +296,10 @@
                             {% else %}<span style="color:var(--m);font-size:.74rem;">—</span>{% endif %}
                         </td>
                         <td>
-                            <div class="status-group">
-                                <button class="stb {{ 'act-coming' if c.club_status=='coming' else '' }}"     onclick="setStatus({{ c.id }}, 'coming', this)">Coming</button>
-                                <button class="stb {{ 'act-arrived' if c.club_status=='arrived' else '' }}"   onclick="setStatus({{ c.id }}, 'arrived', this)">Arrived</button>
-                                <button class="stb {{ 'act-left' if c.club_status=='left' else '' }}"         onclick="setStatus({{ c.id }}, 'left', this)">Left</button>
+                            <div class="status-group" data-cid="{{ c.id }}">
+                                <button class="stb stb-coming {{ 'act-coming' if c.club_status=='coming' else '' }}"     onclick="setStatus({{ c.id }}, 'coming', this)">Coming</button>
+                                <button class="stb stb-arrived {{ 'act-arrived' if c.club_status=='arrived' else '' }}"   onclick="setStatus({{ c.id }}, 'arrived', this)">Arrived</button>
+                                <button class="stb stb-left {{ 'act-left' if c.club_status=='left' else '' }}"         onclick="setStatus({{ c.id }}, 'left', this)">Left</button>
                             </div>
                         </td>
                         <td><button class="btn-del" onclick="delGuest({{ c.id }})">✕</button></td>
@@ -1011,6 +1011,51 @@ async function saveEdit(){
         else{alert(d.error||'Could not save changes');}
     }catch(e){alert('Could not save changes');}
 }
+</script>
+<script>
+// ── Guest list auto-refresh ──
+// Every few seconds, fetch just the current statuses and update the badges +
+// counters in place — no full page reload, so open details, scroll position, and
+// any menus stay put. Uses the same filters that are in the URL.
+(function(){
+  const params = window.location.search; // carries type/club/date/view filters
+  let refreshTimer = null;
+
+  function applyStatus(item){
+    const grp = document.querySelector('.status-group[data-cid="'+item.id+'"]');
+    if(!grp) return;
+    const map = {coming:'stb-coming', arrived:'stb-arrived', left:'stb-left'};
+    // Clear all active classes, then set the current one.
+    grp.querySelector('.stb-coming').classList.remove('act-coming');
+    grp.querySelector('.stb-arrived').classList.remove('act-arrived');
+    grp.querySelector('.stb-left').classList.remove('act-left');
+    const cls = map[item.club_status];
+    const btn = cls ? grp.querySelector('.'+cls) : null;
+    if(btn){ btn.classList.add('act-'+item.club_status); }
+  }
+
+  async function refreshStatuses(){
+    // Don't fight the user mid-action: skip if a modal/overlay is open.
+    if(document.querySelector('.em-overlay.show, .rbp-overlay.show, #rideBackModal.show')) return;
+    try{
+      const d = await (await fetch('/admin/guestlist/statuses' + params, {headers:{'X-Requested-With':'fetch'}})).json();
+      if(!d.success) return;
+      // Update counters
+      const set = (id,v)=>{ const el=document.getElementById(id); if(el && el.innerText!=String(v)) el.innerText=v; };
+      set('statTotal', d.total); set('statComing', d.coming);
+      set('statArrived', d.arrived); set('statLeft', d.left);
+      // Update each row's status badges
+      (d.items||[]).forEach(applyStatus);
+    }catch(e){ /* silent — will retry next tick */ }
+  }
+
+  function start(){ stop(); refreshTimer = setInterval(refreshStatuses, 8000); }
+  function stop(){ if(refreshTimer) clearInterval(refreshTimer); refreshTimer=null; }
+
+  // Pause polling when the tab is hidden (saves resources), resume on focus.
+  document.addEventListener('visibilitychange', ()=>{ document.hidden ? stop() : start(); });
+  start();
+})();
 </script>
 </body>
 </html>
