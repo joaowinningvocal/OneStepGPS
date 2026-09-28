@@ -971,6 +971,16 @@ def vegas_today():
     except Exception:
         return (datetime.utcnow() - timedelta(hours=7)).date()
 
+def vegas_naive_now():
+    """Current Las Vegas local time as a naive datetime (no tzinfo), so it can be
+    compared directly against parsed pickup_datetime values, which are also naive
+    Las Vegas local times."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/Los_Angeles")).replace(tzinfo=None)
+    except Exception:
+        return datetime.utcnow() - timedelta(hours=7)
+
 def vegas_time(dt):
     """Format a stored UTC timestamp in Las Vegas local time (handles DST)."""
     if not dt:
@@ -2954,6 +2964,27 @@ def _ride_status_info(c):
     # Driver is on the way to pick up
     if c.dispatch_status == "enroute":
         return "enroute", "Driver is on the way to pick up the guest"
+
+    # ── Time-based fallback ─────────────────────────────────────────────
+    # Nobody has marked this ride (no enroute/pickup/dropoff, still "coming").
+    # Rather than leaving it stuck on "awaiting pickup" forever — which is what
+    # partners see long after the ride actually happened — we infer progress from
+    # how far past the scheduled pickup time we are. A driver being assigned is a
+    # stronger signal the ride is real, but we apply the fallback regardless once
+    # enough time has passed.
+    try:
+        pdt = parse_pickup_datetime(c.pickup_datetime) if c.pickup_datetime else None
+        if pdt is not None:
+            mins_past = (vegas_naive_now() - pdt).total_seconds() / 60.0
+            if mins_past >= 180:
+                # 3h+ past pickup → the ride is over; assume the guest reached the venue.
+                return "at_venue", "Guest has arrived at the venue"
+            if mins_past >= 30:
+                # 30min–3h past pickup → the ride is underway.
+                return "picked_up", "Guest picked up, en route to the venue"
+    except Exception:
+        pass
+
     # Default: booked, driver not yet dispatched
     return "scheduled", "Ride is scheduled, awaiting pickup"
 
@@ -3107,6 +3138,91 @@ def api_reschedule():
         "new_datetime": normalized,
         "driver_name": cust.motorista if has_driver else None,
         "driver_notified": driver_notified,
+    })
+
+@app.route('/api/v1/status', methods=['GET', 'POST'])
+@app.route('/api/ai/status', methods=['GET', 'POST'])
+@require_api_key
+def api_set_status():
+    """Update a booking's club status (and, optionally, mark the ride redeemed).
+    Designed to be called by a partner system — accepts GET (query string) or POST
+    (JSON/form).
+
+    Identify the booking by ONE of:
+      phone=+16044188302   OR   customer_id=630
+
+    Set the status with:
+      club_status=arrived     (coming | arrived | left)
+
+    Convenience aliases (any of these also work):
+      status=arrived                 (same as club_status)
+      redeemed=1  /  redeemed=true   → marks club_status=arrived
+                                       (guest showed up / used the ride)
+
+    Examples:
+      GET /api/v1/status?phone=%2B16044188302&club_status=arrived
+      GET /api/v1/status?customer_id=630&redeemed=1
+      POST {"customer_id":630,"club_status":"left"}
+    """
+    data = request.values if request.method == "GET" else (request.get_json(silent=True) or request.form or request.values)
+
+    # Find the booking
+    cust = None
+    cid = data.get("customer_id")
+    if cid:
+        cust = Customer.query.get(_safe_int(cid))
+    if not cust and data.get("phone"):
+        cust = _find_customer_by_phone(data.get("phone"))
+    if not cust:
+        return jsonify({"success": False, "error": "No booking found for that customer."}), 404
+
+    # Work out the requested club_status
+    new_status = (data.get("club_status") or data.get("status") or "").strip().lower()
+    redeemed = str(data.get("redeemed", "")).strip().lower() in ("1", "true", "yes", "redeemed")
+    if not new_status and redeemed:
+        new_status = "arrived"   # "redeemed" means the guest showed up at the venue
+
+    valid = {"coming", "arrived", "left"}
+    if new_status not in valid:
+        return jsonify({
+            "success": False,
+            "error": f"Provide club_status as one of {sorted(valid)} (or redeemed=1).",
+            "current_club_status": cust.club_status,
+        }), 400
+
+    old_status = cust.club_status
+    cust.club_status = new_status
+    # Keep timestamps sensible when moving to arrived/left so the rest of the
+    # system (which infers ride progress from these) stays consistent.
+    now = datetime.utcnow()
+    if new_status in ("arrived", "left"):
+        if not cust.dropped_off_at:
+            cust.dropped_off_at = now
+        if not cust.picked_up_at:
+            cust.picked_up_at = cust.dropped_off_at
+        if cust.status == "scheduled":
+            cust.status = "dropped_off"
+    db.session.commit()
+
+    fire_webhook({
+        "type":           "club_status_updated",
+        "customer_id":    cust.id,
+        "customer_name":  cust.nome,
+        "customer_phone": cust.phone,
+        "old_club_status": old_status,
+        "new_club_status": new_status,
+        "source":         "api",
+    })
+
+    code, text = _ride_status_info(cust)
+    return jsonify({
+        "success": True,
+        "customer_id": cust.id,
+        "name": cust.nome,
+        "old_club_status": old_status,
+        "club_status": cust.club_status,
+        "ride_status": code,
+        "ride_status_text": text,
     })
 
 @app.route('/api/v1/ride-back', methods=['POST'])
