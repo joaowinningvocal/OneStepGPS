@@ -121,6 +121,16 @@ TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
 TWILIO_MESSAGING_SERVICE_SID = os.environ.get("TWILIO_MESSAGING_SERVICE_SID", "").strip()
 # Voice number for masked driver↔customer calls. Falls back to the SMS number.
 TWILIO_VOICE_NUMBER = os.environ.get("TWILIO_VOICE_NUMBER", "").strip() or TWILIO_FROM_NUMBER
+
+# ── Telnyx (SMS provider) ─────────────────────────────────────────────────────
+# All outgoing SMS now go through Telnyx. Set these in the environment:
+#   TELNYX_API_KEY            — your Telnyx API v2 key (starts with "KEY...")
+#   TELNYX_FROM_NUMBER        — the sending number in E.164, e.g. +17252359995
+#   TELNYX_MESSAGING_PROFILE_ID (optional) — use a messaging profile instead of/
+#                               alongside the from-number for better deliverability
+TELNYX_API_KEY             = os.environ.get("TELNYX_API_KEY", "").strip()
+TELNYX_FROM_NUMBER         = os.environ.get("TELNYX_FROM_NUMBER", "+17252359995").strip()
+TELNYX_MESSAGING_PROFILE_ID = os.environ.get("TELNYX_MESSAGING_PROFILE_ID", "").strip()
 CALLS_ENABLED = os.environ.get("CALLS_ENABLED", "true").strip().lower() not in ("false", "0", "no")
 # Master switch — set SMS_ENABLED=false to mute all outgoing SMS (useful for testing)
 SMS_ENABLED = os.environ.get("SMS_ENABLED", "true").strip().lower() not in ("false", "0", "no")
@@ -889,12 +899,17 @@ def clean_phone(p):
     digits = ''.join(ch for ch in s if ch.isdigit())
     return keep + digits
 
-def send_sms(to, body, media_url=""):
-    """Send one SMS/MMS straight to Twilio (no Make.com).
+def telnyx_configured():
+    """True when Telnyx can send (API key + either a from-number or a profile)."""
+    return bool(TELNYX_API_KEY and (TELNYX_FROM_NUMBER or TELNYX_MESSAGING_PROFILE_ID))
 
-    Key detail: MediaUrl is only included when it's a real absolute URL. Sending an
-    empty MediaUrl is what triggers Twilio error 21620 ("Invalid media URL").
-    Never raises — messaging failures must not break a booking.
+def send_sms(to, body, media_url=""):
+    """Send one SMS/MMS through Telnyx. Never raises — messaging failures must not
+    break a booking. Keeps the same return shape as before ({"ok":..., "sid":...})
+    so all callers (send_sms_bg / send_sms_many) are unchanged.
+
+    The from-number is the Telnyx number (+17252359995 by default). If a Telnyx
+    messaging profile id is set, it's sent too for better routing.
     """
     to = clean_phone(to)
     body = (body or "").strip()
@@ -904,39 +919,45 @@ def send_sms(to, body, media_url=""):
     if not to or not body:
         print(f"[SMS] skipped: missing to/body (to={to!r})", flush=True)
         return {"ok": False, "skipped": "missing_to_or_body"}
-    if not twilio_configured():
-        print("[SMS] skipped: Twilio env vars not configured", flush=True)
+    if not telnyx_configured():
+        print("[SMS] skipped: Telnyx env vars not configured (need TELNYX_API_KEY + TELNYX_FROM_NUMBER)", flush=True)
         return {"ok": False, "skipped": "not_configured"}
 
-    data = {"To": to, "Body": body[:1550]}
-    if TWILIO_MESSAGING_SERVICE_SID:
-        data["MessagingServiceSid"] = TWILIO_MESSAGING_SERVICE_SID
-    else:
-        data["From"] = TWILIO_FROM_NUMBER
+    # Telnyx wants E.164 with a leading "+". clean_phone strips formatting; add "+"
+    # for US 10/11-digit numbers if it isn't already there.
+    to_e164 = to if to.startswith("+") else ("+" + to if to.startswith("1") and len(to) == 11
+                                             else "+1" + to if len(to) == 10 else "+" + to)
 
-    # Only attach media when it's a valid absolute http(s) URL
+    payload = {"to": to_e164, "text": body[:1550]}
+    if TELNYX_MESSAGING_PROFILE_ID:
+        payload["messaging_profile_id"] = TELNYX_MESSAGING_PROFILE_ID
+    if TELNYX_FROM_NUMBER:
+        payload["from"] = TELNYX_FROM_NUMBER
+
+    # Only attach media when it's a valid absolute http(s) URL (MMS)
     media_url = (media_url or "").strip()
     if media_url.startswith("http://") or media_url.startswith("https://"):
-        data["MediaUrl"] = media_url
+        payload["media_urls"] = [media_url]
 
     try:
         r = requests.post(
-            f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json",
-            data=data,
-            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+            "https://api.telnyx.com/v2/messages",
+            json=payload,
+            headers={"Authorization": f"Bearer {TELNYX_API_KEY}",
+                     "Content-Type": "application/json"},
             timeout=15,
         )
-        ok = r.status_code in (200, 201)
+        ok = r.status_code in (200, 201, 202)
         if ok:
             sid = ""
-            try: sid = r.json().get("sid", "")
+            try: sid = (r.json().get("data", {}) or {}).get("id", "")
             except Exception: pass
-            print(f"[SMS] sent to={to} media={'yes' if 'MediaUrl' in data else 'no'} sid={sid}", flush=True)
+            print(f"[SMS] sent via Telnyx to={to_e164} media={'yes' if 'media_urls' in payload else 'no'} id={sid}", flush=True)
             return {"ok": True, "sid": sid}
-        print(f"[SMS] FAILED to={to} status={r.status_code} resp={r.text[:300]}", flush=True)
+        print(f"[SMS] FAILED (Telnyx) to={to_e164} status={r.status_code} resp={r.text[:300]}", flush=True)
         return {"ok": False, "status": r.status_code, "error": r.text[:300]}
     except Exception as e:
-        print(f"[SMS] EXCEPTION to={to}: {e}", flush=True)
+        print(f"[SMS] EXCEPTION (Telnyx) to={to_e164}: {e}", flush=True)
         return {"ok": False, "error": str(e)}
 
 def _send_many_sync(phones, body, media_url):
@@ -3544,12 +3565,12 @@ def sms_test():
     if not (session.get("logged") and is_master()):
         return jsonify({"error": "Unauthorized"}), 401
     status = {
-        "configured":            twilio_configured(),
+        "provider":              "telnyx",
+        "configured":            telnyx_configured(),
         "sms_enabled":           SMS_ENABLED,
-        "account_sid_set":       bool(TWILIO_ACCOUNT_SID),
-        "auth_token_set":        bool(TWILIO_AUTH_TOKEN),
-        "from_number":           TWILIO_FROM_NUMBER or None,
-        "messaging_service_sid": TWILIO_MESSAGING_SERVICE_SID or None,
+        "telnyx_api_key_set":    bool(TELNYX_API_KEY),
+        "telnyx_from_number":    TELNYX_FROM_NUMBER or None,
+        "telnyx_profile_set":    bool(TELNYX_MESSAGING_PROFILE_ID),
         "public_base_url":       PUBLIC_BASE_URL,
     }
     if request.method == 'GET':
