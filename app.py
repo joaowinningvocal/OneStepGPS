@@ -131,6 +131,13 @@ TWILIO_VOICE_NUMBER = os.environ.get("TWILIO_VOICE_NUMBER", "").strip() or TWILI
 TELNYX_API_KEY             = os.environ.get("TELNYX_API_KEY", "").strip()
 TELNYX_FROM_NUMBER         = os.environ.get("TELNYX_FROM_NUMBER", "+17252359995").strip()
 TELNYX_MESSAGING_PROFILE_ID = os.environ.get("TELNYX_MESSAGING_PROFILE_ID", "").strip()
+# Voice (masked driver↔customer calls) via Telnyx TeXML. Needs a TeXML Application
+# whose Voice URL points at this server's /twiml/connect-customer, plus a voice-
+# enabled number (defaults to the SMS number). Set:
+#   TELNYX_TEXML_APP_ID     — the TeXML Application id (from Telnyx portal)
+#   TELNYX_VOICE_NUMBER     — the calling/masked number in E.164 (defaults to SMS #)
+TELNYX_TEXML_APP_ID        = os.environ.get("TELNYX_TEXML_APP_ID", "3062886743817586597").strip()
+TELNYX_VOICE_NUMBER        = os.environ.get("TELNYX_VOICE_NUMBER", "").strip() or TELNYX_FROM_NUMBER
 CALLS_ENABLED = os.environ.get("CALLS_ENABLED", "true").strip().lower() not in ("false", "0", "no")
 # Master switch — set SMS_ENABLED=false to mute all outgoing SMS (useful for testing)
 SMS_ENABLED = os.environ.get("SMS_ENABLED", "true").strip().lower() not in ("false", "0", "no")
@@ -960,6 +967,58 @@ def send_sms(to, body, media_url=""):
         print(f"[SMS] EXCEPTION (Telnyx) to={to_e164}: {e}", flush=True)
         return {"ok": False, "error": str(e)}
 
+def telnyx_voice_configured():
+    """True when Telnyx can place masked calls (API key + TeXML app + number)."""
+    return bool(TELNYX_API_KEY and TELNYX_TEXML_APP_ID and TELNYX_VOICE_NUMBER)
+
+def start_masked_call(driver_phone, customer_phone, guest_name="your guest"):
+    """Place a masked driver↔customer call through Telnyx TeXML.
+
+    Telnyx rings the DRIVER first (from the masked number). When the driver
+    answers, Telnyx fetches TeXML from /twiml/connect-customer, which dials the
+    customer and bridges the two legs. Neither party sees the other's real number.
+
+    Returns (ok: bool, error: str|None). Never raises.
+    """
+    driver_phone = clean_phone(driver_phone)
+    customer_phone = clean_phone(customer_phone)
+    if not driver_phone:
+        return False, "No phone number on file for the driver."
+    if not customer_phone:
+        return False, "No phone number on file for the customer."
+    if not CALLS_ENABLED:
+        return False, "Calling is temporarily disabled."
+    if not telnyx_voice_configured():
+        return False, "Calling is not configured. Contact an admin."
+
+    def _e164(p):
+        return p if p.startswith("+") else ("+" + p if p.startswith("1") and len(p) == 11
+                                             else "+1" + p if len(p) == 10 else "+" + p)
+
+    import urllib.parse as _up
+    connect_url = (f"{PUBLIC_BASE_URL}/twiml/connect-customer"
+                   f"?cust={_up.quote(_e164(customer_phone))}&name={_up.quote(guest_name or 'your guest')}")
+    try:
+        resp = requests.post(
+            f"https://api.telnyx.com/v2/texml/Accounts/{TELNYX_API_KEY}/Calls",
+            json={
+                "ApplicationId": TELNYX_TEXML_APP_ID,
+                "To":   _e164(driver_phone),      # ring the driver first
+                "From": _e164(TELNYX_VOICE_NUMBER),  # masked number
+                "Url":  connect_url,              # TeXML fetched when driver answers
+            },
+            headers={"Authorization": f"Bearer {TELNYX_API_KEY}",
+                     "Content-Type": "application/json"},
+            timeout=12,
+        )
+        if resp.status_code >= 400:
+            print(f"[CALL] Telnyx error {resp.status_code}: {resp.text[:250]}", flush=True)
+            return False, "Couldn't start the call. Try again."
+        return True, None
+    except Exception as e:
+        print(f"[CALL] Telnyx failed: {e}", flush=True)
+        return False, "Call service unavailable."
+
 def _send_many_sync(phones, body, media_url):
     seen = set()
     for p in (phones or []):
@@ -1070,16 +1129,22 @@ def parse_pickup_datetime(dt_str):
             continue
     return None
 
+# A driver counts as busy if they already have a scheduled pickup within this many
+# minutes (either side) of the new pickup time. This replaces the old "same
+# clock-hour" rule, which missed close pickups that straddled an hour boundary
+# (e.g. 10:50 PM and 11:10 PM are 20 min apart but in different hours). Override
+# with the DRIVER_BUSY_WINDOW_MIN env var.
+DRIVER_BUSY_WINDOW_MIN = int(os.environ.get("DRIVER_BUSY_WINDOW_MIN", "60"))
+
 def driver_is_busy(driver_name: str, pickup_dt: datetime) -> bool:
     """
-    A driver is busy if they already have a 'scheduled' customer
-    within the same clock-hour as the requested pickup_dt.
-    Same hour = same HH:00 – HH:59 block.
+    A driver is busy if they already have a 'scheduled' customer whose pickup time
+    is within DRIVER_BUSY_WINDOW_MIN minutes of the requested pickup_dt (before OR
+    after). Measures the actual gap between pickups, so back-to-back rides that are
+    too close together are caught regardless of the clock hour.
     """
     if pickup_dt is None:
         return False
-
-    hour_start = pickup_dt.replace(minute=0, second=0, microsecond=0)
 
     existing = Customer.query.filter_by(
         motorista=driver_name,
@@ -1090,8 +1155,8 @@ def driver_is_busy(driver_name: str, pickup_dt: datetime) -> bool:
         existing_dt = parse_pickup_datetime(c.pickup_datetime)
         if existing_dt is None:
             continue
-        existing_hour = existing_dt.replace(minute=0, second=0, microsecond=0)
-        if existing_hour == hour_start:
+        gap_min = abs((existing_dt - pickup_dt).total_seconds()) / 60.0
+        if gap_min < DRIVER_BUSY_WINDOW_MIN:
             return True
     return False
 
@@ -3517,29 +3582,10 @@ def ai_request_driver_call():
 
     if not (cust.motorista and cust.motorista not in ("", "Unavailable", "Waitlist")):
         return jsonify({"success": False, "error": "No driver is assigned to this ride yet."})
-    if not driver_phone:
-        return jsonify({"success": False, "error": "No phone number on file for the driver."})
-    if not customer_phone:
-        return jsonify({"success": False, "error": "No phone number on file for the customer."})
-    if not (twilio_configured() and TWILIO_VOICE_NUMBER):
-        return jsonify({"success": False, "error": "Calling is not configured."})
-    if not CALLS_ENABLED:
-        return jsonify({"success": False, "error": "Calling is temporarily disabled."})
 
-    import urllib.parse as _up
-    connect_url = (f"{PUBLIC_BASE_URL}/twiml/connect-customer"
-                   f"?cust={_up.quote(customer_phone)}&name={_up.quote(cust.nome or 'your guest')}")
-    try:
-        resp = requests.post(
-            f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Calls.json",
-            data={"To": driver_phone, "From": TWILIO_VOICE_NUMBER, "Url": connect_url},
-            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN), timeout=10)
-        if resp.status_code >= 400:
-            print(f"[AI-CALL] Twilio error {resp.status_code}: {resp.text[:200]}", flush=True)
-            return jsonify({"success": False, "error": "Could not start the call."})
-    except Exception as e:
-        print(f"[AI-CALL] failed: {e}", flush=True)
-        return jsonify({"success": False, "error": "Call service unavailable."})
+    ok, err = start_masked_call(driver_phone, customer_phone, cust.nome or "your guest")
+    if not ok:
+        return jsonify({"success": False, "error": err})
 
     fire_webhook({
         "type":          "masked_call_started",
@@ -5024,36 +5070,9 @@ def driver_startcall(customer_id):
         driver_phone = clean_phone(drv.phone) if drv and drv.phone else ""
     customer_phone = clean_phone(c.phone or "")
 
-    if not driver_phone:
-        return jsonify({"success": False, "error": "No phone on file for you. Ask an admin to add it."})
-    if not customer_phone:
-        return jsonify({"success": False, "error": "No phone on file for this guest."})
-    if not (twilio_configured() and TWILIO_VOICE_NUMBER):
-        return jsonify({"success": False, "error": "Calling isn't configured. Contact an admin."})
-    if not CALLS_ENABLED:
-        return jsonify({"success": False, "error": "Calling is temporarily disabled."})
-
-    # TwiML URL that will connect the customer once the driver answers
-    import urllib.parse as _up
-    connect_url = (f"{PUBLIC_BASE_URL}/twiml/connect-customer"
-                   f"?cust={_up.quote(customer_phone)}&name={_up.quote(c.nome or 'your guest')}")
-    try:
-        resp = requests.post(
-            f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Calls.json",
-            data={
-                "To":   driver_phone,          # ring the driver first
-                "From": TWILIO_VOICE_NUMBER,   # masked number
-                "Url":  connect_url,           # what happens when driver answers
-            },
-            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
-            timeout=10,
-        )
-        if resp.status_code >= 400:
-            print(f"[CALL] Twilio error {resp.status_code}: {resp.text[:200]}", flush=True)
-            return jsonify({"success": False, "error": "Couldn't start the call. Try again."})
-    except Exception as e:
-        print(f"[CALL] failed: {e}", flush=True)
-        return jsonify({"success": False, "error": "Call service unavailable."})
+    ok, err = start_masked_call(driver_phone, customer_phone, c.nome or "your guest")
+    if not ok:
+        return jsonify({"success": False, "error": err})
 
     fire_webhook({
         "type":            "masked_call_started",
@@ -5082,7 +5101,7 @@ def twiml_connect_customer():
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<Response>'
         f'<Say voice="alice">Connecting you to {safe_name}. Please hold.</Say>'
-        f'<Dial callerId="{TWILIO_VOICE_NUMBER}" timeout="30">'
+        f'<Dial callerId="{TELNYX_VOICE_NUMBER}" timeout="30">'
         f'<Number>{cust}</Number>'
         '</Dial>'
         '<Say voice="alice">The call could not be completed. Goodbye.</Say>'
