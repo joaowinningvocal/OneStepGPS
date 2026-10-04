@@ -967,6 +967,21 @@ def send_sms(to, body, media_url=""):
         print(f"[SMS] EXCEPTION (Telnyx) to={to_e164}: {e}", flush=True)
         return {"ok": False, "error": str(e)}
 
+def _safe_json_get(url, headers=None, timeout=8, default=None):
+    """GET a URL and parse JSON, returning `default` on any failure (empty body,
+    non-JSON response, rate-limit page, network error). Module-level so background
+    jobs like the GPS watcher can use it (it used to only exist nested inside
+    cadastrar_cep, which broke [GPS-WATCH] with 'name _safe_json_get is not
+    defined')."""
+    try:
+        r = requests.get(url, headers=headers or {}, timeout=timeout)
+        if not r.text or not r.text.strip():
+            return default
+        return r.json()
+    except Exception as _e:
+        print(f"[HTTP] request failed ({str(url)[:60]}): {_e}", flush=True)
+        return default
+
 def telnyx_voice_configured():
     """True when Telnyx can place masked calls (API key + TeXML app + number)."""
     return bool(TELNYX_API_KEY and TELNYX_TEXML_APP_ID and TELNYX_VOICE_NUMBER)
@@ -998,21 +1013,23 @@ def start_masked_call(driver_phone, customer_phone, guest_name="your guest"):
     import urllib.parse as _up
     connect_url = (f"{PUBLIC_BASE_URL}/twiml/connect-customer"
                    f"?cust={_up.quote(_e164(customer_phone))}&name={_up.quote(guest_name or 'your guest')}")
+    # Correct Telnyx TeXML endpoint: connection-scoped, where the connection id IS
+    # the TeXML Application id. (The earlier /texml/Accounts/{sid}/Calls form with
+    # the API key in the path returned 404 "Resource not found".)
     try:
         resp = requests.post(
-            f"https://api.telnyx.com/v2/texml/Accounts/{TELNYX_API_KEY}/Calls",
+            f"https://api.telnyx.com/v2/texml/calls/{TELNYX_TEXML_APP_ID}",
             json={
-                "ApplicationId": TELNYX_TEXML_APP_ID,
-                "To":   _e164(driver_phone),      # ring the driver first
+                "To":   _e164(driver_phone),         # ring the driver first
                 "From": _e164(TELNYX_VOICE_NUMBER),  # masked number
-                "Url":  connect_url,              # TeXML fetched when driver answers
+                "Url":  connect_url,                 # TeXML fetched when driver answers
             },
             headers={"Authorization": f"Bearer {TELNYX_API_KEY}",
                      "Content-Type": "application/json"},
             timeout=12,
         )
         if resp.status_code >= 400:
-            print(f"[CALL] Telnyx error {resp.status_code}: {resp.text[:250]}", flush=True)
+            print(f"[CALL] Telnyx error {resp.status_code}: {resp.text[:300]}", flush=True)
             return False, "Couldn't start the call. Try again."
         return True, None
     except Exception as e:
