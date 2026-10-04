@@ -152,7 +152,9 @@
         /* SUBMIT */
         .btn-go { width:100%; padding:13px; background:linear-gradient(135deg,var(--accent),var(--accent2)); border:none; border-radius:13px; font-family:'Syne',sans-serif; font-weight:700; font-size:.88rem; letter-spacing:.8px; color:#fff; cursor:pointer; transition:.3s; margin-top:4px; box-shadow:0 4px 18px rgba(138,92,246,.3); }
         .btn-go:hover { transform:translateY(-2px); box-shadow:0 8px 26px rgba(138,92,246,.5); }
-        .priority-toggle{display:flex;align-items:center;gap:12px;background:var(--s2,#161d2e);border:1px solid var(--bd,rgba(255,255,255,.07));border-radius:12px;padding:12px 14px;cursor:pointer;transition:border-color .15s;}
+        /* .f label is display:block globally — override it here so the toggle lays
+           out as a horizontal row (icon · text · switch) instead of stacking. */
+        .f label.priority-toggle{display:flex !important;align-items:center;gap:12px;background:var(--s2,#161d2e);border:1px solid var(--bd,rgba(255,255,255,.07));border-radius:12px;padding:12px 14px;cursor:pointer;transition:border-color .15s;margin-bottom:0;}
         .priority-toggle.on{border-color:var(--gold,#fbbf24);background:rgba(251,191,36,.08);}
         .pt-check{font-size:1.3rem;filter:grayscale(1);opacity:.5;transition:.15s;}
         .priority-toggle.on .pt-check{filter:none;opacity:1;}
