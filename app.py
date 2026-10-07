@@ -138,6 +138,11 @@ TELNYX_MESSAGING_PROFILE_ID = os.environ.get("TELNYX_MESSAGING_PROFILE_ID", "").
 #   TELNYX_VOICE_NUMBER     — the calling/masked number in E.164 (defaults to SMS #)
 TELNYX_TEXML_APP_ID        = os.environ.get("TELNYX_TEXML_APP_ID", "3062886743817586597").strip()
 TELNYX_VOICE_NUMBER        = os.environ.get("TELNYX_VOICE_NUMBER", "").strip() or TELNYX_FROM_NUMBER
+
+# Feature flag: the live-tracking SMS link (sent when a driver goes enroute). OFF
+# by default for now — set TRACKING_LINK_ENABLED=true to turn it on. The /t/<token>
+# page itself stays available (harmless) so any already-sent links keep working.
+TRACKING_LINK_ENABLED = os.environ.get("TRACKING_LINK_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
 CALLS_ENABLED = os.environ.get("CALLS_ENABLED", "true").strip().lower() not in ("false", "0", "no")
 # Master switch — set SMS_ENABLED=false to mute all outgoing SMS (useful for testing)
 SMS_ENABLED = os.environ.get("SMS_ENABLED", "true").strip().lower() not in ("false", "0", "no")
@@ -691,6 +696,9 @@ class Customer(db.Model):
     completed_car    = db.Column(db.String(200), default="")          # car they were in at the time
     dropoff_distance_mi = db.Column(db.Float, default=0.0)             # car-to-venue distance at drop-off
     promoter        = db.Column(db.String(80), default="")             # NEW: which promoter created this
+    # Live tracking link (SMS'd to the guest when the driver goes enroute)
+    track_token     = db.Column(db.String(24), unique=True, nullable=True, index=True)  # short public token for /t/<token>
+    arrived_at      = db.Column(db.DateTime, nullable=True)            # when club_status became "arrived" (link expires 2h after)
     # Ride Back: links a return ride to the original booking
     is_return_ride  = db.Column(db.Boolean, default=False)             # this ride is a "ride back" (club → hotel)
     return_of_id    = db.Column(db.Integer, nullable=True)             # the original ride this returns for
@@ -981,6 +989,29 @@ def _safe_json_get(url, headers=None, timeout=8, default=None):
     except Exception as _e:
         print(f"[HTTP] request failed ({str(url)[:60]}): {_e}", flush=True)
         return default
+
+def _gen_track_token(n=7):
+    """Short, hard-to-guess, URL-safe token for the public /t/<token> tracking
+    link. Avoids ambiguous characters (0/O, 1/l/I)."""
+    import secrets
+    alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(n))
+
+def ensure_track_token(c):
+    """Give a ride a tracking token if it doesn't have one yet. Returns the token."""
+    if not getattr(c, "track_token", None):
+        # Make sure it's unique (collision is astronomically unlikely, but cheap to check)
+        for _ in range(5):
+            tok = _gen_track_token()
+            if not Customer.query.filter_by(track_token=tok).first():
+                c.track_token = tok
+                break
+    return c.track_token
+
+def tracking_link(c):
+    """Full public tracking URL for a ride, e.g. https://www.clublifter.com/t/aB3xK9."""
+    tok = ensure_track_token(c)
+    return f"{PUBLIC_BASE_URL}/t/{tok}" if tok else ""
 
 def telnyx_voice_configured():
     """True when Telnyx can place masked calls (API key + TeXML app + number)."""
@@ -1300,6 +1331,45 @@ def privacy_policy():
     and Google Play). No login."""
     return render_template('privacy.html')
 
+@app.route('/delete-account', methods=['GET'])
+def delete_account_page():
+    """Public account-deletion page (required by Google Play). Explains in-app
+    deletion and lets a user request deletion by phone without the app. No login."""
+    return render_template('delete_account.html')
+
+@app.route('/delete-account/request', methods=['POST'])
+def delete_account_request():
+    """Handle a web deletion request. If the phone matches an app account, delete it
+    immediately (same as the in-app flow). Either way, return a confirmation so the
+    page can tell the user it's handled."""
+    phone = (request.form.get("phone") or "").strip()
+    digits = clean_phone(phone)
+    tail = digits[-10:] if len(digits) >= 10 else digits
+    deleted = False
+    if tail:
+        user = AppUser.query.filter(
+            (AppUser.phone.like(f"%{tail}"))).first()
+        if user:
+            try:
+                CheckIn.query.filter_by(user_id=user.id).delete()
+                try: OTPCode.query.filter_by(phone=user.phone).delete()
+                except Exception: pass
+                db.session.delete(user)
+                db.session.commit()
+                deleted = True
+            except Exception as e:
+                db.session.rollback()
+                print(f"[WEB-DELETE] failed for {tail}: {e}", flush=True)
+    # Always log the request so staff can honor it even if no account matched yet.
+    fire_webhook({
+        "type":            "account_deletion_request",
+        "phone_last10":    tail,
+        "deleted_now":     deleted,
+        "source":          "web",
+    })
+    print(f"[WEB-DELETE] request for ...{tail} — deleted_now={deleted}", flush=True)
+    return jsonify({"success": True, "deleted": deleted})
+
 @app.route('/app-preview')
 def gobest_app():
     """Serve the ClubLifter consumer app as a web page — a preview of the native
@@ -1307,6 +1377,81 @@ def gobest_app():
     Capacitor. No login required; it only calls the public /api/app/* endpoints.
     (Moved from /app, which is now the staff dashboard.)"""
     return render_template('gobest_app.html')
+
+# ─── PUBLIC LIVE TRACKING LINK (SMS'd to guests) ──────────────────────────────
+TRACK_LINK_EXPIRE_HOURS = int(os.environ.get("TRACK_LINK_EXPIRE_HOURS", "2"))
+
+def _track_link_state(c):
+    """Return the lifecycle state of a tracking link:
+       'active'  — driver on the way / in progress, show live map
+       'arrived' — guest reached the venue, still within the grace window
+       'expired' — more than TRACK_LINK_EXPIRE_HOURS past arrival, link dead
+    """
+    if c.arrived_at:
+        if datetime.utcnow() - c.arrived_at > timedelta(hours=TRACK_LINK_EXPIRE_HOURS):
+            return "expired"
+        return "arrived"
+    return "active"
+
+@app.route('/t/<token>')
+def track_page(token):
+    """Public, no-login live-tracking page for a guest, opened from the SMS link."""
+    c = Customer.query.filter_by(track_token=token).first()
+    if not c:
+        return render_template('track.html', found=False, token=token), 404
+    state = _track_link_state(c)
+    return render_template('track.html', found=True, token=token, state=state,
+                           guest_name=c.nome or "there",
+                           driver_name=c.motorista or "Your driver",
+                           car=c.car_string_val or "")
+
+@app.route('/t/<token>/data')
+def track_data(token):
+    """JSON the tracking page polls for live driver position + ETA."""
+    c = Customer.query.filter_by(track_token=token).first()
+    if not c:
+        return jsonify({"found": False}), 404
+
+    state = _track_link_state(c)
+    if state == "expired":
+        return jsonify({"found": True, "state": "expired"})
+
+    ride_status, ride_status_text = _ride_status_info(c)
+    out = {
+        "found": True,
+        "state": state,
+        "driver_name": c.motorista or "Your driver",
+        "car": c.car_string_val or "",
+        "status": ride_status,
+        "status_text": ride_status_text,
+        "pickup_address": c.endereco or "",
+    }
+
+    # Pickup point (the guest's location)
+    plat, plng = _pickup_latlng(c)
+    if plat is not None:
+        out["pickup_lat"], out["pickup_lng"] = plat, plng
+
+    # Live car position (only while the driver is actually on the move)
+    if state == "active" and c.car_name:
+        clat, clng = _get_car_gps(c.car_name)
+        # Demo fallback so the fake demo car still animates on the page
+        if clat is None and c.car_name == "ClubLifter Demo Car":
+            import math, time as _t
+            t = _t.time() / 30.0
+            clat = 36.1072 + 0.012 * math.sin(t)
+            clng = -115.1739 + 0.012 * math.cos(t)
+        if clat is not None:
+            out["car_lat"], out["car_lng"] = clat, clng
+            # Simple ETA: straight-line distance ÷ average city speed
+            if plat is not None:
+                dist_km = _haversine_km(clat, clng, plat, plng)
+                avg_kmh = float(os.environ.get("TRACK_ETA_AVG_KMH", "32"))
+                eta_min = int(round((dist_km / avg_kmh) * 60)) if avg_kmh > 0 else None
+                out["distance_km"] = round(dist_km, 2)
+                out["eta_min"] = max(1, eta_min) if eta_min is not None else None
+
+    return jsonify(out)
 
 # ─── DEMO QR CODES ────────────────────────────────────────────────────────────
 # Static demo QR codes for the GoBest proof of concept. Each encodes a
@@ -3305,6 +3450,8 @@ def api_set_status():
             cust.picked_up_at = cust.dropped_off_at
         if cust.status == "scheduled":
             cust.status = "dropped_off"
+        if new_status == "arrived" and not cust.arrived_at:
+            cust.arrived_at = now
     db.session.commit()
 
     fire_webhook({
@@ -4597,6 +4744,8 @@ def driver_dropoff(customer_id):
     if not c.picked_up_at:
         c.picked_up_at = c.dropped_off_at
     c.club_status = "arrived"
+    if not c.arrived_at:
+        c.arrived_at = datetime.utcnow()
 
     # GPS verification: how far is the car from the destination club right now?
     verified, dist_mi = False, 0.0
@@ -4935,9 +5084,18 @@ def driver_enroute(customer_id):
     if not _driver_owns(c):
         return jsonify({"success": False, "error": "Not your pickup"})
     c.dispatch_status = "enroute"
-    db.session.commit()
     car_str = c.car_string_val or "your ride"
-    enroute_msg = f"Hi {c.nome}! Your ClubLifter driver {c.motorista} is on the way in a {car_str}. See you soon!"
+    # The live-tracking SMS link is behind a feature flag so it can be turned off
+    # without a code change. Set TRACKING_LINK_ENABLED=true to turn it back on.
+    link = ""
+    if TRACKING_LINK_ENABLED:
+        link = tracking_link(c)            # generates/stores the token
+        enroute_msg = (f"Hi {c.nome}! Your ClubLifter driver {c.motorista} is on the way "
+                       f"in a {car_str}. Track them live: {link}")
+    else:
+        enroute_msg = (f"Hi {c.nome}! Your ClubLifter driver {c.motorista} is on the way "
+                       f"in a {car_str}. See you soon!")
+    db.session.commit()
     fire_webhook({
         "type":            "enroute",
         "customer_id":     c.id,
@@ -4950,10 +5108,11 @@ def driver_enroute(customer_id):
         "pickup_address":  c.endereco,
         "destination":     c.destination,
         "pickup_datetime": c.pickup_datetime,
+        "tracking_link":   link,
         "message":         enroute_msg,
     })
     send_sms_many(c.get_phones() or [c.phone], enroute_msg)
-    return jsonify({"success": True})
+    return jsonify({"success": True, "tracking_link": link})
 
 @app.route('/driver/running-late/<int:customer_id>', methods=['POST'])
 def driver_running_late(customer_id):
@@ -5734,6 +5893,48 @@ def admin_tracking():
         return redirect(url_for("login"))
     return render_template('admin_tracking.html')
 
+def _get_car_gps(car_name):
+    """Return (lat, lng) for a car's current OneStepGPS position, or (None, None).
+    Shared by the app tracking and the public SMS tracking page."""
+    if not car_name:
+        return None, None
+    try:
+        res = _safe_json_get(
+            "https://track.onestepgps.com/v3/api/public/device-info?lat_lng=1",
+            headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
+            default=None)
+        lista = res if isinstance(res, list) else ([res] if res else [])
+        match = _match_car(car_name)
+        match_name = match.name if match else car_name
+        for v in lista:
+            if _norm_name(v.get("display_name", "")) == _norm_name(match_name):
+                vlat = v.get("lat") or (v.get("last_tap", {}) or {}).get("lat")
+                vlng = v.get("lng") or (v.get("last_tap", {}) or {}).get("lng")
+                if vlat and vlng:
+                    return float(vlat), float(vlng)
+                break
+    except Exception as e:
+        print(f"[GPS] lookup failed for {car_name}: {e}", flush=True)
+    return None, None
+
+def _haversine_km(lat1, lng1, lat2, lng2):
+    """Great-circle distance in km between two lat/lng points."""
+    import math
+    R = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+    return 2 * R * math.asin(math.sqrt(a))
+
+def _pickup_latlng(c):
+    """Best-effort (lat, lng) of a ride's pickup point, for the tracking map. Uses
+    the flexible geocoder (cached nothing, but pickup rarely changes)."""
+    addr = (c.endereco or "").strip()
+    if not addr or addr == "(walk-in)":
+        return None, None
+    return _geocode_pickup_flexible(addr)
+
 def _norm_name(s):
     """Loose comparison key for vehicle names (case/space/punctuation-insensitive)."""
     return "".join(ch for ch in (s or "").lower() if ch.isalnum())
@@ -6502,6 +6703,10 @@ def update_club_status(customer_id):
     if new_status not in ('coming', 'arrived', 'left'):
         return jsonify({"success": False, "error": "Invalid status"})
     customer.club_status = new_status
+    # Stamp arrival time the first time they reach the venue — the live-tracking
+    # link expires 2h after this.
+    if new_status == "arrived" and not customer.arrived_at:
+        customer.arrived_at = datetime.utcnow()
     db.session.commit()
 
     # Fire webhook for guest status change
@@ -7298,6 +7503,8 @@ def distance_tracker_loop():
                         c.notified_10km = True
                         c.notified_15km = True
                         c.club_status = "arrived"
+                        if not c.arrived_at:
+                            c.arrived_at = datetime.utcnow()
                         db.session.commit()
                         fire_distance("arrived",
                             f"Hi {c.nome}! Your ClubLifter driver {c.motorista} has arrived"
@@ -7676,6 +7883,8 @@ with app.app_context():
     safe_migrate("customer", "return_of_id",    "ALTER TABLE customer ADD COLUMN return_of_id INTEGER")
     safe_migrate("customer", "has_return_ride", "ALTER TABLE customer ADD COLUMN has_return_ride BOOLEAN DEFAULT 0")
     safe_migrate("customer", "price_total",    "ALTER TABLE customer ADD COLUMN price_total FLOAT")
+    safe_migrate("customer", "track_token",    "ALTER TABLE customer ADD COLUMN track_token VARCHAR(24)")
+    safe_migrate("customer", "arrived_at",     "ALTER TABLE customer ADD COLUMN arrived_at DATETIME")
     safe_migrate("customer", "dropped_off_at",  "ALTER TABLE customer ADD COLUMN dropped_off_at DATETIME")
     safe_migrate("customer", "dropoff_verified","ALTER TABLE customer ADD COLUMN dropoff_verified BOOLEAN DEFAULT 0")
     safe_migrate("customer", "completed_driver","ALTER TABLE customer ADD COLUMN completed_driver VARCHAR(120) DEFAULT ''")

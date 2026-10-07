@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Track your ClubLifter ride</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root{
+  --bg:#08060f; --surf:#161129; --surf2:#1e1738; --bd:rgba(255,255,255,.08);
+  --acc:#8a5cf6; --acc2:#6d28d9; --acc3:#a78bfa; --g:#22c55e; --gold:#fbbf24;
+  --t:#e8eaf0; --m:#9a92b0; --m2:#8892a0;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;display:flex;flex-direction:column;overflow:hidden;}
+.hdr{display:flex;align-items:center;gap:10px;padding:14px 18px;padding-top:calc(14px + env(safe-area-inset-top));background:var(--surf);border-bottom:1px solid var(--bd);position:relative;z-index:5;}
+.logo{font-family:'Syne',sans-serif;font-weight:800;font-size:1.15rem;}
+.logo span{color:var(--acc3);}
+.hdr-right{margin-left:auto;font-size:.78rem;color:var(--g);display:flex;align-items:center;gap:6px;}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--g);box-shadow:0 0 0 rgba(34,197,94,.5);animation:pulse 1.8s infinite;}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5);}70%{box-shadow:0 0 0 10px rgba(34,197,94,0);}100%{box-shadow:0 0 0 0 rgba(34,197,94,0);}}
+#map{flex:1;width:100%;background:#0d1117;min-height:200px;}
+.panel{background:var(--bg);border-top:1px solid var(--bd);padding:18px 20px calc(20px + env(safe-area-inset-bottom));}
+.eta-row{display:flex;align-items:center;gap:14px;margin-bottom:14px;}
+.eta-big{font-family:'Syne',sans-serif;font-weight:800;font-size:2rem;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
+.eta-sub{font-size:.82rem;color:var(--m);margin-top:3px;}
+.status-text{font-family:'Syne',sans-serif;font-weight:700;font-size:1.15rem;margin-bottom:4px;}
+.driver-card{display:flex;align-items:center;gap:12px;background:var(--surf);border:1px solid var(--bd);border-radius:14px;padding:12px 14px;}
+.driver-av{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--acc2));display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0;}
+.driver-info{flex:1;min-width:0;}
+.driver-name{font-weight:700;font-size:.95rem;}
+.driver-car{font-size:.8rem;color:var(--m);}
+/* States overlay (arrived / expired / not found) */
+.state-screen{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 30px;}
+.state-emoji{font-size:3.4rem;margin-bottom:18px;}
+.state-title{font-family:'Syne',sans-serif;font-weight:800;font-size:1.5rem;margin-bottom:10px;}
+.state-sub{color:var(--m);font-size:.95rem;line-height:1.5;max-width:320px;}
+.foot{text-align:center;padding:12px;font-size:.72rem;color:var(--m2);}
+.foot span{color:var(--acc3);font-weight:700;}
+</style>
+</head>
+<body>
+
+{% if not found %}
+  <div class="hdr"><div class="logo">Club<span>Lifter</span></div></div>
+  <div class="state-screen">
+    <div class="state-emoji">🔍</div>
+    <div class="state-title">Tracking link not found</div>
+    <div class="state-sub">This link may be invalid or has been removed. Check the link in your text message.</div>
+  </div>
+  <div class="foot">Powered by <span>ClubLifter</span></div>
+
+{% elif state == 'expired' %}
+  <div class="hdr"><div class="logo">Club<span>Lifter</span></div></div>
+  <div class="state-screen">
+    <div class="state-emoji">✅</div>
+    <div class="state-title">This trip is complete</div>
+    <div class="state-sub">Your tracking link has expired. We hope you had a great night — see you next time!</div>
+  </div>
+  <div class="foot">Powered by <span>ClubLifter</span></div>
+
+{% else %}
+  <div class="hdr">
+    <div class="logo">Club<span>Lifter</span></div>
+    <div class="hdr-right" id="liveTag"><span class="live-dot"></span> LIVE</div>
+  </div>
+  <div id="map"></div>
+  <div class="panel">
+    <div class="eta-row" id="etaRow">
+      <div>
+        <div class="eta-big" id="etaBig">—</div>
+        <div class="eta-sub" id="etaSub">Locating your driver…</div>
+      </div>
+    </div>
+    <div class="status-text" id="statusText" style="display:none;"></div>
+    <div class="driver-card">
+      <div class="driver-av">🚗</div>
+      <div class="driver-info">
+        <div class="driver-name" id="driverName">{{ driver_name }}</div>
+        <div class="driver-car" id="driverCar">{{ car or 'On the way to you' }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot">Powered by <span>ClubLifter</span></div>
+
+  <script>
+  const TOKEN = {{ token|tojson }};
+  let map, carMarker, pickupMarker, routeLine, pollTimer;
+
+  function initMap(){
+    map = L.map('map', {zoomControl:true, attributionControl:false}).setView([36.1147,-115.1728], 12);
+    L.tileLayer('https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2hxe_1_6ff26a5d73490112bf3e5408',{maxZoom:20}).addTo(map);
+  }
+
+  function carIcon(){
+    return L.divIcon({html:'<div style="font-size:30px;filter:drop-shadow(0 2px 5px rgba(0,0,0,.6))">🚗</div>',className:'',iconSize:[32,32],iconAnchor:[16,16]});
+  }
+  function pinIcon(){
+    return L.divIcon({html:'<div style="font-size:28px;filter:drop-shadow(0 2px 5px rgba(0,0,0,.6))">📍</div>',className:'',iconSize:[30,30],iconAnchor:[15,30]});
+  }
+
+  async function poll(){
+    try{
+      const d = await (await fetch(`/t/${TOKEN}/data`)).json();
+      if(!d.found){ return; }
+      if(d.state === 'expired'){ location.reload(); return; }
+
+      // Driver name / car
+      if(d.driver_name) document.getElementById('driverName').innerText = d.driver_name;
+      if(d.car) document.getElementById('driverCar').innerText = d.car;
+
+      // ARRIVED state → swap the ETA for an arrival message
+      if(d.state === 'arrived'){
+        document.getElementById('liveTag').style.display = 'none';
+        document.getElementById('etaRow').style.display = 'none';
+        const st = document.getElementById('statusText');
+        st.style.display = 'block';
+        st.innerText = '🎉 You\'ve arrived at the venue!';
+        document.getElementById('driverCar').innerText = 'Enjoy your night';
+        return;
+      }
+
+      // Pickup marker
+      if(d.pickup_lat != null && d.pickup_lng != null){
+        const pp = [d.pickup_lat, d.pickup_lng];
+        if(!pickupMarker){ pickupMarker = L.marker(pp,{icon:pinIcon()}).addTo(map); }
+        else pickupMarker.setLatLng(pp);
+      }
+
+      // Car marker + ETA
+      if(d.car_lat != null && d.car_lng != null){
+        const cp = [d.car_lat, d.car_lng];
+        if(!carMarker){ carMarker = L.marker(cp,{icon:carIcon()}).addTo(map); }
+        else carMarker.setLatLng(cp);
+
+        // Route line between car and pickup
+        if(d.pickup_lat != null){
+          const pts = [cp, [d.pickup_lat, d.pickup_lng]];
+          if(!routeLine){ routeLine = L.polyline(pts, {color:'#8a5cf6', weight:4, opacity:.8, dashArray:'2,8'}).addTo(map); }
+          else routeLine.setLatLngs(pts);
+          // Fit both points in view
+          map.fitBounds(L.latLngBounds(pts).pad(0.35), {maxZoom:15});
+        } else {
+          map.setView(cp, 14);
+        }
+
+        // ETA display
+        if(d.eta_min != null){
+          document.getElementById('etaBig').innerText = d.eta_min + ' min';
+          document.getElementById('etaSub').innerText = 'until your driver arrives';
+        } else {
+          document.getElementById('etaBig').innerText = 'On the way';
+          document.getElementById('etaSub').innerText = d.status_text || '';
+        }
+      } else {
+        // No GPS yet
+        document.getElementById('etaBig').innerText = 'On the way';
+        document.getElementById('etaSub').innerText = d.status_text || 'Your driver is heading to you';
+      }
+    }catch(e){ /* retry next tick */ }
+  }
+
+  initMap();
+  poll();
+  pollTimer = setInterval(poll, 8000);
+  // Pause when tab hidden, resume on focus
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.hidden){ clearInterval(pollTimer); }
+    else { poll(); pollTimer = setInterval(poll, 8000); }
+  });
+  </script>
+{% endif %}
+
+</body>
+</html>

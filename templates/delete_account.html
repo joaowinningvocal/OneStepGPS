@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Delete Your Account — ClubLifter</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#08060f;--surf:#161129;--surf2:#1e1738;--bd:rgba(255,255,255,.08);--acc:#8a5cf6;--acc2:#6d28d9;--acc3:#a78bfa;--g:#22c55e;--r:#ef4444;--t:#e8eaf0;--m:#9a92b0;--m2:#8892a0;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;line-height:1.6;}
+.wrap{max-width:640px;margin:0 auto;padding:40px 24px 60px;}
+.logo{font-family:'Syne',sans-serif;font-weight:800;font-size:1.6rem;margin-bottom:30px;}
+.logo span{color:var(--acc3);}
+h1{font-family:'Syne',sans-serif;font-weight:800;font-size:1.9rem;margin-bottom:8px;letter-spacing:-.02em;}
+.sub{color:var(--m);margin-bottom:28px;}
+.card{background:var(--surf);border:1px solid var(--bd);border-radius:16px;padding:24px;margin-bottom:20px;}
+.card h2{font-family:'Syne',sans-serif;font-weight:700;font-size:1.2rem;margin-bottom:12px;}
+.card p, .card li{color:var(--t);font-size:.95rem;margin-bottom:8px;}
+ol{padding-left:20px;margin:10px 0;}
+ol li{margin-bottom:8px;}
+.note{font-size:.85rem;color:var(--m2);}
+label{display:block;font-size:.78rem;color:var(--m2);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:8px;}
+input{width:100%;background:var(--surf2);border:1px solid var(--bd);border-radius:10px;padding:13px 15px;color:var(--t);font-size:1rem;font-family:'DM Sans',sans-serif;margin-bottom:14px;}
+input:focus{outline:none;border-color:var(--acc);}
+.btn{width:100%;background:linear-gradient(135deg,var(--r),#b91c1c);color:#fff;border:none;padding:14px;border-radius:12px;font-weight:700;font-size:1rem;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.btn:active{filter:brightness(1.1);}
+.msg{margin-top:14px;padding:12px;border-radius:10px;font-size:.9rem;display:none;}
+.msg.ok{display:block;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.35);color:var(--g);}
+.msg.err{display:block;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:var(--r);}
+.foot{text-align:center;color:var(--m2);font-size:.8rem;margin-top:30px;}
+a{color:var(--acc3);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">Club<span>Lifter</span></div>
+  <h1>Delete your account</h1>
+  <p class="sub">You can permanently delete your ClubLifter account and personal data at any time.</p>
+
+  <div class="card">
+    <h2>Option 1 — In the app</h2>
+    <p>The fastest way to delete your account:</p>
+    <ol>
+      <li>Open the ClubLifter app</li>
+      <li>Go to the <strong>Profile</strong> tab</li>
+      <li>Scroll down and tap <strong>"Delete my account"</strong></li>
+      <li>Confirm — your account and data are permanently removed</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Option 2 — Request here</h2>
+    <p>Enter the phone number on your account and we'll permanently delete it.</p>
+    <label>Your phone number</label>
+    <input id="phone" type="tel" placeholder="(702) 555-0123" autocomplete="tel">
+    <button class="btn" onclick="submitDelete()">Delete my account</button>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="card">
+    <h2>What gets deleted</h2>
+    <p>Deleting your account permanently removes:</p>
+    <ul style="padding-left:20px;">
+      <li>Your profile (name and phone number)</li>
+      <li>Your loyalty points and level</li>
+      <li>Your check-in and visit history</li>
+    </ul>
+    <p class="note" style="margin-top:12px;">This action cannot be undone. Deletion is immediate. If you have any trouble, contact us and we'll handle it within 30 days.</p>
+  </div>
+
+  <div class="foot">
+    ClubLifter · Las Vegas, NV · <a href="/privacy">Privacy Policy</a>
+  </div>
+</div>
+
+<script>
+async function submitDelete(){
+  const phone = document.getElementById('phone').value.trim();
+  const msg = document.getElementById('msg');
+  if(!phone){ msg.className='msg err'; msg.innerText='Please enter your phone number.'; return; }
+  if(!confirm('Permanently delete your account?\n\nThis removes your profile, points, and history. It cannot be undone.')) return;
+  try{
+    const fd = new FormData(); fd.append('phone', phone);
+    const d = await (await fetch('/delete-account/request', {method:'POST', body:fd})).json();
+    if(d.success){
+      msg.className='msg ok';
+      msg.innerText = d.deleted
+        ? '✓ Your account has been permanently deleted.'
+        : '✓ Your deletion request has been received. If an account exists for this number, it will be removed within 30 days.';
+      document.getElementById('phone').value='';
+    }else{
+      msg.className='msg err'; msg.innerText = 'Something went wrong. Please try again.';
+    }
+  }catch(e){ msg.className='msg err'; msg.innerText='Network error. Please try again.'; }
+}
+</script>
+</body>
+</html>
