@@ -77,6 +77,32 @@
         .ride-line{color:var(--m2);white-space:nowrap;}
         .ride-line.drop{color:var(--g);}
         .ride-line.pend{color:var(--gold);font-style:italic;}
+        .ride-chip{display:inline-block;margin-top:3px;padding:2px 7px;border-radius:6px;font-size:.66rem;font-weight:700;white-space:nowrap;background:rgba(255,255,255,.06);color:var(--m2);}
+        .ride-chip .src{font-weight:500;opacity:.75;margin-left:3px;}
+        .ride-chip.c-unassigned,.ride-chip.c-waitlist{background:rgba(239,68,68,.18);color:var(--r);}
+        .ride-chip.c-unconfirmed{background:rgba(251,191,36,.18);color:var(--gold);}
+        .ride-chip.c-enroute,.ride-chip.c-arrived{background:rgba(59,130,246,.2);color:var(--b);}
+        .ride-chip.c-picked_up{background:rgba(138,92,246,.2);color:var(--acc);}
+        .ride-chip.c-dropped_off,.ride-chip.c-at_venue{background:rgba(34,197,94,.2);color:var(--g);}
+        .ride-note{color:var(--m2);font-size:.64rem;max-width:200px;white-space:normal;margin-top:2px;}
+        .assign-btn{margin-top:4px;padding:3px 9px;border-radius:6px;border:1px solid rgba(239,68,68,.5);background:rgba(239,68,68,.12);color:var(--r);font-size:.66rem;font-weight:700;cursor:pointer;font-family:inherit;}
+        .assign-btn.soft{border-color:var(--bd);background:none;color:var(--m2);}
+        tr.nodrv-row td:first-child{box-shadow:inset 3px 0 0 var(--r);}
+        .nodrv-banner{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:12px 16px;border-radius:12px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.35);color:#fca5a5;font-size:.85rem;font-weight:600;}
+        .as-ov{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:9000;padding:16px;}
+        .as-ov.show{display:flex;}
+        .as-box{background:var(--s);border:1px solid var(--bd);border-radius:14px;width:100%;max-width:420px;max-height:80vh;overflow:auto;padding:16px;}
+        .as-box h3{font-family:'Syne',sans-serif;font-size:1rem;margin-bottom:4px;}
+        .as-sub{font-size:.75rem;color:var(--m2);margin-bottom:12px;}
+        .as-drv{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border:1px solid var(--bd);border-radius:10px;margin-bottom:8px;cursor:pointer;background:var(--s2);}
+        .as-drv:hover{border-color:var(--bhi);}
+        .as-drv .n{font-weight:700;font-size:.85rem;}
+        .as-drv .c{font-size:.7rem;color:var(--m2);}
+        .as-tag{font-size:.62rem;font-weight:700;padding:2px 6px;border-radius:5px;margin-left:4px;}
+        .as-tag.on{background:rgba(34,197,94,.2);color:var(--g);}
+        .as-tag.off{background:rgba(255,255,255,.06);color:var(--m2);}
+        .as-tag.busy{background:rgba(251,191,36,.2);color:var(--gold);}
+        .as-tag.na{background:rgba(239,68,68,.18);color:var(--r);}
         .v-ok{color:var(--g);font-size:.68rem;font-weight:700;margin-left:3px;}
         .v-no{color:var(--gold);font-size:.68rem;margin-left:3px;}
         .btn-export{font-size:.74rem;font-weight:700;padding:7px 14px;border-radius:9px;border:1px solid var(--bd);background:var(--s2);color:var(--m2);cursor:pointer;text-decoration:none;display:inline-block;}
@@ -120,6 +146,7 @@
         .dsb.act-sent{background:rgba(251,191,36,.22);color:var(--gold);}
         .dsb.act-confirmed{background:rgba(59,130,246,.22);color:var(--b);}
         .dsb.act-enroute{background:rgba(34,197,94,.25);color:var(--g);}
+        .dsb.act-arrived{background:rgba(138,92,246,.25);color:var(--acc);}
 
         /* Name click + caret */
         .name-click{cursor:pointer;user-select:none;}
@@ -196,6 +223,9 @@
         <div class="stat arrived"><div class="stat-v" id="statArrived">{{ arrived }}</div><div class="stat-l">🎉 Arrived</div></div>
         <div class="stat left"><div class="stat-v" id="statLeft">{{ left }}</div><div class="stat-l">👋 Left</div></div>
     </div>
+    <div class="nodrv-banner" id="nodrvBanner" style="{{ '' if unassigned else 'display:none;' }}">
+        ⚠️ <span><span id="nodrvCount">{{ unassigned }}</span> ride(s) with no driver — the system keeps retrying every minute and texts dispatch. Use “Assign” to pick one now.</span>
+    </div>
 
     <!-- FILTERS -->
     <div class="filter-card">
@@ -252,7 +282,8 @@
                 </thead>
                 <tbody>
                     {% for c in customers %}
-                    <tr id="row-{{ c.id }}" class="main-row{{ ' prio-row' if c.priority else '' }}">
+                    {% set ri = ride_info.get(c.id, {}) %}
+                    <tr id="row-{{ c.id }}" class="main-row{{ ' prio-row' if c.priority else '' }}{{ ' nodrv-row' if ri.unassigned else '' }}">
                         <td><span class="b-date">{{ c.pickup_datetime.split(' ')[0] if c.pickup_datetime else '—' }}</span></td>
                         <td><span class="b-time edit-time" onclick="editTime({{ c.id }}, '{{ c.pickup_datetime|e }}')" title="Click to change pickup time">{{ c.pickup_datetime.split(' ')[1] ~ ' ' ~ c.pickup_datetime.split(' ')[2] if c.pickup_datetime and c.pickup_datetime.split(' ')|length >= 3 else '—' }}</span></td>
                         <td class="name name-click">
@@ -274,8 +305,11 @@
                         <td>{% if c.destination %}<span class="bg b-dest">🏢 {{ c.destination }}</span>{% else %}—{% endif %}</td>
                         <td>
                             {% if c.needs_transport %}
-                              <div class="ride-cell">
-                                <div class="ride-drv">{{ (c.completed_driver if c.completed_driver else c.motorista) or '—' }}</div>
+                              <div class="ride-cell" id="ride-{{ c.id }}">
+                                <div class="ride-drv" id="rdrv-{{ c.id }}">{{ ri.driver or '—' }}</div>
+                                <span class="ride-chip c-{{ ri.code }}" id="rchip-{{ c.id }}" title="{{ ri.text }}">{{ {'unassigned':'⚠ No driver','waitlist':'⏳ Waitlist','scheduled':'🕓 Scheduled','enroute':'🚗 Driver en route','arrived':'📍 Driver at pickup','picked_up':'🚐 Guest on board','dropped_off':'🏁 Dropped off','at_venue':'✅ At venue','left':'👋 Left','unconfirmed':'❓ Not confirmed'}.get(ri.code, ri.code) }}{% if ri.source %}<span class="src">· {{ ri.source }}</span>{% endif %}</span>
+                                <div class="ride-note" id="rnote-{{ c.id }}" style="{{ '' if (ri.note and (ri.unassigned or 'double' in ri.note or 'online' in ri.note)) else 'display:none;' }}">{{ ri.note }}</div>
+                                <button class="assign-btn{{ '' if ri.unassigned else ' soft' }}" id="rassign-{{ c.id }}" onclick="openAssign({{ c.id }}, {{ c.nome|tojson }})">{{ '👤 Assign driver' if ri.unassigned else '↔ Change driver' }}</button>
                                 {% if c.picked_up_at %}<div class="ride-line">🚗 {{ vt(c.picked_up_at) }}</div>{% endif %}
                                 {% if c.dropped_off_at %}
                                   <div class="ride-line drop">🏁 {{ vt(c.dropped_off_at) }}
@@ -288,10 +322,11 @@
                         </td>
                         <td>
                             {% if c.needs_transport %}
-                            <div class="dispatch-group">
-                                <button class="dsb {{ 'act-sent' if c.dispatch_status=='sent' else '' }}"           onclick="setDispatch({{ c.id }}, 'sent', this)" title="Driver notified">📤 Sent</button>
-                                <button class="dsb {{ 'act-confirmed' if c.dispatch_status=='confirmed' else '' }}" onclick="setDispatch({{ c.id }}, 'confirmed', this)" title="Driver confirmed enroute">✅ Confirmed</button>
-                                <button class="dsb {{ 'act-enroute' if c.dispatch_status=='enroute' else '' }}"     onclick="setDispatch({{ c.id }}, 'enroute', this)" title="Client on the way to club">🚀 Enroute</button>
+                            <div class="dispatch-group" data-did="{{ c.id }}">
+                                <button class="dsb ds-sent {{ 'act-sent' if c.dispatch_status=='sent' else '' }}"           onclick="setDispatch({{ c.id }}, 'sent', this)" title="Driver notified">📤 Sent</button>
+                                <button class="dsb ds-confirmed {{ 'act-confirmed' if c.dispatch_status=='confirmed' else '' }}" onclick="setDispatch({{ c.id }}, 'confirmed', this)" title="Driver confirmed">✅ Confirmed</button>
+                                <button class="dsb ds-enroute {{ 'act-enroute' if c.dispatch_status=='enroute' else '' }}"     onclick="setDispatch({{ c.id }}, 'enroute', this)" title="Driver on the way to the pickup (also set by GPS)">🚀 Enroute</button>
+                                <button class="dsb ds-arrived {{ 'act-arrived' if c.dispatch_status=='arrived' else '' }}"     onclick="setDispatch({{ c.id }}, 'arrived', this)" title="Driver at the pickup (also set by GPS)">📍 Here</button>
                             </div>
                             {% else %}<span style="color:var(--m);font-size:.74rem;">—</span>{% endif %}
                         </td>
@@ -345,6 +380,16 @@
 </div>
 
 <div id="toast"></div>
+
+<!-- Assign / change driver -->
+<div class="as-ov" id="assignOv" onclick="if(event.target===this)closeAssign()">
+  <div class="as-box">
+    <h3>Assign a driver</h3>
+    <div class="as-sub" id="assignSub"></div>
+    <div id="assignList"><div class="as-sub">Loading drivers…</div></div>
+    <button class="assign-btn soft" style="margin-top:6px;width:100%;" onclick="closeAssign()">Cancel</button>
+  </div>
+</div>
 
 <script>
 function toast(m, ok=true){const t=document.getElementById('toast');t.style.display='block';t.style.background=ok?'#16a34a':'#dc2626';t.style.color='#fff';t.innerText=m;setTimeout(()=>t.style.display='none',2500);}
@@ -442,10 +487,10 @@ async function setDispatch(id, status, btn){
     const fd=new FormData(); fd.append('dispatch_status', status);
     const d=await(await fetch(`/admin/guestlist/dispatch/${id}`, {method:'POST',body:fd})).json();
     if(d.success){
-        const labels={sent:'Dispatch Sent',confirmed:'Driver Confirmed',enroute:'Client Enroute'};
+        const labels={sent:'Dispatch Sent',confirmed:'Driver Confirmed',enroute:'Driver En Route',arrived:'Driver At Pickup'};
         toast('✔ '+(labels[status]||status));
         const row=document.getElementById('row-'+id);
-        row.querySelectorAll('.dsb').forEach(b=>{b.classList.remove('act-sent','act-confirmed','act-enroute');});
+        row.querySelectorAll('.dsb').forEach(b=>{b.classList.remove('act-sent','act-confirmed','act-enroute','act-arrived');});
         btn.classList.add('act-'+status);
     } else toast(d.error||'Error', false);
 }
@@ -1013,6 +1058,36 @@ async function saveEdit(){
 }
 </script>
 <script>
+// ── Assign / change driver ──
+let _asId = null;
+function escH(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function openAssign(id, name){
+  _asId = id;
+  document.getElementById('assignSub').innerText = 'Ride for ' + (name||'guest') + ' — online drivers are listed first.';
+  document.getElementById('assignList').innerHTML = '<div class="as-sub">Loading drivers…</div>';
+  document.getElementById('assignOv').classList.add('show');
+  try{
+    const d = await (await fetch('/api/assignable-drivers?customer_id='+id)).json();
+    const rows = (d.drivers||[]).map(x=>`<div class="as-drv" onclick='doAssign(${JSON.stringify(x.name)})'>
+        <div><div class="n">${escH(x.name)}
+          ${x.available?'':'<span class="as-tag na">Unavailable</span>'}
+          <span class="as-tag ${x.online?'on':'off'}">${x.online?'Online':'Offline'}</span>
+          ${x.busy?'<span class="as-tag busy">Has a pickup near this time</span>':''}</div>
+        <div class="c">${escH(x.car_string||x.car_name||'No car today')}</div></div><div>›</div></div>`).join('');
+    document.getElementById('assignList').innerHTML = rows || '<div class="as-sub">No drivers found. Add them in Drivers / Driver Management.</div>';
+  }catch(e){ document.getElementById('assignList').innerHTML='<div class="as-sub">Could not load drivers.</div>'; }
+}
+function closeAssign(){ document.getElementById('assignOv').classList.remove('show'); _asId=null; }
+async function doAssign(driverName){
+  if(!_asId) return;
+  const fd = new FormData(); fd.append('driver_name', driverName);
+  try{
+    const d = await (await fetch('/admin/tracking/reassign/'+_asId,{method:'POST',body:fd})).json();
+    if(d.success){ toast('Assigned to '+d.driver+' — driver notified'); closeAssign(); setTimeout(()=>location.reload(),700); }
+    else toast(d.error||'Could not assign', false);
+  }catch(e){ toast('Connection error', false); }
+}
+
 // ── Guest list auto-refresh ──
 // Every few seconds, fetch just the current statuses and update the badges +
 // counters in place — no full page reload, so open details, scroll position, and
@@ -1032,11 +1107,42 @@ async function saveEdit(){
     const cls = map[item.club_status];
     const btn = cls ? grp.querySelector('.'+cls) : null;
     if(btn){ btn.classList.add('act-'+item.club_status); }
+    applyRide(item);
+  }
+
+  const CHIP = {unassigned:'⚠ No driver',waitlist:'⏳ Waitlist',scheduled:'🕓 Scheduled',enroute:'🚗 Driver en route',
+                arrived:'📍 Driver at pickup',picked_up:'🚐 Guest on board',dropped_off:'🏁 Dropped off',
+                at_venue:'✅ At venue',left:'👋 Left',unconfirmed:'❓ Not confirmed'};
+  function applyRide(item){
+    if(!item.needs_transport) return;
+    const chip = document.getElementById('rchip-'+item.id);
+    if(chip){
+      chip.className = 'ride-chip c-'+item.ride_status;
+      chip.title = item.ride_text || '';
+      chip.innerHTML = escH(CHIP[item.ride_status]||item.ride_status) + (item.ride_source?'<span class="src">· '+escH(item.ride_source)+'</span>':'');
+    }
+    const drv = document.getElementById('rdrv-'+item.id);
+    if(drv){ drv.innerText = item.driver || '—'; }
+    const note = document.getElementById('rnote-'+item.id);
+    if(note){
+      const show = item.note && (item.unassigned || item.note.indexOf('double')>=0 || item.note.indexOf('online')>=0);
+      note.style.display = show ? '' : 'none'; note.innerText = item.note || '';
+    }
+    const ab = document.getElementById('rassign-'+item.id);
+    if(ab){ ab.classList.toggle('soft', !item.unassigned); ab.innerText = item.unassigned ? '👤 Assign driver' : '↔ Change driver'; }
+    const row = document.getElementById('row-'+item.id);
+    if(row){ row.classList.toggle('nodrv-row', !!item.unassigned); }
+    const dg = document.querySelector('.dispatch-group[data-did="'+item.id+'"]');
+    if(dg){
+      dg.querySelectorAll('.dsb').forEach(b=>b.classList.remove('act-sent','act-confirmed','act-enroute','act-arrived'));
+      const b = dg.querySelector('.ds-'+item.dispatch_status);
+      if(b) b.classList.add('act-'+item.dispatch_status);
+    }
   }
 
   async function refreshStatuses(){
     // Don't fight the user mid-action: skip if a modal/overlay is open.
-    if(document.querySelector('.em-overlay.show, .rbp-overlay.show, #rideBackModal.show')) return;
+    if(document.querySelector('.em-overlay.show, .rbp-overlay.show, #rideBackModal.show, .as-ov.show')) return;
     try{
       const d = await (await fetch('/admin/guestlist/statuses' + params, {headers:{'X-Requested-With':'fetch'}})).json();
       if(!d.success) return;
@@ -1044,6 +1150,8 @@ async function saveEdit(){
       const set = (id,v)=>{ const el=document.getElementById(id); if(el && el.innerText!=String(v)) el.innerText=v; };
       set('statTotal', d.total); set('statComing', d.coming);
       set('statArrived', d.arrived); set('statLeft', d.left);
+      const ban = document.getElementById('nodrvBanner');
+      if(ban){ ban.style.display = d.unassigned ? '' : 'none'; set('nodrvCount', d.unassigned||0); }
       // Update each row's status badges
       (d.items||[]).forEach(applyStatus);
     }catch(e){ /* silent — will retry next tick */ }

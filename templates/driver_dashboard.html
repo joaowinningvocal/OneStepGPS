@@ -1016,7 +1016,7 @@ async function sendRunningLate(){
     <div class="dn-box">
         <div class="dn-icon">📋</div>
         <div class="dn-title">Ride updates</div>
-        <div class="dn-sub">While you were away, these rides changed:</div>
+        <div class="dn-sub">Your rides changed:</div>
         <div class="dn-list" id="dnList"></div>
         <button class="dn-btn" onclick="dismissNotices()">Got it</button>
     </div>
@@ -1047,8 +1047,9 @@ async function checkDriverNotices(){
             const list=document.getElementById('dnList');
             list.innerHTML=d.notices.map(n=>{
                 const isCancel=n.kind==='cancelled';
-                const icon=isCancel?'❌':'🔄';
-                const verb=isCancel?'Cancelled':'Reassigned';
+                const K={cancelled:['❌','Cancelled'],assigned:['🆕','New pickup for you'],
+                         reassigned_to:['🆕','Moved to you'],reassigned:['🔄','Moved to another driver']};
+                const [icon,verb]=K[n.kind]||['🔄','Reassigned'];
                 return `<div class="dn-item ${n.kind}">
                     <div class="dn-item-icon">${icon}</div>
                     <div class="dn-item-body">
@@ -1071,6 +1072,31 @@ async function dismissNotices(){
 // logged in sees a transfer/cancel that happens mid-shift)
 checkDriverNotices();
 setInterval(checkDriverNotices, 30000);
+
+// ── Keep the board current ──
+// New pickups, moved rides and GPS status changes (picked up / dropped off are
+// also detected automatically) show up without the driver having to refresh.
+// The page only reloads when nothing is open, so it never interrupts a modal,
+// the chat, or a photo upload.
+(function(){
+  let sig = {{ (board_sig or '')|tojson }};
+  let pending = false;
+  function busy(){
+    return !!document.querySelector('.modal.open, .dchat-overlay.show, .rl-overlay.show, .dn-overlay.show')
+        || (document.getElementById('chatPanel') && document.getElementById('chatPanel').classList.contains('open'));
+  }
+  async function poll(){
+    if(document.hidden) return;
+    try{
+      const d = await (await fetch('/driver/board-state')).json();
+      if(!d.success) return;
+      if(d.sig && sig && d.sig !== sig){ pending = true; }
+    }catch(e){}
+    if(pending && !busy()){ location.reload(); }
+  }
+  setInterval(poll, 20000);
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) poll(); });
+})();
 </script>
 </body>
 </html>
