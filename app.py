@@ -2774,9 +2774,12 @@ def app_auth_send_code():
     # Send the SMS
     msg = f"Your ClubLifter verification code is {code}. It expires in 10 minutes."
     sent = send_sms(phone, msg)
-    if not sent:
-        # Still return success so the flow works in dev, but note it
-        print(f"[APP-AUTH] SMS send failed for {phone}; code={code}", flush=True)
+    if not (sent and sent.get("ok")):
+        # Tell the user the truth instead of "Code sent." (the old behaviour hid
+        # a dead sending number for weeks). The Telnyx error is in the server log.
+        print(f"[APP-AUTH] SMS send failed for {phone}: {sent}", flush=True)
+        return jsonify({"success": False,
+                        "error": "We couldn't send the text right now. Please try again in a minute."})
     return jsonify({"success": True, "message": "Code sent."})
 
 @app.route('/api/app/auth/verify', methods=['POST'])
@@ -3693,12 +3696,10 @@ def sms_test():
         "telnyx_profile_set":    bool(TELNYX_MESSAGING_PROFILE_ID),
         "public_base_url":       PUBLIC_BASE_URL,
     }
-    if request.method == 'GET':
-        return jsonify(status)
     to = request.form.get('to', '').strip() or request.args.get('to', '').strip()
     if not to:
-        return jsonify({"error": "Provide ?to=+1702...", "status": status}), 400
-    result = send_sms(to, "ClubLifter test message — your Twilio integration is working.")
+        return jsonify({"hint": "add ?to=+1702... to send a test text and see Telnyx's answer", "status": status})
+    result = send_sms(to, "ClubLifter test message — your Telnyx integration is working.")
     return jsonify({"status": status, "result": result})
 
 @app.route('/api/debug/schema')
