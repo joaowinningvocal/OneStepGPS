@@ -79,6 +79,8 @@
         .empty{text-align:center;padding:40px 16px;color:var(--m);background:var(--s);border:1px solid var(--bd);border-radius:15px;}
         .empty .ic{font-size:2rem;margin-bottom:8px;}
         /* Modal */
+        .ab.needs-drop{animation:needsdrop 1.4s ease-in-out infinite;border-color:#fbbf24!important;color:#fbbf24!important;}
+        @keyframes needsdrop{0%,100%{box-shadow:0 0 0 0 rgba(251,191,36,.0);}50%{box-shadow:0 0 0 6px rgba(251,191,36,.25);}}
         .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:center;justify-content:center;padding:18px;}
         .modal.open{display:flex;}
         .modal-card{background:var(--s);border:1px solid var(--bhi);border-radius:18px;padding:22px;max-width:420px;width:100%;}
@@ -180,8 +182,8 @@
                             <button class="ab ab-pick {{ 'done' if p.status in ['picked_up','dropped_off'] else '' }}" id="pickbtn-{{ p.id }}" onclick="markPicked({{ p.id }})">
                                 {{ '✅ Picked Up' if p.status in ['picked_up','dropped_off'] else 'Mark as Picked Up' }}
                             </button>
-                            <button class="ab ab-drop {{ 'done' if p.status=='dropped_off' else '' }}" id="dropbtn-{{ p.id }}" onclick="markDropped({{ p.id }})">
-                                {{ '🏁 Dropped Off · ' ~ p.dropped_at if p.status=='dropped_off' else '🏁 Dropped Off' }}
+                            <button class="ab ab-drop {{ 'done' if p.status=='dropped_off' else '' }}{{ ' needs-drop' if (p.status=='picked_up' and p.picked_min >= 20) else '' }}" id="dropbtn-{{ p.id }}" onclick="markDropped({{ p.id }})">
+                                {{ '🏁 Dropped Off · ' ~ p.dropped_at if p.status=='dropped_off' else ('🏁 Dropped off? (picked up ' ~ p.picked_min ~ ' min ago)' if (p.status=='picked_up' and p.picked_min >= 20) else '🏁 Dropped Off') }}
                             </button>
                         </div>
                     </div>
@@ -1048,7 +1050,8 @@ async function checkDriverNotices(){
             list.innerHTML=d.notices.map(n=>{
                 const isCancel=n.kind==='cancelled';
                 const K={cancelled:['❌','Cancelled'],assigned:['🆕','New pickup for you'],
-                         reassigned_to:['🆕','Moved to you'],reassigned:['🔄','Moved to another driver']};
+                         reassigned_to:['🆕','Moved to you'],reassigned:['🔄','Moved to another driver'],
+                         dropoff_reminder:['🏁','Still picked up — tap Dropped Off']};
                 const [icon,verb]=K[n.kind]||['🔄','Reassigned'];
                 return `<div class="dn-item ${n.kind}">
                     <div class="dn-item-icon">${icon}</div>

@@ -515,6 +515,17 @@ class Driver(db.Model):
             "available": self.available
         }
 
+class RideEvent(db.Model):
+    """Audit trail of a ride: who created it (and through what), every driver and
+    status change and why, reminders, duplicates. Rows outlive the ride (no FK)
+    so a deleted booking can still be explained."""
+    id          = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, index=True, nullable=False)
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    actor       = db.Column(db.String(60), default="")     # driver | gps | dispatch:<user> | partner | auto | api
+    event       = db.Column(db.String(60), default="")     # created | assigned | status | reschedule | edit | duplicate | deleted …
+    detail      = db.Column(db.String(600), default="")
+
 class GeoCache(db.Model):
     """Pickup addresses we already resolved to coordinates. Nominatim (the free map
     service) rate-limits hard; geocoding each address once and remembering it is
@@ -738,6 +749,10 @@ class Customer(db.Model):
     gps_last_pick_mi  = db.Column(db.Float, nullable=True)        # previous car→pickup distance (approach detection)
     assign_note       = db.Column(db.String(200), default="")     # why there's no driver / overbooked / manual
     unassigned_alert_level = db.Column(db.Integer, default=0)     # ops SMS already sent: 1 heads-up, 2 urgent, 3 driver offline
+    # ── Provenance: how this booking got here (see RideEvent for the full trail) ──
+    source        = db.Column(db.String(40), default="")    # cartvip | api | dashboard | app | return | walkin
+    created_by    = db.Column(db.String(160), default="")   # username, or "ip · user-agent" for API callers
+    external_ref  = db.Column(db.String(80), default="")    # partner's order/confirmation id (dedupe key)
 
     def get_phones(self):
         try:
@@ -2170,12 +2185,18 @@ def cadastrar_cep():
             created_at=datetime.utcnow(),
             pickup_lat=lat_cli, pickup_lng=lng_cli,
             assign_note=(assign_note or "")[:200],
+            source="dashboard", created_by=session.get('username', ''),
         )
         _club = club_for_destination(destination)
         if _club and _club.lat is not None:
             customer.dest_lat, customer.dest_lng = _club.lat, _club.lng
         db.session.add(customer)
         db.session.commit()
+        log_event(customer, "created",
+                  f"by {session.get('username', '?')} on the dashboard · {pickup_datetime} · {endereco_completo} → {destination}"
+                  + (f" · driver {melhor_v} ({driver_mode})" if melhor_v != "Unavailable" else " · NO DRIVER")
+                  + (" · DUPLICATE CONFIRMED by user" if force_duplicate else ""),
+                  actor=f"dispatch:{session.get('username', '')}")
 
         # 7. CREATE SHOPIFY ORDER
         shopify_result = create_shopify_order(
@@ -3123,9 +3144,8 @@ def _ride_status_info(c):
       at_venue    → guest at the venue (dispatcher/partner/GPS)
       left        → guest left the venue (dispatcher/partner, or their ride back started)
       waitlist    → waitlisted
-      unconfirmed → pickup time long passed and nothing confirmed it (NEW)
-    Time-based guesses only happen when the ride's car has no GPS, and are marked
-    "(estimated)" — see _ride_status_full / ride_status_extras."""
+    Time-based guesses are marked "(estimated)" / status_estimated=true, and the
+    background failsafe (auto_timeouts) turns them into real completions."""
     code, text, _est = _ride_status_full(c)
     return code, text
 
@@ -3248,6 +3268,7 @@ def api_reschedule():
     # Re-arm proximity alerts + GPS detection for the new time
     reset_ride_tracking(cust)
     db.session.commit()
+    log_event(cust, "reschedule", f"{old} → {normalized} via API from {_request_origin()}", actor="api")
 
     # Fire the same webhook the dispatcher reschedule uses
     fire_webhook({
@@ -4458,6 +4479,8 @@ def driver_dashboard():
             "dispatch_status": c.dispatch_status,
             "dropped_at": vegas_time(c.dropped_off_at),
             "picked_at": vegas_time(c.picked_up_at),
+            "picked_min": (int((datetime.utcnow() - c.picked_up_at).total_seconds() // 60)
+                           if (c.status == "picked_up" and c.picked_up_at) else 0),
             "lat": p_lat, "lng": p_lng, "dist_mi": dist_mi,
             "car_string": c.car_string_val,
             "streetview": streetview_for(c.endereco),
@@ -5470,23 +5493,67 @@ def api_v1_schedule():
         return jsonify({"success": False, "error": "customer_name, pickup_address and pickup_datetime are required"}), 400
 
     client_phone = (data.get("customer_phone") or "").strip()
+    if client_phone and not _looks_like_phone(client_phone):
+        # e.g. {"customer_name": "Kellen", "customer_phone": "Roti"} — a split name,
+        # not a number. Creating that ride would strand the guest.
+        return jsonify({"success": False,
+                        "error": f"customer_phone must be a phone number (got '{client_phone[:40]}')"}), 400
     extra_phones = data.get("extra_phones") or []
     if not isinstance(extra_phones, list):
         extra_phones = []
+    extra_phones = [str(p).strip() for p in extra_phones if p and _looks_like_phone(p)]
     all_phones = ([client_phone] if client_phone else []) + [p for p in extra_phones if p]
     details     = (data.get("details") or data.get("notes") or "").strip()
     package     = (data.get("package") or "").strip()
-    guests      = int(data.get("guests") or 0)
+    try:
+        guests = int(data.get("guests") or 0)
+    except (TypeError, ValueError):
+        guests = 0
     destination = (data.get("destination") or "").strip()
     # CartVIP can send the total spend, which drives ride priority
     try:
         price_total = float(data.get("price_total")) if data.get("price_total") not in (None, "") else None
     except (TypeError, ValueError):
         price_total = None
+    # Provenance: who is calling (header or payload), their order id, ip + user-agent
+    source_label = (request.headers.get("X-Source") or data.get("source") or "cartvip").strip()[:40]
+    external_ref = str(data.get("order_id") or data.get("external_id") or data.get("confirmation")
+                       or data.get("booking_id") or "").strip()[:80]
+    origin = _request_origin()
+    allow_dup = str(data.get("allow_duplicate", "")).lower() in ("1", "true", "yes")
 
     requested_dt = parse_pickup_datetime(pickup_datetime)
+    if requested_dt is None:
+        return jsonify({"success": False,
+                        "error": "pickup_datetime must look like MM/DD/YYYY HH:MM AM/PM"}), 400
     # Normalize the stored date so 2-digit years / loose formats are consistent
     pickup_datetime = normalize_pickup_datetime(pickup_datetime) or pickup_datetime
+
+    # ── Duplicate protection ─────────────────────────────────────────────────
+    # The same guest around the same time already has an open ride (typically one
+    # dispatch typed in by hand before the partner booking arrived) → fold this
+    # booking into it and return THAT ride's id, so there's one ride, one driver,
+    # and the partner tracks the right record. Two bookings with different partner
+    # order ids are both kept (e.g. one guest, two orders via an affiliate).
+    if not allow_dup:
+        existing, why = find_duplicate_ride(name, all_phones, requested_dt, external_ref=external_ref)
+        if existing is not None:
+            changes = merge_booking_into(existing, {
+                "external_ref": external_ref, "price_total": price_total, "package": package,
+                "guests": guests, "phones": all_phones, "details": details,
+                "pickup_datetime": pickup_datetime,
+            }, source_label, origin)
+            dn, dp = ride_driver_display(existing)
+            print(f"[API/schedule] duplicate of ride {existing.id} ({why}) from {origin} → merged", flush=True)
+            return jsonify({
+                "success": True, "duplicate": True, "merged_into": existing.id,
+                "customer_id": existing.id, "driver_name": dn, "driver_phone": dp,
+                "driver_assigned": bool(dn), "car": existing.car_string_val or "",
+                "distance_km": existing.distancia or 0, "status": "scheduled",
+                "ride_status": _ride_status_info(existing)[0],
+                "note": f"matched existing ride #{existing.id} by {why}; "
+                        + (", ".join(changes) if changes else "no new details") + " merged",
+            })
 
     # Geocode the pickup (cached + throttled; see DISPATCH ENGINE). Best-effort:
     # the booking is NEVER lost, and a driver is assigned even without coordinates
@@ -5537,8 +5604,15 @@ def api_v1_schedule():
         pickup_lat=lat_cli, pickup_lng=lng_cli,
         dest_lat=(club.lat if club else None), dest_lng=(club.lng if club else None),
         assign_note=((pick.note if pick else no_driver_reason) or "")[:200],
+        source=source_label.lower(), created_by=origin, external_ref=external_ref,
     )
     db.session.add(customer); db.session.commit()
+    log_event(customer, "created",
+              f"via API ({source_label}) from {origin}"
+              + (f" · order {external_ref}" if external_ref else "")
+              + f" · {pickup_datetime} · {pickup_address} → {destination}"
+              + (f" · driver {driver_name}" if driver_name else f" · NO DRIVER ({no_driver_reason})"),
+              actor="api")
 
     time_part = _time_part(pickup_datetime)
     if pick:
@@ -5618,9 +5692,11 @@ def api_v1_walkin():
         pickup_datetime=(data.get("pickup_datetime") or "").strip(),
         destination=(data.get("destination") or "").strip(),
         needs_transport=False, club_status="coming",
-        promoter="cartvip", status='scheduled', created_at=datetime.utcnow()
+        promoter="cartvip", status='scheduled', created_at=datetime.utcnow(),
+        source="walkin", created_by=_request_origin(),
     )
     db.session.add(customer); db.session.commit()
+    log_event(customer, "created", f"walk-in via API from {customer.created_by}", actor="api")
 
     fire_webhook({
         "event": "walk_in_registered", "source": "cartvip",
@@ -5686,6 +5762,8 @@ def api_v1_cancel(customer_id):
                                         guest_time=c.pickup_datetime, detail="cancelled by partner"))
         except Exception:
             pass
+    log_event(c, "deleted", f"cancelled via API from {_request_origin()}"
+              + (f" · driver {drv.name} told" if drv else ""), actor="api")
     db.session.delete(c); db.session.commit()
     fire_webhook({"event": "booking_cancelled", "source": "cartvip", "customer_id": customer_id})
     return jsonify({"success": True, "cancelled": customer_id})
@@ -6128,6 +6206,8 @@ def reassign_pickup(customer_id):
     # A dispatcher's choice is never auto-moved by the offline check
     c.assign_note = f"manual by {session.get('username', '')}"[:200]
     db.session.commit()
+    log_event(c, "assigned", f"{previous or '(none)'} → {drv.name}" + (f" / {car.name}" if car else ""),
+              actor=f"dispatch:{session.get('username', '')}")
     ride_status_changed(c, _before, "dispatch")
 
     fire_webhook({
@@ -6341,7 +6421,7 @@ def api_live_drivers():
         print(f"[TRACKING] failed: {e}", flush=True)
         return jsonify({"error": str(e), "drivers": [], "offline_drivers": []})
 
-def _guest_row_info(c):
+def _guest_row_info(c, dup_of=None):
     """What the guest list shows in the Ride column for one row."""
     code, text, est = _ride_status_full(c)
     name = ""
@@ -6352,6 +6432,8 @@ def _guest_row_info(c):
     return {"code": code, "text": text, "estimated": est,
             "source": "est." if est else (c.status_source or ""),
             "driver": name, "note": c.assign_note or "",
+            "origin": (c.source or ("cartvip" if c.promoter == "cartvip" else "")) or "",
+            "dup_of": dup_of,
             "unassigned": bool(c.needs_transport and code in ("unassigned", "waitlist"))}
 
 @app.route('/admin/dispatch-health')
@@ -6391,12 +6473,22 @@ def dispatch_health():
             continue
         code, text, est = _ride_status_full(c)
         name, _p = ride_driver_display(c)
+        _car = _car_by_name(c.car_name) if c.car_name else None
+        _pos = car_position(c.car_name, positions, car=_car) if positions else None
+        _pts = venue_points(c)
         rides.append({"id": c.id, "guest": c.nome, "pickup_time": c.pickup_datetime,
                       "pickup": c.endereco, "destination": c.destination,
                       "status": code, "source": "est." if est else (c.status_source or ""),
                       "driver": name or None, "note": c.assign_note or "",
+                      "car_name": c.car_name, "car_gps": (_pos["name"] if _pos else None),
+                      "car_gps_fresh": (_pos["fresh"] if _pos else None),
+                      "car_gps_age_min": (_pos["age_min"] if _pos else None),
                       "pickup_coords": c.pickup_lat is not None,
-                      "venue_points": len(venue_points(c))})
+                      "miles_to_pickup": (round(calcular_distancia(_pos["lat"], _pos["lng"], c.pickup_lat, c.pickup_lng), 2)
+                                          if (_pos and c.pickup_lat is not None) else None),
+                      "miles_to_venue": (round(min(calcular_distancia(_pos["lat"], _pos["lng"], p[0], p[1]) for p in _pts), 2)
+                                         if (_pos and _pts) else None),
+                      "venue_points": len(_pts)})
     rides.sort(key=lambda r: parse_pickup_datetime(r["pickup_time"]) or now_v)
     venues = []
     for cl in Club.query.filter_by(active=True).all():
@@ -6420,6 +6512,12 @@ def dispatch_health():
                      "nominatim_paused": time.time() < _nomi_state["backoff_until"]},
         "inactive_weekly_shifts": Shift.query.filter(Shift.active == False,
                                                      Shift.day_of_week.isnot(None)).count(),
+        "possible_duplicates": [{"ride": k, "duplicate_of": v} for k, v in
+                                flag_duplicates(Customer.query.filter(Customer.status.in_(("scheduled", "waitlist", "picked_up")))
+                                                .order_by(Customer.id.desc()).limit(400).all()).items()],
+        "recent_events": [{"at": vegas_datetime(e.created_at), "ride": e.customer_id, "actor": e.actor,
+                           "event": e.event, "detail": e.detail}
+                          for e in RideEvent.query.order_by(RideEvent.id.desc()).limit(60).all()],
         "settings": {"AUTO_STATUS_ENABLED": AUTO_STATUS_ENABLED, "AUTO_ASSIGN_ENABLED": AUTO_ASSIGN_ENABLED,
                      "AUTO_REASSIGN_OFFLINE": AUTO_REASSIGN_OFFLINE, "UNASSIGNED_ALERTS": UNASSIGNED_ALERTS,
                      "OPS_ALERT_NUMBERS": _ops_numbers(), "DRIVER_BUSY_WINDOW_MIN": DRIVER_BUSY_WINDOW_MIN,
@@ -6465,12 +6563,13 @@ def guestlist_statuses():
 
     items = []
     coming = arrived = left = unassigned = 0
+    dups = flag_duplicates(rows)
     for c in rows:
         cs = c.club_status or "coming"
         if cs == "arrived": arrived += 1
         elif cs == "left":  left += 1
         else:               coming += 1
-        info = _guest_row_info(c)
+        info = _guest_row_info(c, dup_of=dups.get(c.id))
         if info["unassigned"]:
             unassigned += 1
         items.append({
@@ -6481,6 +6580,8 @@ def guestlist_statuses():
             "ride_source": info["source"],
             "driver": info["driver"],
             "note": info["note"],
+            "origin": info["origin"],
+            "dup_of": info["dup_of"],
             "unassigned": info["unassigned"],
             "needs_transport": bool(c.needs_transport),
             "dispatch_status": c.dispatch_status,
@@ -6494,6 +6595,7 @@ def guestlist_statuses():
         "total": len(rows),
         "coming": coming, "arrived": arrived, "left": left,
         "unassigned": unassigned,
+        "duplicates": len(dups),
         "items": items,
     })
 
@@ -6544,7 +6646,8 @@ def admin_guestlist():
     arrived  = sum(1 for c in all_customers if c.club_status == 'arrived')
     left_    = sum(1 for c in all_customers if c.club_status == 'left')
 
-    ride_info = {c.id: _guest_row_info(c) for c in all_customers}
+    _dups = flag_duplicates(all_customers)
+    ride_info = {c.id: _guest_row_info(c, dup_of=_dups.get(c.id)) for c in all_customers}
     unassigned = sum(1 for v in ride_info.values() if v["unassigned"])
     return render_template('admin_guestlist.html',
         customers=all_customers, clubs=clubs,
@@ -6659,9 +6762,64 @@ def delete_guest(customer_id):
             except Exception:
                 pass
 
+    log_event(customer, "deleted", f"deleted by {session.get('username', '?')} on the guest list "
+              f"({customer.nome} · {customer.pickup_datetime} · driver {customer.motorista or '-'})",
+              actor=f"dispatch:{session.get('username', '')}")
     db.session.delete(customer)
     db.session.commit()
     return jsonify({"success": True})
+
+@app.route('/admin/guestlist/<int:customer_id>/events')
+def guest_events(customer_id):
+    """The ride's audit trail (how it was created, every change and why)."""
+    if not can_dispatch():
+        return jsonify({"error": "Unauthorized"}), 401
+    c = Customer.query.get(customer_id)
+    rows = (RideEvent.query.filter_by(customer_id=customer_id)
+            .order_by(RideEvent.created_at.asc()).limit(200).all())
+    return jsonify({
+        "success": True,
+        "ride": ({"id": c.id, "source": c.source or "", "created_by": c.created_by or "",
+                  "external_ref": c.external_ref or "", "created_at": vegas_datetime(c.created_at) if c.created_at else "",
+                  "promoter": c.promoter or ""} if c else None),
+        "events": [{"at": vegas_datetime(e.created_at), "actor": e.actor, "event": e.event, "detail": e.detail}
+                   for e in rows],
+    })
+
+@app.route('/admin/guestlist/merge/<int:dup_id>/<int:keep_id>', methods=['POST'])
+def merge_guest(dup_id, keep_id):
+    """Fold a duplicate ride into the original (phones/notes/package copied over,
+    the duplicate deleted, its driver told it's gone)."""
+    if not can_dispatch():
+        return jsonify({"error": "Unauthorized"}), 401
+    dup, keep = Customer.query.get(dup_id), Customer.query.get(keep_id)
+    if not dup or not keep or dup.id == keep.id:
+        return jsonify({"success": False, "error": "Ride not found"}), 404
+    who = session.get('username', '')
+    changes = merge_booking_into(keep, {
+        "external_ref": dup.external_ref, "price_total": dup.price_total, "package": dup.package,
+        "guests": dup.guests, "phones": [dup.phone] + dup.get_phones(), "details": dup.details,
+        "pickup_datetime": dup.pickup_datetime,
+    }, f"duplicate #{dup.id}", f"merge by {who}")
+    dup_drv = resolve_ride_driver(dup) if dup.needs_transport else None
+    keep_drv = resolve_ride_driver(keep) if keep.needs_transport else None
+    if dup_drv and (not keep_drv or dup_drv.id != keep_drv.id):
+        t = _time_part(dup.pickup_datetime)
+        if dup_drv.phone:
+            send_sms_bg(clean_phone(dup_drv.phone),
+                        f"ClubLifter: {dup.nome}{(' (' + t + ')') if t else ''} was a duplicate booking "
+                        f"and is no longer on your list.")
+        try:
+            db.session.add(DriverNotice(driver_name=dup_drv.name, kind="cancelled", guest_name=dup.nome,
+                                        guest_time=dup.pickup_datetime, detail=f"duplicate of #{keep.id}"))
+        except Exception:
+            pass
+    log_event(dup, "deleted", f"merged into #{keep.id} by {who} (duplicate)", actor=f"dispatch:{who}")
+    log_event(keep, "duplicate-merged", f"#{dup.id} ({dup.nome}, {dup.pickup_datetime}) merged in by {who}",
+              actor=f"dispatch:{who}")
+    db.session.delete(dup)
+    db.session.commit()
+    return jsonify({"success": True, "kept": keep.id, "changes": changes})
 
 @app.route('/admin/guestlist/priority/<int:customer_id>', methods=['POST'])
 def toggle_priority(customer_id):
@@ -6798,10 +6956,16 @@ def _create_return_ride(orig, pickup_datetime=None, created_by="", geocode=True,
         ride.motorista = ""
         ride.assign_note = (why or "")[:200]
 
+    ride.source = "return"
+    ride.created_by = (created_by or "")[:160]
     db.session.add(ride)
     # Mark the original as having a return
     orig.has_return_ride = True
     db.session.commit()
+    log_event(ride, "created", f"ride back of #{orig.id} by {created_by or '?'} · {new_dt} · {return_pickup_addr} → {return_dropoff}"
+              + (f" · driver {ride.motorista}" if ride.motorista else f" · NO DRIVER ({ride.assign_note})"),
+              actor="auto")
+    log_event(orig, "ride-back", f"ride back #{ride.id} created ({new_dt})", actor="auto")
     if pick:
         notify_driver_of_ride(ride, pick.driver, "assigned")
         _sms_guest_driver_details(ride)
@@ -6927,6 +7091,9 @@ def edit_customer(customer_id):
     if _addr_changed or _dest_changed:
         reset_ride_tracking(c, address_changed=_addr_changed, dest_changed=_dest_changed)
     db.session.commit()
+    log_event(c, "edit", "fields: " + ", ".join(k for k in ('nome', 'phone', 'endereco', 'destination',
+                                                           'pickup_datetime', 'guests', 'package', 'details') if k in f),
+              actor=f"dispatch:{session.get('username', '')}")
     fire_webhook({
         "type":          "pickup_edited",
         "customer_id":   c.id,
@@ -6960,6 +7127,7 @@ def reschedule_pickup(customer_id):
     # Re-arm proximity alerts + GPS detection for the new time
     reset_ride_tracking(c)
     db.session.commit()
+    log_event(c, "reschedule", f"{old} → {normalized}", actor=f"dispatch:{session.get('username', '')}")
     fire_webhook({
         "type":            "pickup_rescheduled",
         "customer_id":     c.id,
@@ -7056,10 +7224,15 @@ TRACKER_INTERVAL_SEC      = max(20, int(_env_float("TRACKER_INTERVAL_SEC", 60)))
 PICKUP_RADIUS_MI          = _env_float("PICKUP_RADIUS_MI", 0.25)   # car this close to the pickup = "at pickup"
 PICKUP_DWELL_SEC          = _env_float("PICKUP_DWELL_SEC", 90)     # ...for at least this long (not just driving by)
 PICKUP_LEAVE_MI           = _env_float("PICKUP_LEAVE_MI", 0.45)    # car left the pickup = guest picked up
-VENUE_RADIUS_MI           = _env_float("VENUE_RADIUS_MI", 0.25)    # car this close to the venue = dropped off
+VENUE_RADIUS_MI           = _env_float("VENUE_RADIUS_MI", 0.35)    # car this close to the venue = dropped off
+STOP_DROP_MIN             = _env_float("STOP_DROP_MIN", 4)         # picked-up car parked this long, away from the pickup = dropped off
+STOP_DROP_MIN_FROM_PICKUP_MI = _env_float("STOP_DROP_MIN_FROM_PICKUP_MI", 1.0)
+DROP_REMINDER_MIN         = _env_float("DROP_REMINDER_MIN", 25)    # text the driver if still "picked up" after this
+PICKED_UP_TIMEOUT_MIN     = _env_float("PICKED_UP_TIMEOUT_MIN", 75) # auto-complete a picked-up ride after this
+SCHEDULED_TIMEOUT_MIN     = _env_float("SCHEDULED_TIMEOUT_MIN", 180) # auto-complete an assigned ride this long after pickup
 ENROUTE_RADIUS_MI         = _env_float("ENROUTE_RADIUS_MI", 3.0)
 ARRIVAL_WINDOW_MIN        = _env_float("ARRIVAL_WINDOW_MIN", 30)   # only detect "at pickup" this close to pickup time
-GPS_FRESH_MIN             = _env_float("GPS_FRESH_MIN", 10)        # ignore GPS fixes older than this
+GPS_FRESH_MIN             = _env_float("GPS_FRESH_MIN", 20)        # ignore GPS fixes older than this
 DRIVER_ACTIVE_MIN         = _env_float("DRIVER_ACTIVE_MIN", 30)    # dashboard seen within → on duty
 CAR_MOVED_MIN             = _env_float("CAR_MOVED_MIN", 90)        # car moved within → on duty
 REASSIGN_OFFLINE_LEAD_MIN = _env_float("REASSIGN_OFFLINE_LEAD_MIN", 40)
@@ -7091,6 +7264,136 @@ def _is_demo_ride(c):
     return len(demo) >= 10 and len(mine) >= 10 and demo[-10:] == mine[-10:]
 _ENGINE_BOOT = time.time()
 BOOT_GRACE_SEC = 600   # don't call a driver "offline" in the first 10 min after a deploy
+
+def log_event(c_or_id, event, detail="", actor=""):
+    """Append one line to a ride's audit trail. Never raises, never affects the
+    caller's transaction (own connection)."""
+    try:
+        cid = c_or_id if isinstance(c_or_id, int) else getattr(c_or_id, "id", None)
+        if not cid:
+            return
+        with db.engine.begin() as conn:
+            conn.execute(RideEvent.__table__.insert().values(
+                customer_id=int(cid), created_at=datetime.utcnow(),
+                actor=str(actor or "")[:60], event=str(event or "")[:60],
+                detail=str(detail or "")[:600]))
+    except Exception as e:
+        print(f"[EVENT] not logged ({event}): {e}", flush=True)
+
+def _request_origin():
+    """'ip · user-agent' of the current request, for API bookings."""
+    try:
+        ip = (request.headers.get("X-Forwarded-For", "") or request.remote_addr or "").split(",")[0].strip()
+        ua = (request.headers.get("User-Agent", "") or "")[:90]
+        return f"{ip} · {ua}".strip(" ·")[:160]
+    except Exception:
+        return ""
+
+def _phone_tail(p):
+    d = "".join(ch for ch in str(p or "") if ch.isdigit())
+    return d[-10:] if len(d) >= 10 else d
+
+def _norm_person(name):
+    return " ".join(_re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).split())
+
+def _looks_like_phone(p):
+    return len("".join(ch for ch in str(p or "") if ch.isdigit())) >= 7
+
+def find_duplicate_ride(name, phones, pickup_dt, external_ref="", exclude_id=None, window_min=180):
+    """An open, non-return ride for the same person around the same time.
+    Matches by phone (last 10 digits) first, then by name. A different partner
+    order id (external_ref) on both sides means two real bookings → no match."""
+    if pickup_dt is None:
+        return None, ""
+    tails = {_phone_tail(p) for p in (phones or []) if _phone_tail(p)}
+    nm = _norm_person(name)
+    lo, hi = pickup_dt - timedelta(hours=18), pickup_dt + timedelta(hours=18)
+    best = None
+    for ex in (Customer.query.filter(Customer.status.in_(("scheduled", "waitlist", "picked_up")))
+               .order_by(Customer.id.desc()).limit(600).all()):
+        if ex.id == exclude_id or ex.is_return_ride or not ex.needs_transport:
+            continue
+        pdt = parse_pickup_datetime(ex.pickup_datetime)
+        if pdt is None or not (lo <= pdt <= hi):
+            continue
+        if external_ref and (ex.external_ref or "") and ex.external_ref != external_ref:
+            continue        # two different partner orders → both real (e.g. two bookings via an affiliate)
+        if external_ref and ex.external_ref == external_ref:
+            return ex, "same order id"
+        gap = abs((pdt - pickup_dt).total_seconds()) / 60.0
+        if gap > window_min:
+            continue
+        ex_tails = {_phone_tail(ex.phone)} | {_phone_tail(p) for p in ex.get_phones()}
+        ex_tails.discard("")
+        if tails & ex_tails:
+            cand = (0, gap, ex, "same phone")
+        elif nm and _norm_person(ex.nome) == nm:
+            cand = (1, gap, ex, "same name")
+        else:
+            continue
+        if best is None or cand[:2] < best[:2]:
+            best = cand
+    return (best[2], best[3]) if best else (None, "")
+
+def flag_duplicates(rows):
+    """{ride id: original ride id} for rides that look like copies of an earlier
+    one in the same listing (same person, pickup within 3 h). The earliest-created
+    ride is the original."""
+    out = {}
+    open_rows = [c for c in rows if c.needs_transport and not c.is_return_ride
+                 and c.status in ("scheduled", "waitlist", "picked_up")]
+    open_rows.sort(key=lambda c: c.id)
+    seen = []   # (tails, norm name, pdt, id)
+    for c in open_rows:
+        pdt = parse_pickup_datetime(c.pickup_datetime)
+        if pdt is None:
+            continue
+        tails = {_phone_tail(c.phone)} | {_phone_tail(p) for p in c.get_phones()}
+        tails.discard("")
+        nm = _norm_person(c.nome)
+        for t, n, p, oid in seen:
+            if abs((pdt - p).total_seconds()) <= 180 * 60 and ((tails & t) or (nm and nm == n)):
+                out[c.id] = oid
+                break
+        else:
+            seen.append((tails, nm, pdt, c.id))
+    return out
+
+def merge_booking_into(existing, data, source_label, origin):
+    """A partner booking that matches a ride dispatch already created by hand:
+    fold the partner's details into that ride instead of making a second one."""
+    changes = []
+    if not existing.external_ref and data.get("external_ref"):
+        existing.external_ref = str(data["external_ref"])[:80]; changes.append("order id")
+    if data.get("price_total") is not None and existing.price_total is None:
+        existing.price_total = data["price_total"]; changes.append("price")
+    if data.get("package") and not existing.package:
+        existing.package = data["package"]; changes.append("package")
+    if data.get("guests") and not existing.guests:
+        existing.guests = data["guests"]; changes.append("guests")
+    phones = existing.get_phones()
+    tails = {_phone_tail(p) for p in phones}
+    for p in data.get("phones") or []:
+        if p and _phone_tail(p) not in tails:
+            phones.append(p); tails.add(_phone_tail(p)); changes.append("phone")
+    if len(phones) > len(existing.get_phones()):
+        existing.phones_json = json.dumps([p for p in phones if p and p != existing.phone])
+    if data.get("details") and (data["details"] not in (existing.details or "")):
+        existing.details = ((existing.details or "") + f" | {source_label}: {data['details']}")[:500]
+        changes.append("notes")
+    if data.get("pickup_datetime") and data["pickup_datetime"] != existing.pickup_datetime:
+        note = f"{source_label} booking says {data['pickup_datetime']}"
+        if note not in (existing.details or ""):
+            existing.details = ((existing.details or "") + f" | ⚠ {note}")[:500]
+        changes.append(f"time differs ({data['pickup_datetime']})")
+    if existing.promoter != "cartvip" and source_label.lower() == "cartvip":
+        existing.promoter = "cartvip"      # so partner status pushes cover it
+    existing.source = (existing.source or "") + ("+" if existing.source else "") + source_label.lower()
+    db.session.commit()
+    log_event(existing, "duplicate-merged",
+              f"{source_label} sent the same booking; merged ({', '.join(changes) or 'no new info'}). From {origin}",
+              actor="api")
+    return changes
 
 def _memo():
     """A dict that lives for one request (or one tracker tick). Lookups like
@@ -7537,6 +7840,7 @@ def gps_positions(max_age=None, allow_fetch=True):
     if fleet is None:
         return None
     now = datetime.utcnow()
+    seen = _gps_cache.setdefault("seen", {})     # name -> (lat, lng, last time the position changed)
     out = {}
     for v in fleet:
         if not isinstance(v, dict):
@@ -7547,27 +7851,42 @@ def gps_positions(max_age=None, allow_fetch=True):
             continue
         ts = _parse_gps_timestamp(v)
         age = (now - ts).total_seconds() / 60.0 if ts else None
+        prev = seen.get(name)
+        if prev is None or abs(prev[0] - lat) > 1e-5 or abs(prev[1] - lng) > 1e-5:
+            seen[name] = (lat, lng, now)
+        moved_min = (now - seen[name][2]).total_seconds() / 60.0
+        # Fresh if the device clock says so, OR we watched the position change
+        # recently (a device whose timestamp we can't read right is still alive).
+        fresh = age is None or age <= GPS_FRESH_MIN or moved_min <= GPS_FRESH_MIN or age < -5
         out[_norm_name(name)] = {"name": name, "lat": lat, "lng": lng,
                                  "age_min": round(age, 1) if age is not None else None,
-                                 "fresh": age is None or age <= GPS_FRESH_MIN}
+                                 "moved_min": round(moved_min, 1), "fresh": fresh}
     return out
 
-def car_position(car_name, positions=None):
-    """Live position for a car (by its OneStepGPS display name, loosely matched)."""
-    if not car_name:
-        return None
+def car_position(car_name, positions=None, car=None):
+    """Live position for a car: by its OneStepGPS display name (exact, then loose),
+    then by plate — so a renamed GPS device still matches its Car record."""
     if positions is None:
         positions = gps_positions()
     if not positions:
         return None
-    key = _norm_name(car_name)
-    if not key:
-        return None
-    if key in positions:
-        return positions[key]
-    for k, p in positions.items():
-        if k and (key in k or k in key):
-            return p
+    names = [car_name]
+    if car is not None:
+        names += [car.name, car.model]
+    for n in names:
+        key = _norm_name(n or "")
+        if not key:
+            continue
+        if key in positions:
+            return positions[key]
+        for k, p in positions.items():
+            if k and (key in k or k in key):
+                return p
+    plate = _norm_name((car.plate if car else "") or "")
+    if plate and len(plate) >= 4:
+        for k, p in positions.items():
+            if plate in k:
+                return p
     return None
 
 def car_recently_moved(gps_name):
@@ -7852,6 +8171,7 @@ def notify_driver_of_ride(c, drv, kind="assigned"):
         phone = clean_phone(drv.phone or "")
         if phone:
             send_sms_bg(phone, body)
+        log_event(c, "driver-notified", f"{drv.name} ({phone or 'no phone'}): SMS + dashboard pop-up", actor="auto")
         db.session.add(DriverNotice(driver_name=drv.name, kind=kind, guest_name=c.nome or "",
                                     guest_time=c.pickup_datetime or "",
                                     detail=f"{c.endereco or ''} → {c.destination or ''}"[:255]))
@@ -7895,6 +8215,9 @@ def apply_assignment(c, pick, source="auto", notify_driver=True, notify_guest=Fa
     c.gps_last_pick_mi = None
     c.unassigned_alert_level = 0
     db.session.commit()
+    log_event(c, "assigned", f"{prev or '(none)'} → {drv.name}"
+              + (f" / {car.name}" if car else "") + (f" — {c.assign_note}" if c.assign_note else ""),
+              actor=source)
     if notify_driver:
         notify_driver_of_ride(c, drv, "assigned")
     if notify_guest:
@@ -7927,6 +8250,8 @@ def _send_ops_alerts(alerts):
     body = "\n".join(lines)[:1500]
     for num in _ops_numbers():
         send_sms_bg(num, body)
+    for c, kind in alerts:
+        log_event(c, "ops-alert", f"{label.get(kind, kind)} — texted {', '.join(_ops_numbers())}", actor="auto")
     print(f"[ASSIGN] ops alerted about {len(alerts)} ride(s)", flush=True)
 
 def auto_assign_pending():
@@ -8041,17 +8366,12 @@ def _ride_status_full(c):
         pdt = parse_pickup_datetime(c.pickup_datetime) if c.pickup_datetime else None
         if pdt is not None:
             mins_past = (vegas_naive_now() - pdt).total_seconds() / 60.0
-            if c.gps_seen_at is not None:
-                # We were watching this car and never saw the pickup happen.
-                if mins_past >= 180:
-                    return ("unconfirmed", "Pickup time passed and the ride was never confirmed "
-                            "(no driver check-in and no GPS match)", False)
-            else:
-                # No GPS on this ride's car — fall back to an estimate, clearly labeled.
-                if mins_past >= 180:
-                    return "at_venue", "Guest has arrived at the venue (estimated)", True
-                if mins_past >= 30:
-                    return "picked_up", "Guest picked up, en route to the venue (estimated)", True
+            # Nothing recorded yet — estimate from the clock, clearly labeled. (The
+            # background failsafe writes the real completion at SCHEDULED_TIMEOUT_MIN.)
+            if mins_past >= 180:
+                return "at_venue", "Guest has arrived at the venue (estimated)", True
+            if mins_past >= 30:
+                return "picked_up", "Guest picked up, en route to the venue (estimated)", True
     except Exception:
         pass
     return "scheduled", "Ride is scheduled, awaiting pickup", False
@@ -8059,9 +8379,11 @@ def _ride_status_full(c):
 def ride_status_extras(c, with_eta=True):
     """Extra, partner-facing fields: who/what set the status, the real driver, ETA."""
     code, _text, est = _ride_status_full(c)
+    if (c.status_source or "") == "auto-timeout":
+        est = True
     name, phone = ride_driver_display(c)
     out = {
-        "status_source": "estimated" if est else (c.status_source or ""),
+        "status_source": "estimated" if est and not c.status_source else (c.status_source or ""),
         "status_estimated": est,
         "status_updated_at": vegas_datetime(c.status_updated_at) if c.status_updated_at else "",
         "driver_assigned": bool(name),
@@ -8100,7 +8422,11 @@ def ride_status_changed(c, before_code, source):
     PARTNER_STATUS_WEBHOOK_URL is set, so they don't have to wait for their poll."""
     try:
         code, text, est = _ride_status_full(c)
-        if code == before_code or not PARTNER_STATUS_WEBHOOK_URL:
+        if code == before_code:
+            return
+        log_event(c, "status", f"{before_code} → {code} ({c.status}/{c.dispatch_status}/{c.club_status})",
+                  actor=source)
+        if not PARTNER_STATUS_WEBHOOK_URL:
             return
         if (c.promoter or "").lower() not in PARTNER_STATUS_PROMOTERS:
             return
@@ -8119,6 +8445,104 @@ def ride_status_changed(c, before_code, source):
 #  GPS-DRIVEN RIDE PROGRESS
 #  scheduled → enroute → arrived (at pickup) → picked_up → dropped_off/at venue
 # ─────────────────────────────────────────────────────────────────────────────
+def _drop_token(cid):
+    import hmac, hashlib
+    return hmac.new(app.secret_key.encode() if isinstance(app.secret_key, str) else app.secret_key,
+                    f"drop:{cid}".encode(), hashlib.sha256).hexdigest()[:20]
+
+@app.route('/d/<int:cid>/<token>', methods=['GET', 'POST'])
+def driver_drop_link(cid, token):
+    """One-tap 'guest dropped off' confirmation from the reminder SMS."""
+    c = Customer.query.get_or_404(cid)
+    if not hmac_compare(token, _drop_token(cid)):
+        return "Invalid link", 403
+    if c.status != "dropped_off":
+        before = _ride_status_info(c)[0]
+        _complete_dropoff(c, datetime.utcnow(), None, "driver")
+        c.dropoff_verified = False
+        db.session.commit()
+        fire_webhook({"type": "dropped_off", "source": "driver-link", "customer_id": c.id,
+                      "customer_name": c.nome, "driver_name": c.completed_driver,
+                      "destination": c.destination})
+        ride_status_changed(c, before, "driver")
+    return (f"<html><body style='font-family:sans-serif;background:#08060f;color:#e8eaf0;"
+            f"padding:40px;text-align:center'><h2>✅ Marked dropped off</h2>"
+            f"<p>{c.nome} → {c.destination or ''}</p>"
+            f"<p><a style='color:#a78bfa' href='/driver'>Open my board</a></p></body></html>")
+
+def hmac_compare(a, b):
+    import hmac
+    return hmac.compare_digest(str(a or ""), str(b or ""))
+
+def _remind_driver_dropoff(c, drv):
+    t = _time_part(c.pickup_datetime)
+    link = f"{PUBLIC_BASE_URL}/d/{c.id}/{_drop_token(c.id)}"
+    body = (f"ClubLifter: did you drop off {c.nome}{(' (' + t + ')') if t else ''} at "
+            f"{c.destination or 'the venue'}? Tap to confirm: {link}\n"
+            f"(It will auto-complete in {int(PICKED_UP_TIMEOUT_MIN)} min if you don't.)")
+    if drv and drv.phone:
+        send_sms_bg(clean_phone(drv.phone), body)
+    try:
+        db.session.add(DriverNotice(driver_name=drv.name if drv else (c.motorista or ""), kind="dropoff_reminder",
+                                    guest_name=c.nome, guest_time=c.pickup_datetime,
+                                    detail=f"Still marked picked up — tap Dropped off ({c.destination or ''})"[:255]))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+def auto_timeouts():
+    """Failsafe that needs no GPS at all. Rides never stay 'picked up' or
+    'en route' forever again:
+      • picked up for DROP_REMINDER_MIN  → remind the driver (SMS with a one-tap link)
+      • picked up for PICKED_UP_TIMEOUT_MIN → auto-complete (at venue, flagged auto)
+      • assigned, pickup time + SCHEDULED_TIMEOUT_MIN, nothing recorded → auto-complete"""
+    now_u = datetime.utcnow()
+    now_v = vegas_naive_now()
+    rows = Customer.query.filter(Customer.needs_transport == True,
+                                 Customer.status.in_(("scheduled", "picked_up"))).all()
+    for c in rows:
+        if _is_demo_ride(c):
+            continue
+        pdt = parse_pickup_datetime(c.pickup_datetime)
+        if pdt is None:
+            continue
+        mins_past = (now_v - pdt).total_seconds() / 60.0
+        if mins_past < 0 or mins_past > 36 * 60:
+            continue
+        before = _ride_status_info(c)[0]
+        if c.status == "picked_up":
+            ref = c.picked_up_at or (pdt + timedelta(hours=7))   # pdt is Vegas; picked_up_at is UTC
+            up_min = (now_u - ref).total_seconds() / 60.0 if c.picked_up_at else mins_past
+            if up_min >= PICKED_UP_TIMEOUT_MIN:
+                _complete_dropoff(c, now_u, None, "auto-timeout")
+                c.dropoff_verified = False
+                db.session.commit()
+                print(f"[FAILSAFE] ride {c.id} ({c.nome}) picked up {int(up_min)} min ago → auto-completed", flush=True)
+                fire_webhook({"type": "dropped_off", "source": "auto-timeout", "customer_id": c.id,
+                              "customer_name": c.nome, "driver_name": c.completed_driver,
+                              "destination": c.destination, "verified_at_venue": False})
+                ride_status_changed(c, before, "auto-timeout")
+            elif up_min >= DROP_REMINDER_MIN and (c.unassigned_alert_level or 0) < 10:
+                c.unassigned_alert_level = 10          # reminder sent (one per ride)
+                db.session.commit()
+                _remind_driver_dropoff(c, resolve_ride_driver(c))
+                log_event(c, "reminder", f"still picked up after {int(up_min)} min — driver texted a one-tap drop-off link", actor="auto")
+                print(f"[FAILSAFE] ride {c.id} ({c.nome}) still picked up after {int(up_min)} min → driver reminded", flush=True)
+        elif c.status == "scheduled" and mins_past >= SCHEDULED_TIMEOUT_MIN:
+            drv = resolve_ride_driver(c, pdt)
+            if drv is None:
+                continue                                 # stays 'unassigned' — never invent a trip
+            if not c.picked_up_at:
+                c.picked_up_at = now_u
+            _complete_dropoff(c, now_u, None, "auto-timeout")
+            c.dropoff_verified = False
+            db.session.commit()
+            print(f"[FAILSAFE] ride {c.id} ({c.nome}) {int(mins_past)} min past pickup with no updates → auto-completed", flush=True)
+            fire_webhook({"type": "dropped_off", "source": "auto-timeout", "customer_id": c.id,
+                          "customer_name": c.nome, "driver_name": c.completed_driver,
+                          "destination": c.destination, "verified_at_venue": False})
+            ride_status_changed(c, before, "auto-timeout")
+
 def _complete_dropoff(c, now_u, dist_mi, source):
     c.status = "dropped_off"
     c.dropped_off_at = now_u
@@ -8158,6 +8582,15 @@ def _proximity_sms(c, label, body):
                   "pickup_datetime": c.pickup_datetime, "distance_unit": "mi"})
     send_sms_many(c.get_phones() or [c.phone], body, car_photo_url)
 
+def _note_gps_problem(c, why):
+    """Log (once per ride) why GPS can't follow it — the answer to 'why didn't it close?'."""
+    try:
+        if RideEvent.query.filter_by(customer_id=c.id, event="gps-problem").first():
+            return
+    except Exception:
+        return
+    log_event(c, "gps-problem", why, actor="gps")
+
 def auto_progress_rides():
     """Move each live ride forward using its car's GPS. Never moves a ride
     backwards and never overrides what a driver/dispatcher already set."""
@@ -8177,17 +8610,19 @@ def auto_progress_rides():
         if pdt is None:
             continue
         mins_to = (pdt - now_v).total_seconds() / 60.0
-        if mins_to > 90 or mins_to < -240:
+        if mins_to > 90 or mins_to < (-600 if c.status == "picked_up" else -240):
             continue
         drv = resolve_ride_driver(c, pdt)
         if drv is None:
             continue
-        car_name = c.car_name
-        if not car_name:
+        car = _car_by_name(c.car_name) if c.car_name else None
+        if car is None:
             car = driver_car_at(drv, pdt)
-            car_name = car.name if car else ""
-        pos = car_position(car_name, positions) if car_name else None
+        pos = car_position(c.car_name or (car.name if car else ""), positions, car=car)
         if not pos or not pos["fresh"]:
+            if -30 <= mins_to <= 30:
+                _note_gps_problem(c, ("no GPS device matches car '%s'" % (c.car_name or (car.name if car else "?")))
+                                  if not pos else f"GPS fix for {pos['name']} is {pos['age_min']} min old")
             continue
 
         before = _ride_status_info(c)[0]
@@ -8203,7 +8638,10 @@ def auto_progress_rides():
 
         if c.status == "scheduled":
             arrived = bool(c.driver_arrived_at) or c.dispatch_status == "arrived"
-            if d_pick is not None and d_pick <= PICKUP_RADIUS_MI and mins_to <= ARRIVAL_WINDOW_MIN:
+            # "At pickup" is only inferred from ARRIVAL_WINDOW_MIN before to 90 min after
+            # the pickup time — a car parked near the address hours later isn't a pickup.
+            if (d_pick is not None and d_pick <= PICKUP_RADIUS_MI
+                    and -90 <= mins_to <= ARRIVAL_WINDOW_MIN):
                 if c.near_pickup_since is None:
                     c.near_pickup_since = now_u
                 elif (not arrived and
@@ -8230,10 +8668,10 @@ def auto_progress_rides():
                     c.completed_car = c.car_string_val or c.car_name or ""
                 mark_status(c, "gps")
                 event = "picked_up"
-            elif (arrived and c.near_pickup_since is None and d_dest is not None
-                  and d_dest <= VENUE_RADIUS_MI and mins_to <= 0):
-                # Driver checked in at the pickup (but the pickup pin is off), then
-                # reached the venue → the ride happened.
+            elif ((arrived or c.dispatch_status == "enroute") and c.near_pickup_since is None
+                  and d_dest is not None and d_dest <= VENUE_RADIUS_MI and mins_to <= 0):
+                # Driver was engaged (en route / at pickup — but the pickup pin is off),
+                # then the car reached the venue → the ride happened.
                 _complete_dropoff(c, now_u, d_dest, "gps")
                 event = "dropped_off"
             elif not arrived and d_pick is not None:
@@ -8263,6 +8701,18 @@ def auto_progress_rides():
             if d_dest is not None and d_dest <= VENUE_RADIUS_MI:
                 _complete_dropoff(c, now_u, d_dest, "gps")
                 event = "dropped_off"
+            else:
+                # Venue pin may be wrong: a picked-up car that has been PARKED for a
+                # few minutes, well away from the pickup, has delivered the guest.
+                anchor = _stop_anchors.get(pos["name"])
+                up_min = ((now_u - c.picked_up_at).total_seconds() / 60.0) if c.picked_up_at else -mins_to
+                if anchor and not anchor.get("first_seen") and up_min >= 8:
+                    parked_min = (now_u - anchor["since"]).total_seconds() / 60.0
+                    far = (d_pick is None) or (d_pick >= STOP_DROP_MIN_FROM_PICKUP_MI)
+                    if parked_min >= STOP_DROP_MIN and far:
+                        _complete_dropoff(c, now_u, d_dest, "gps")
+                        c.dropoff_verified = False       # stop-based, not at the venue pin
+                        event = "dropped_off"
 
         db.session.commit()
 
@@ -8343,6 +8793,7 @@ def run_tracker_tick():
                       ("GPS-WATCH", check_gps_disconnects),
                       ("ASSIGN", auto_assign_pending),
                       ("AUTO-STATUS", auto_progress_rides),
+                      ("FAILSAFE", auto_timeouts),
                       ("GEO", backfill_ride_coords),        # slow part last
                       ("CLEANUP", _purge_old_here_photos)):
         try:
@@ -8922,6 +9373,9 @@ with app.app_context():
     safe_migrate("customer", "assign_note",       "ALTER TABLE customer ADD COLUMN assign_note VARCHAR(200) DEFAULT ''")
     safe_migrate("customer", "unassigned_alert_level", "ALTER TABLE customer ADD COLUMN unassigned_alert_level INTEGER DEFAULT 0")
     safe_migrate("driver", "last_seen_at",        "ALTER TABLE driver ADD COLUMN last_seen_at DATETIME")
+    safe_migrate("customer", "source",            "ALTER TABLE customer ADD COLUMN source VARCHAR(40) DEFAULT ''")
+    safe_migrate("customer", "created_by",        "ALTER TABLE customer ADD COLUMN created_by VARCHAR(160) DEFAULT ''")
+    safe_migrate("customer", "external_ref",      "ALTER TABLE customer ADD COLUMN external_ref VARCHAR(80) DEFAULT ''")
 
     safe_migrate("driver", "available", "ALTER TABLE driver ADD COLUMN available BOOLEAN DEFAULT 1")
     safe_migrate("driver", "assigned_car_id", "ALTER TABLE driver ADD COLUMN assigned_car_id INTEGER DEFAULT NULL")

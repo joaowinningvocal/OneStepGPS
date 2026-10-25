@@ -85,6 +85,13 @@
         .ride-chip.c-picked_up{background:rgba(138,92,246,.2);color:var(--acc);}
         .ride-chip.c-dropped_off,.ride-chip.c-at_venue{background:rgba(34,197,94,.2);color:var(--g);}
         .ride-note{color:var(--m2);font-size:.64rem;max-width:200px;white-space:normal;margin-top:2px;}
+        .origin-tag{display:inline-block;margin-left:4px;padding:1px 5px;border-radius:4px;font-size:.58rem;font-weight:700;background:rgba(255,255,255,.06);color:var(--m2);vertical-align:middle;letter-spacing:.3px;}
+        .dup-chip{display:inline-block;margin-top:3px;padding:2px 7px;border-radius:6px;font-size:.64rem;font-weight:700;background:rgba(251,191,36,.18);color:var(--gold);white-space:nowrap;}
+        .dup-btn{margin-left:4px;padding:1px 6px;border-radius:5px;border:1px solid rgba(251,191,36,.5);background:none;color:var(--gold);font-size:.6rem;font-weight:700;cursor:pointer;font-family:inherit;}
+        .hist-box{margin-top:12px;border-top:1px solid var(--bd);padding-top:10px;}
+        .hist-box .hl{font-size:.7rem;color:var(--m2);padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.05);}
+        .hist-box .hl b{color:var(--t);font-weight:600;}
+        .hist-box .hl .ha{display:inline-block;min-width:70px;color:var(--acc3);}
         .assign-btn{margin-top:4px;padding:3px 9px;border-radius:6px;border:1px solid rgba(239,68,68,.5);background:rgba(239,68,68,.12);color:var(--r);font-size:.66rem;font-weight:700;cursor:pointer;font-family:inherit;}
         .assign-btn.soft{border-color:var(--bd);background:none;color:var(--m2);}
         tr.nodrv-row td:first-child{box-shadow:inset 3px 0 0 var(--r);}
@@ -306,7 +313,8 @@
                         <td>
                             {% if c.needs_transport %}
                               <div class="ride-cell" id="ride-{{ c.id }}">
-                                <div class="ride-drv" id="rdrv-{{ c.id }}">{{ ri.driver or '—' }}</div>
+                                <div class="ride-drv" id="rdrv-{{ c.id }}">{{ ri.driver or '—' }}{% if ri.origin %}<span class="origin-tag" title="How this booking was created">{{ ri.origin }}</span>{% endif %}</div>
+                                <div id="rdup-{{ c.id }}" style="{{ '' if ri.dup_of else 'display:none;' }}"><span class="dup-chip">⚠ possible duplicate of #<span class="dupof">{{ ri.dup_of or '' }}</span></span><button class="dup-btn" onclick="mergeDup({{ c.id }}, {{ ri.dup_of or 0 }}, {{ c.nome|tojson }})">Merge into #<span class="dupof">{{ ri.dup_of or '' }}</span></button></div>
                                 <span class="ride-chip c-{{ ri.code }}" id="rchip-{{ c.id }}" title="{{ ri.text }}">{{ {'unassigned':'⚠ No driver','waitlist':'⏳ Waitlist','scheduled':'🕓 Scheduled','enroute':'🚗 Driver en route','arrived':'📍 Driver at pickup','picked_up':'🚐 Guest on board','dropped_off':'🏁 Dropped off','at_venue':'✅ At venue','left':'👋 Left','unconfirmed':'❓ Not confirmed'}.get(ri.code, ri.code) }}{% if ri.source %}<span class="src">· {{ ri.source }}</span>{% endif %}</span>
                                 <div class="ride-note" id="rnote-{{ c.id }}" style="{{ '' if (ri.note and (ri.unassigned or 'double' in ri.note or 'online' in ri.note)) else 'display:none;' }}">{{ ri.note }}</div>
                                 <button class="assign-btn{{ '' if ri.unassigned else ' soft' }}" id="rassign-{{ c.id }}" onclick="openAssign({{ c.id }}, {{ c.nome|tojson }})">{{ '👤 Assign driver' if ri.unassigned else '↔ Change driver' }}</button>
@@ -365,6 +373,10 @@
                                     <button class="rideback-btn" onclick='openRideBack({{ c.id }}, {{ (c.destination or "")|tojson }}, {{ (c.endereco or "")|tojson }}, {{ "true" if c.has_return_ride else "false" }})'>🔄 Ride Back</button>
                                     {% endif %}
                                     <button class="edit-btn-full" onclick='openEdit({{ c.id }}, {{ {"nome": c.nome, "phone": c.phone or "", "endereco": c.endereco or "", "destination": c.destination or "", "package": c.package or "", "guests": c.guests or 0, "details": c.details or "", "pickup_datetime": c.pickup_datetime or ""}|tojson }})'>✏️ Edit reservation</button>
+                                </div>
+                                <div class="hist-box">
+                                    <button class="eta-btn" onclick="loadHistory({{ c.id }})">📜 History (how it was created, every change)</button>
+                                    <div id="hist-{{ c.id }}"></div>
                                 </div>
                             </div>
                         </td>
@@ -1058,6 +1070,30 @@ async function saveEdit(){
 }
 </script>
 <script>
+// ── Ride history (audit trail) ──
+async function loadHistory(id){
+  const box = document.getElementById('hist-'+id);
+  box.innerHTML = '<div class="hl">⏳ Loading…</div>';
+  try{
+    const d = await (await fetch('/admin/guestlist/'+id+'/events')).json();
+    const r = d.ride || {};
+    let html = `<div class="hl"><b>Created:</b> ${escH(r.created_at||'?')} · <b>via:</b> ${escH(r.source||r.promoter||'?')}`
+             + (r.created_by?` · <b>by:</b> ${escH(r.created_by)}`:'') + (r.external_ref?` · <b>order:</b> ${escH(r.external_ref)}`:'') + `</div>`;
+    if(!(d.events||[]).length) html += '<div class="hl">No events recorded yet (older ride).</div>';
+    for(const e of (d.events||[])) html += `<div class="hl"><span class="ha">${escH(e.at||'')}</span> <b>${escH(e.event)}</b> <span style="opacity:.7">[${escH(e.actor||'')}]</span> ${escH(e.detail||'')}</div>`;
+    box.innerHTML = html;
+  }catch(e){ box.innerHTML = '<div class="hl">Could not load history.</div>'; }
+}
+async function mergeDup(dupId, keepId, name){
+  if(!keepId) return;
+  if(!confirm(`Merge ${name}'s ride #${dupId} into #${keepId}?\n\nPhones, notes and package from #${dupId} are copied over, then #${dupId} is deleted (its driver is told).`)) return;
+  try{
+    const d = await (await fetch('/admin/guestlist/merge/'+dupId+'/'+keepId,{method:'POST'})).json();
+    if(d.success){ toast('Merged into #'+d.kept); setTimeout(()=>location.reload(),700); }
+    else toast(d.error||'Could not merge', false);
+  }catch(e){ toast('Connection error', false); }
+}
+
 // ── Assign / change driver ──
 let _asId = null;
 function escH(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -1122,7 +1158,9 @@ async function doAssign(driverName){
       chip.innerHTML = escH(CHIP[item.ride_status]||item.ride_status) + (item.ride_source?'<span class="src">· '+escH(item.ride_source)+'</span>':'');
     }
     const drv = document.getElementById('rdrv-'+item.id);
-    if(drv){ drv.innerText = item.driver || '—'; }
+    if(drv){ drv.innerHTML = escH(item.driver || '—') + (item.origin?'<span class="origin-tag">'+escH(item.origin)+'</span>':''); }
+    const dup = document.getElementById('rdup-'+item.id);
+    if(dup){ dup.style.display = item.dup_of ? '' : 'none'; dup.querySelectorAll('.dupof').forEach(s=>s.innerText=item.dup_of||''); }
     const note = document.getElementById('rnote-'+item.id);
     if(note){
       const show = item.note && (item.unassigned || item.note.indexOf('double')>=0 || item.note.indexOf('online')>=0);
