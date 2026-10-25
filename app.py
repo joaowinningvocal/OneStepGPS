@@ -3698,9 +3698,41 @@ def sms_test():
     }
     to = request.form.get('to', '').strip() or request.args.get('to', '').strip()
     if not to:
-        return jsonify({"hint": "add ?to=+1702... to send a test text and see Telnyx's answer", "status": status})
-    result = send_sms(to, "ClubLifter test message — your Telnyx integration is working.")
-    return jsonify({"status": status, "result": result})
+        return jsonify({"hint": "add ?to=+1702... to send a test text; &otp=1 sends the exact login-code "
+                                "wording; &text=... sends custom text. Then /api/sms-status?id=<sid> shows "
+                                "whether the carrier delivered it.", "status": status})
+    text = (request.args.get('text') or request.form.get('text') or "").strip()
+    if request.args.get('otp') or request.form.get('otp'):
+        text = "Your ClubLifter verification code is 123456. It expires in 10 minutes."
+    result = send_sms(to, text or "ClubLifter test message — your Telnyx integration is working.")
+    return jsonify({"status": status, "sent_text": text or "(default test text)", "result": result,
+                    "next": f"/api/sms-status?id={result.get('sid')}" if result.get("sid") else None})
+
+@app.route('/api/sms-status')
+def sms_status():
+    """Ask Telnyx what happened to a message after it was accepted: delivered,
+    still sending, or delivery_failed (carrier filtering shows up here)."""
+    if not (session.get("logged") and is_master()):
+        return jsonify({"error": "Unauthorized"}), 401
+    mid = (request.args.get("id") or "").strip()
+    if not mid:
+        return jsonify({"error": "add ?id=<message id from /api/sms-test>"}), 400
+    try:
+        r = requests.get(f"https://api.telnyx.com/v2/messages/{mid}",
+                         headers={"Authorization": f"Bearer {TELNYX_API_KEY}"}, timeout=15)
+        data = (r.json() or {}).get("data", {}) if r.text else {}
+        tos = data.get("to") or []
+        return jsonify({
+            "http": r.status_code,
+            "text": (data.get("text") or "")[:120],
+            "from": (data.get("from") or {}).get("phone_number"),
+            "to": [{"number": t.get("phone_number"), "status": t.get("status"), "carrier": t.get("carrier")} for t in tos],
+            "errors": data.get("errors") or [],
+            "sent_at": data.get("sent_at"), "completed_at": data.get("completed_at"),
+            "raw": data if r.status_code != 200 else None,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/debug/schema')
 def debug_schema():
