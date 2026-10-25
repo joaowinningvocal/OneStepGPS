@@ -10615,6 +10615,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
         <label class="login-label" style="margin-top:14px;">Your name (optional)</label>
         <input id="loginName" class="login-input" placeholder="What should we call you?" autocomplete="name">
         <button class="login-btn" onclick="verifyCode()">Verify &amp; continue</button>
+        <button class="login-link" id="resendBtn" onclick="resendCode()" disabled style="opacity:.55;">Resend code (30s)</button>
         <button class="login-link" onclick="backToPhone()">← Use a different number</button>
       </div>
 
@@ -11174,13 +11175,61 @@ async function sendCode(){
       document.getElementById('loginStep2').style.display='block';
       document.getElementById('codeSentTo').innerText = `We texted a code to ${phone}.`;
       msg.innerText=''; document.getElementById('loginCode').focus();
+      startResendTimer();
     }else{ msg.className='login-msg err'; msg.innerText=d.error||'Could not send code'; }
   }catch(e){ msg.className='login-msg err'; msg.innerText='Network error'; }
+}
+// ── Resend code: 30 s cooldown on the button (server enforces it too, plus a
+// cap of 4 codes per 15 min per number) ──
+let _resendTimer = null;
+function startResendTimer(){
+  const b = document.getElementById('resendBtn');
+  if(!b) return;
+  let left = 30;
+  b.disabled = true; b.style.opacity = '.55'; b.innerText = `Resend code (${left}s)`;
+  clearInterval(_resendTimer);
+  _resendTimer = setInterval(()=>{
+    left -= 1;
+    if(left <= 0){ clearInterval(_resendTimer); b.disabled = false; b.style.opacity = '1'; b.innerText = 'Resend code'; }
+    else b.innerText = `Resend code (${left}s)`;
+  }, 1000);
+}
+async function resendCode(){
+  const phone = document.getElementById('loginPhone').value.trim();
+  const msg = document.getElementById('loginMsg');
+  const b = document.getElementById('resendBtn');
+  if(b.disabled) return;
+  b.disabled = true; msg.className='login-msg'; msg.innerText='Sending a new code…';
+  try{
+    const d = await (await fetch(`${API_BASE}/api/app/auth/send-code`,{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone})
+    })).json();
+    if(d.success){
+      msg.className='login-msg'; msg.innerText='New code sent. Only the newest code works.';
+      document.getElementById('loginCode').value=''; document.getElementById('loginCode').focus();
+      startResendTimer();
+    }else{
+      msg.className='login-msg err'; msg.innerText=d.error||'Could not resend the code';
+      if(d.retry_in){ startResendTimerFor(d.retry_in); } else { b.disabled=false; b.style.opacity='1'; }
+    }
+  }catch(e){ msg.className='login-msg err'; msg.innerText='Network error'; b.disabled=false; b.style.opacity='1'; }
+}
+function startResendTimerFor(sec){
+  const b = document.getElementById('resendBtn');
+  let left = Math.max(1, Math.round(sec));
+  b.disabled = true; b.style.opacity = '.55'; b.innerText = `Resend code (${left}s)`;
+  clearInterval(_resendTimer);
+  _resendTimer = setInterval(()=>{
+    left -= 1;
+    if(left <= 0){ clearInterval(_resendTimer); b.disabled = false; b.style.opacity = '1'; b.innerText = 'Resend code'; }
+    else b.innerText = `Resend code (${left}s)`;
+  }, 1000);
 }
 function backToPhone(){
   document.getElementById('loginStep2').style.display='none';
   document.getElementById('loginStep1').style.display='block';
   document.getElementById('loginMsg').innerText='';
+  clearInterval(_resendTimer);
 }
 async function verifyCode(){
   const phone = document.getElementById('loginPhone').value.trim();

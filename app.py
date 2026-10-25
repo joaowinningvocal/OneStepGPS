@@ -15,6 +15,8 @@ except Exception:
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -2763,10 +2765,21 @@ def app_auth_send_code():
     # skips SMS entirely and accepts a fixed code. Never sends a real text.
     if phone == DEMO_PHONE:
         return jsonify({"success": True, "message": "Code sent."})
-    # Rate limit: max 1 code per 30s per phone
+    # Rate limits: 1 code per 30 s per phone, and at most 4 codes per 15 min
+    # (so a resend button can't be used to spam a number or our SMS bill).
     recent = OTPCode.query.filter_by(phone=phone).order_by(OTPCode.created_at.desc()).first()
     if recent and (datetime.utcnow() - recent.created_at).total_seconds() < 30:
-        return jsonify({"success": False, "error": "Please wait a moment before requesting another code."})
+        wait = 30 - int((datetime.utcnow() - recent.created_at).total_seconds())
+        return jsonify({"success": False, "retry_in": wait,
+                        "error": f"Please wait {wait}s before requesting another code."})
+    window_start = datetime.utcnow() - timedelta(minutes=15)
+    sent_recently = OTPCode.query.filter(OTPCode.phone == phone, OTPCode.created_at >= window_start).count()
+    if sent_recently >= 4:
+        oldest = (OTPCode.query.filter(OTPCode.phone == phone, OTPCode.created_at >= window_start)
+                  .order_by(OTPCode.created_at.asc()).first())
+        wait = int((oldest.created_at + timedelta(minutes=15) - datetime.utcnow()).total_seconds()) + 1
+        return jsonify({"success": False, "retry_in": max(wait, 1),
+                        "error": "Too many codes requested. Please try again in a few minutes."})
     code = "".join(_secrets.choice("0123456789") for _ in range(6))
     otp = OTPCode(phone=phone, code=code, expires_at=datetime.utcnow() + timedelta(minutes=10))
     db.session.add(otp)
