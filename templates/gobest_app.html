@@ -341,6 +341,16 @@ body{
 .tr-to{background:#22c55e;}
 .tr-line{width:2px;height:16px;background:var(--bd);margin-left:5px;}
 
+/* ── TAKE ME THERE (in-app map + directions to a club) ── */
+#clubMap{flex:1;min-height:200px;width:100%;background:#0d1117;}
+.cm-addr{font-size:.85rem;color:var(--m);line-height:1.4;}
+.cm-meta{display:flex;align-items:center;gap:12px;margin:8px 0 14px;}
+.cm-route{display:none;background:var(--surf,#161129);border:1px solid var(--bd);border-radius:14px;padding:12px 14px;margin-bottom:14px;}
+.cm-eta{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:#22c55e;}
+.cm-step{font-size:.9rem;color:var(--t);margin-top:6px;line-height:1.35;}
+.cm-step b{color:var(--acc3);}
+.cm-me{width:18px;height:18px;border-radius:50%;background:#3b82f6;border:3px solid #fff;box-shadow:0 0 0 6px rgba(59,130,246,.25);}
+
 /* ── CHAT ── */
 .chat-screen{background:var(--bg,#08060f);}
 .chat-hdr{display:flex;align-items:center;gap:12px;padding:14px 18px;padding-top:calc(14px + env(safe-area-inset-top));background:var(--surf,#161129);border-bottom:1px solid var(--bd);position:relative;z-index:5;}
@@ -10549,7 +10559,6 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     </div>
     <div class="scan-sim">
       <button class="scan-sim-btn" onclick="openCodeEntry()">⌨️ Enter code instead</button>
-      <button class="scan-sim-btn" style="background:rgba(138,92,246,.5);margin-top:8px;" onclick="simulateScan()">🎯 Simulate a scan (demo)</button>
     </div>
     <div class="scan-fail" id="scanFail">
       <div class="x">✕</div>
@@ -10757,6 +10766,25 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     </div>
   </div>
 
+  <!-- ═══ TAKE ME THERE (club map + in-app directions) ═══ -->
+  <div class="screen track-screen" id="screen-club">
+    <div class="track-hdr">
+      <button class="back" onclick="closeClubMap()">‹</button>
+      <div class="track-hdr-title" id="cmName">—</div>
+      <button class="track-chat-btn" onclick="recenterClubMap()">◎</button>
+    </div>
+    <div id="clubMap"></div>
+    <div class="track-panel">
+      <div class="cm-addr" id="cmAddr"></div>
+      <div class="cm-meta" id="cmMeta"></div>
+      <div class="cm-route" id="cmRoute">
+        <div class="cm-eta" id="cmEta"></div>
+        <div class="cm-step" id="cmStep"></div>
+      </div>
+      <button class="track-ride-btn" id="cmGoBtn" onclick="toggleDirections()">🧭 Show me the way</button>
+    </div>
+  </div>
+
   <!-- ═══ CHAT SCREEN ═══ -->
   <div class="screen chat-screen" id="screen-chat">
     <div class="chat-hdr">
@@ -10791,7 +10819,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
 
   <!-- ═══ GLOBAL BOTTOM NAV (shown on Explore & Profile) ═══ -->
   <div class="nav" id="mainNav">
-    <button class="nav-btn active" id="navExplore" onclick="showScreen('home');setNav('navExplore')"><span class="ico">🏙️</span>Explore</button>
+    <button class="nav-btn active" id="navExplore" onclick="tapExplore()"><span class="ico">🏙️</span>Explore</button>
     <button class="nav-btn scan-btn" onclick="openScanner()"><span class="ico">⧉</span>Scan</button>
     <button class="nav-btn" id="navProfile" onclick="openProfile()"><span class="ico">👤</span>Profile</button>
   </div>
@@ -10824,8 +10852,7 @@ let _ageVerified = false;
 function confirmAge(){
   _ageVerified = true;
   document.getElementById('ageGate').classList.add('hidden');
-  // Persist for native builds (window hook set by native.js if present)
-  if(window._persistAgeVerified) window._persistAgeVerified();
+  storeSet('cl_age_ok', '1');
   // After age, require login before entering the app
   startAfterAge();
 }
@@ -10961,8 +10988,10 @@ async function loadClubs(coords, state, detected){
     document.getElementById('heroSub').innerText = `${clubs.length} ClubLifter ${clubs.length===1?'club':'clubs'} ready to welcome you. Scan a QR at any venue for a free drink.`;
   }
 
+  _clubsById = {};
+  clubs.forEach(c=>{ _clubsById[c.id] = c; });
   list.innerHTML = clubs.map(c=>`
-    <div class="club" onclick="previewClub(${c.id})">
+    <div class="club" onclick="takeMeThere(${c.id})">
       <div class="club-img">${c.photo_url?`<img src="${c.photo_url}" style="width:100%;height:100%;object-fit:cover;border-radius:13px;">`:'🍾'}</div>
       <div class="club-info">
         <div class="club-name">${esc(c.name)}</div>
@@ -10971,22 +11000,179 @@ async function loadClubs(coords, state, detected){
           ${c.distance_mi!=null?`<span class="club-dist">📍 ${c.distance_mi} mi</span>`:''}
           ${c.free_drink?`<span class="club-drink">🍸 Free drink</span>`:''}
         </div>
-        <button class="take-me" onclick='event.stopPropagation();takeMeThere(${JSON.stringify(c.address||"")}, ${c.lat!=null?c.lat:'null'}, ${c.lng!=null?c.lng:'null'}, ${JSON.stringify(c.name||"")})'>🧭 Take me there!</button>
+        <button class="take-me" onclick="event.stopPropagation();takeMeThere(${c.id})">🧭 Take me there!</button>
       </div>
     </div>`).join('');
 }
 
-function takeMeThere(address, lat, lng, name){
-  // Open Google Maps directions. Prefer coordinates (most accurate); fall back
-  // to the address. Works on iOS/Android (opens the Maps app) and desktop.
-  let dest;
-  if(lat!=null && lng!=null){
-    dest = `${lat},${lng}`;
-  }else{
-    dest = encodeURIComponent(address || name);
+// ══════════════════════════════════════════════════════════════════
+//  TAKE ME THERE — club on an in-app map, then "Show me the way" draws the
+//  driving route and follows the user live. Never leaves the app for Maps.
+// ══════════════════════════════════════════════════════════════════
+const MAP_TILES = 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2hxe_1_6ff26a5d73490112bf3e5408';
+const ARRIVED_M = 80;      // within this distance of the club = arrived
+const REROUTE_M = 150;     // re-fetch the route after moving this far
+let _clubsById = {};
+let _clubMap = null, _clubMarker = null, _meMarker = null, _routeLine = null;
+let _cmClub = null, _geoWatch = null, _routeFrom = null, _routeBusy = false;
+
+function takeMeThere(id){
+  const c = _clubsById[id];
+  if(!c) return;
+  stopDirections();
+  _cmClub = c;
+  document.getElementById('cmName').innerText = c.name || 'Club';
+  document.getElementById('cmAddr').innerText = c.address || '';
+  document.getElementById('cmMeta').innerHTML =
+    (c.distance_mi!=null ? `<span class="club-dist">📍 ${c.distance_mi} mi</span>` : '') +
+    (c.free_drink ? `<span class="club-drink">🍸 Free drink</span>` : '');
+  const btn = document.getElementById('cmGoBtn');
+  const hasPin = c.lat!=null && c.lng!=null;
+  btn.style.display = hasPin ? '' : 'none';
+  if(!hasPin){
+    document.getElementById('cmRoute').style.display = 'block';
+    document.getElementById('cmEta').innerText = '';
+    document.getElementById('cmStep').innerText = "This venue's location isn't on the map yet.";
   }
-  const url = `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
-  window.open(url, '_blank');
+  showScreen('club');
+  setTimeout(()=>{
+    if(!_clubMap){
+      _clubMap = L.map('clubMap', {zoomControl:false, attributionControl:false}).setView([36.1147,-115.1728], 12);
+      L.tileLayer(MAP_TILES,{maxZoom:20}).addTo(_clubMap);
+    }else{
+      _clubMap.invalidateSize();
+    }
+    if(_clubMarker){ _clubMap.removeLayer(_clubMarker); _clubMarker = null; }
+    if(hasPin){
+      const pin = L.divIcon({html:'<div style="font-size:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))">📍</div>',className:'',iconSize:[34,34],iconAnchor:[17,32]});
+      _clubMarker = L.marker([c.lat, c.lng],{icon:pin}).addTo(_clubMap);
+    }
+    if(currentCoords) placeMe(currentCoords);
+    recenterClubMap();
+  }, 200);
+}
+
+function closeClubMap(){
+  stopDirections();
+  showScreen('home'); setNav('navExplore');
+}
+
+// Fit the club and the user on screen (or follow the user while navigating).
+function recenterClubMap(){
+  if(!_clubMap) return;
+  if(_geoWatch!=null && currentCoords){ _clubMap.setView([currentCoords.lat, currentCoords.lng], 16, {animate:true}); return; }
+  const pts = [];
+  if(_clubMarker) pts.push(_clubMarker.getLatLng());
+  if(_meMarker) pts.push(_meMarker.getLatLng());
+  if(pts.length === 2) _clubMap.fitBounds(L.latLngBounds(pts), {padding:[50,50], maxZoom:16});
+  else if(pts.length === 1) _clubMap.setView(pts[0], 15);
+}
+
+function placeMe(coords){
+  if(!_clubMap || !coords) return;
+  const pos = [coords.lat, coords.lng];
+  if(!_meMarker){
+    _meMarker = L.marker(pos,{icon:L.divIcon({html:'<div class="cm-me"></div>',className:'',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(_clubMap);
+  }else{
+    _meMarker.setLatLng(pos);
+  }
+}
+
+function distM(a, b){
+  const R = 6371000, rad = Math.PI/180;
+  const dLat = (b.lat-a.lat)*rad, dLng = (b.lng-a.lng)*rad;
+  const h = Math.sin(dLat/2)**2 + Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+
+function toggleDirections(){
+  if(_geoWatch!=null) stopDirections();
+  else startDirections();
+}
+
+async function startDirections(){
+  const c = _cmClub;
+  if(!c || c.lat==null || c.lng==null) return;
+  const btn = document.getElementById('cmGoBtn');
+  btn.disabled = true; btn.innerText = 'Finding your route…';
+  const me = await getLocation();
+  currentCoords = me;
+  placeMe(me);
+  await drawRoute(me);
+  // They may have backed out (or opened another club) while the route loaded.
+  if(_cmClub !== c || !document.getElementById('screen-club').classList.contains('active')) return;
+  btn.disabled = false; btn.innerText = '■ End directions';
+  // Show the whole route first; from here the map pans along with the user.
+  if(_clubMap && _routeLine) _clubMap.fitBounds(_routeLine.getBounds(), {padding:[40,40]});
+  // Follow the user live; re-route once they've moved far enough.
+  if(navigator.geolocation){
+    _geoWatch = navigator.geolocation.watchPosition(p=>{
+      const pos = {lat:p.coords.latitude, lng:p.coords.longitude};
+      currentCoords = pos;
+      placeMe(pos);
+      if(_clubMap) _clubMap.panTo([pos.lat, pos.lng], {animate:true});
+      if(distM(pos, {lat:c.lat, lng:c.lng}) <= ARRIVED_M){ showArrived(); return; }
+      if(!_routeFrom || distM(pos, _routeFrom) >= REROUTE_M) drawRoute(pos);
+    }, ()=>{}, {enableHighAccuracy:true, maximumAge:5000, timeout:15000});
+  }else{
+    _geoWatch = 0;  // no live updates, but keep the "End directions" state
+  }
+}
+
+function stopDirections(){
+  if(_geoWatch!=null && navigator.geolocation) navigator.geolocation.clearWatch(_geoWatch);
+  _geoWatch = null; _routeFrom = null;
+  if(_routeLine && _clubMap){ _clubMap.removeLayer(_routeLine); _routeLine = null; }
+  document.getElementById('cmRoute').style.display = 'none';
+  const btn = document.getElementById('cmGoBtn');
+  btn.disabled = false; btn.innerText = '🧭 Show me the way'; btn.onclick = toggleDirections;
+}
+
+async function drawRoute(from){
+  const c = _cmClub;
+  if(_routeBusy || !c) return;
+  _routeBusy = true;
+  _routeFrom = from;
+  const box = document.getElementById('cmRoute');
+  let latlngs, d = null;
+  try{
+    d = await (await fetch(`${API_BASE}/api/app/route?from_lat=${from.lat}&from_lng=${from.lng}&to_lat=${c.lat}&to_lng=${c.lng}`)).json();
+  }catch(e){}
+  _routeBusy = false;
+  if(_routeFrom !== from || _cmClub !== c) return;   // directions ended meanwhile
+  if(d && d.success && d.coords && d.coords.length){
+    latlngs = d.coords;
+    document.getElementById('cmEta').innerText = `${d.duration_min} min · ${d.distance_mi} mi`;
+    // steps[0] is "head out" from where the user is; steps[1] is the next turn.
+    const next = (d.steps||[])[1];
+    const lead = d.steps[0] ? d.steps[0].distance_mi : 0;
+    document.getElementById('cmStep').innerHTML = next
+      ? (lead < 0.03 ? `<b>Now</b>: ${esc(next.text)}`
+         : `In <b>${lead < 0.1 ? Math.round(lead*5280/50)*50 + ' ft' : lead.toFixed(1) + ' mi'}</b>: ${esc(next.text)}`)
+      : esc((d.steps||[])[0] ? d.steps[0].text : '');
+  }else{
+    // No route available — straight line so they at least know the direction.
+    latlngs = [[from.lat, from.lng], [c.lat, c.lng]];
+    const mi = (distM(from, {lat:c.lat, lng:c.lng})/1609.344).toFixed(1);
+    document.getElementById('cmEta').innerText = `${mi} mi away`;
+    document.getElementById('cmStep').innerText = "Couldn't load turn-by-turn directions — head toward the pin.";
+  }
+  box.style.display = 'block';
+  if(_clubMap){
+    if(_routeLine) _clubMap.removeLayer(_routeLine);
+    _routeLine = L.polyline(latlngs, {color:'#8a5cf6', weight:6, opacity:.9, dashArray: d && d.success ? null : '8 10'}).addTo(_clubMap);
+  }
+}
+
+function showArrived(){
+  const name = _cmClub ? _cmClub.name : 'the club';
+  stopDirections();
+  document.getElementById('cmRoute').style.display = 'block';
+  document.getElementById('cmEta').innerText = "You've arrived! 🎉";
+  document.getElementById('cmStep').innerText = `Welcome to ${name}. Scan the ClubLifter QR at the bar for your free drink.`;
+  const btn = document.getElementById('cmGoBtn');
+  btn.innerText = '⧉ Scan for my free drink';
+  btn.onclick = ()=>{ stopDirections(); openScanner(); };
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -11098,22 +11284,6 @@ async function submitCode(){
   await redeem(code);
 }
 
-async function simulateScan(){
-  // Fallback demo button — redeems a club in the current state, or any ClubLifter club.
-  let clubId = null;
-  try{
-    let r = await fetch(`${API_BASE}/api/app/clubs?state=${encodeURIComponent(currentState||'')}`);
-    let d = await r.json();
-    if(!(d.clubs && d.clubs.length)){
-      r = await fetch(`${API_BASE}/api/app/clubs`);
-      d = await r.json();
-    }
-    if(d.clubs && d.clubs.length) clubId = d.clubs[0].id;
-  }catch(e){}
-  if(!clubId){ document.getElementById('scanFail').classList.add('show'); return; }
-  await redeem(`GOBEST:${clubId}`);
-}
-
 async function redeem(code){
   try{
     const r = await fetch(`${API_BASE}/api/app/redeem`,{
@@ -11139,13 +11309,52 @@ async function redeem(code){
 
 // ══════════════════════════════════════════════════════════════════
 //  APP AUTH + PROFILE + LOYALTY
-//  Token is kept in a JS variable (artifacts can't use localStorage). In the
-//  native Capacitor build this is swapped for secure storage / Preferences.
+//  The session token, 21+ answer, name and phone are persisted so the guest
+//  stays logged in across app restarts: Capacitor Preferences in the native app
+//  (survives iOS web-storage purges), localStorage on the web.
 // ══════════════════════════════════════════════════════════════════
 let _token = null;
 let _user = null;
 let _lastClub = null;
 let _pendingCheckinCode = null;
+
+function _prefs(){
+  const C = window.Capacitor;
+  return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.Preferences) || null;
+}
+async function storeGet(key){
+  try{
+    const p = _prefs();
+    if(p){ const {value} = await p.get({key}); return value; }
+    return localStorage.getItem(key);
+  }catch(e){ return null; }
+}
+function storeSet(key, value){
+  try{
+    const p = _prefs();
+    if(p) p.set({key, value:String(value)});
+    else localStorage.setItem(key, String(value));
+  }catch(e){}
+}
+function storeRemove(key){
+  try{
+    const p = _prefs();
+    if(p) p.remove({key});
+    else localStorage.removeItem(key);
+  }catch(e){}
+}
+// Remember who they are so a re-login (new phone, expired session) is one step.
+function rememberUser(u){
+  if(!u) return;
+  if(u.name) storeSet('cl_name', u.name);
+  if(u.phone) storeSet('cl_phone', u.phone);
+}
+async function prefillLogin(){
+  const [name, phone] = await Promise.all([storeGet('cl_name'), storeGet('cl_phone')]);
+  const ln = document.getElementById('loginName'), lp = document.getElementById('loginPhone');
+  if(name && ln && !ln.value) ln.value = name;
+  if(phone && lp && !lp.value) lp.value = formatPhone(phone);
+}
 
 function setNav(activeId){
   document.querySelectorAll('.nav .nav-btn').forEach(b=>b.classList.remove('active'));
@@ -11244,9 +11453,11 @@ async function verifyCode(){
     })).json();
     if(d.success){
       _token = d.token; _user = d.user;
+      storeSet('cl_token', d.token);
+      rememberUser(d.user);
       msg.className='login-msg ok'; msg.innerText='Welcome!';
-      // Reset login form for next time
-      document.getElementById('loginCode').value=''; document.getElementById('loginPhone').value='';
+      // Reset the code for next time (phone + name stay prefilled)
+      document.getElementById('loginCode').value='';
       backToPhone();
       // If there was a check-in waiting for login, do it now
       if(_pendingCheckinCode){ const c=_pendingCheckinCode; _pendingCheckinCode=null; await recordCheckin(c); }
@@ -11261,6 +11472,7 @@ function skipLogin(){
 }
 function appLogout(){
   _token=null; _user=null;
+  storeRemove('cl_token');
   showScreen('home'); setNav('navExplore');
 }
 
@@ -11276,8 +11488,8 @@ async function confirmDeleteAccount(){
       method:'POST', headers:{'Authorization':`Bearer ${_token}`}
     })).json();
     if(d.success){
-      // Fully sign out: clear in-memory + persisted token (native) and reset UI.
-      fullSignOut();
+      // Fully sign out: clear the session and forget the remembered name/phone.
+      fullSignOut(true);
       alert('Your account has been permanently deleted.');
     }else{
       alert(d.error || 'Could not delete account. Please try again.');
@@ -11339,20 +11551,18 @@ function switchHistTab(which){
   document.getElementById('histTabVenues').classList.toggle('active', !visits);
 }
 
-// Clears all auth state (memory + native storage) and returns to the login screen.
-function fullSignOut(){
+// Clears all auth state (memory + persisted) and returns to the login screen.
+// forget=true (account deleted) also wipes the remembered name and phone.
+function fullSignOut(forget){
   _token = null; _user = null;
   _pendingCheckinCode = null;
-  // Wipe any persisted token immediately on native (don't wait for the poller).
-  try{
-    if(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences){
-      window.Capacitor.Plugins.Preferences.remove({ key: 'cl_token' });
-    }
-  }catch(e){}
-  // Reset the login form fields.
-  const lp=document.getElementById('loginPhone'); if(lp) lp.value='';
+  storeRemove('cl_token');
   const lc=document.getElementById('loginCode'); if(lc) lc.value='';
-  const ln=document.getElementById('loginName'); if(ln) ln.value='';
+  if(forget){
+    storeRemove('cl_name'); storeRemove('cl_phone');
+    const lp=document.getElementById('loginPhone'); if(lp) lp.value='';
+    const ln=document.getElementById('loginName'); if(ln) ln.value='';
+  }
   if(typeof backToPhone==='function'){ try{ backToPhone(); }catch(e){} }
   // Send them to the login screen (age gate already passed).
   showScreen('login');
@@ -11384,11 +11594,15 @@ function closeRideBackSheet(){ document.getElementById('rideBackSheet').classLis
 async function loadProfile(){
   if(!_token) return;
   try{
-    const d = await (await fetch(`${API_BASE}/api/app/profile`,{
+    const r = await fetch(`${API_BASE}/api/app/profile`,{
       headers:{'Authorization':`Bearer ${_token}`}
-    })).json();
-    if(!d.success){ if(d.error){ appLogout(); } return; }
+    });
+    // Only a rejected token logs them out — a server hiccup must not.
+    if(r.status === 401){ fullSignOut(); return; }
+    const d = await r.json();
+    if(!d.success) return;
     const u = d.user; _user = u;
+    rememberUser(u);
     document.getElementById('profName').innerText = u.name || 'Guest';
     document.getElementById('profPhone').innerText = u.phone ? formatPhone(u.phone) : '';
     document.getElementById('profLevelName').innerText = u.level_name;
@@ -11533,8 +11747,15 @@ function formatPhone(p){
   return p;
 }
 
-function previewClub(id){
-  openScanner();
+// Explore tab: from another tab → go home. Already home → scroll back to the top,
+// and if already at the top, refresh the club list.
+function tapExplore(){
+  const home = document.getElementById('screen-home');
+  const wasHome = home.classList.contains('active');
+  showScreen('home'); setNav('navExplore');
+  if(!wasHome) return;
+  if(home.scrollTop > 10) home.scrollTo({top:0, behavior:'smooth'});
+  else if(currentCoords) detectAndLoad(currentCoords, false);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -11552,6 +11773,7 @@ function showScreen(name){
   // Stop tracking/chat polling when leaving those screens
   if(name !== 'track' && _trackTimer){ clearInterval(_trackTimer); _trackTimer=null; }
   if(name !== 'chat' && _chatTimer){ clearInterval(_chatTimer); _chatTimer=null; }
+  if(name !== 'club' && _geoWatch!=null) stopDirections();
 }
 
 // Start with the age gate. init() runs only after 21+ is confirmed (or restored).
@@ -11760,7 +11982,17 @@ async function sendChatMsg(){
   }catch(e){}
 }
 
-ageGateStart();
+// Boot: restore the saved session and 21+ answer first, so returning guests skip
+// the age gate and the SMS login and land straight on Explore.
+async function boot(){
+  const [tok, age] = await Promise.all([storeGet('cl_token'), storeGet('cl_age_ok')]);
+  if(tok) _token = tok;
+  if(age === '1') _ageVerified = true;
+  prefillLogin();
+  ageGateStart();
+  if(_token) loadProfile();   // fills _user (first name in ride status) and validates the token
+}
+boot();
 </script>
 </body>
 </html>

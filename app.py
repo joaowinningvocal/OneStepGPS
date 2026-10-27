@@ -2731,6 +2731,80 @@ def app_clubs():
         out.sort(key=lambda x: x["name"])
     return jsonify({"success": True, "state": state, "count": len(out), "clubs": out})
 
+# ─── APP DIRECTIONS ("Take me there" — route drawn inside the app) ────────────
+# The app never opens an external Maps app; it asks us for the route and draws it
+# on its own map. Proxied through the backend so the provider can be swapped
+# without shipping a new app build. The public OSRM demo server is fine for light
+# use — point OSRM_URL at a self-hosted/paid instance if traffic grows.
+OSRM_URL = os.environ.get("OSRM_URL", "https://router.project-osrm.org").rstrip("/")
+
+def _osrm_step_text(step):
+    """Turn an OSRM maneuver into a short English instruction."""
+    m = step.get("maneuver") or {}
+    typ = m.get("type") or ""
+    mod = (m.get("modifier") or "").strip()
+    if typ == "fork":
+        mod = mod.replace("slight ", "")
+    road = (step.get("name") or "").strip()
+    onto = f" onto {road}" if road else ""
+    if typ == "depart":
+        return f"Head out on {road}" if road else "Head out"
+    if typ == "arrive":
+        return "You've arrived"
+    if typ in ("roundabout", "rotary"):
+        ex = m.get("exit")
+        return f"At the roundabout, take exit {ex}{onto}" if ex else f"Enter the roundabout{onto}"
+    if typ == "merge":
+        return f"Merge{onto}"
+    if typ == "on ramp":
+        return f"Take the ramp{onto}"
+    if typ == "off ramp":
+        return f"Take the exit{onto}"
+    if typ == "fork":
+        return f"Keep {mod or 'straight'} at the fork{onto}"
+    if mod == "uturn":
+        return f"Make a U-turn{onto}"
+    if mod == "straight" or not mod:
+        return f"Continue straight{onto}"
+    if mod.startswith("slight"):
+        return f"Keep {mod.replace('slight ', '')}{onto}"
+    return f"Turn {mod}{onto}"
+
+@app.route('/api/app/route', methods=['GET'])
+def app_route():
+    """Driving route between two points for the in-app map. Returns the line to
+    draw ([lat, lng] pairs), total distance/time, and turn-by-turn steps."""
+    try:
+        f_lat = float(request.args.get('from_lat')); f_lng = float(request.args.get('from_lng'))
+        t_lat = float(request.args.get('to_lat'));   t_lng = float(request.args.get('to_lng'))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "from_lat, from_lng, to_lat and to_lng are required."}), 400
+    try:
+        r = requests.get(
+            f"{OSRM_URL}/route/v1/driving/{f_lng},{f_lat};{t_lng},{t_lat}",
+            params={"overview": "full", "geometries": "geojson", "steps": "true"},
+            headers={"User-Agent": NOMINATIM_UA}, timeout=10)
+        data = r.json()
+    except Exception as e:
+        print(f"[ROUTE] OSRM request failed: {e}", flush=True)
+        return jsonify({"success": False, "error": "Directions are unavailable right now."})
+    routes = data.get("routes") or []
+    if data.get("code") != "Ok" or not routes:
+        return jsonify({"success": False, "error": "No route found."})
+    route = routes[0]
+    steps = []
+    for leg in route.get("legs") or []:
+        for s in leg.get("steps") or []:
+            steps.append({"text": _osrm_step_text(s),
+                          "distance_mi": round((s.get("distance") or 0) / 1609.344, 2)})
+    return jsonify({
+        "success": True,
+        "coords": [[lat, lng] for lng, lat in (route.get("geometry") or {}).get("coordinates", [])],
+        "distance_mi": round((route.get("distance") or 0) / 1609.344, 1),
+        "duration_min": max(1, round((route.get("duration") or 0) / 60)),
+        "steps": steps,
+    })
+
 # ─── APP AUTH (SMS login) + PROFILE ───────────────────────────────────────────
 import secrets as _secrets
 
@@ -2839,7 +2913,7 @@ def app_auth_verify():
         db.session.add(user)
     else:
         user.verified = True
-        if name and not user.name:
+        if name:
             user.name = name
     user.auth_token = _secrets.token_hex(24)
     user.last_seen = datetime.utcnow()
