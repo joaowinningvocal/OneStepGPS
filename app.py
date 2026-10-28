@@ -8692,6 +8692,50 @@ def _mark_original_left(ret_ride, source):
         db.session.commit()
         ride_status_changed(orig, before, source)
 
+# Venues run overnight (e.g. Hustler 5 PM → 7 AM), so a guest's "night" ends the
+# next morning. At CLUB_CLOSE_HOUR (Las Vegas time) everyone from the night that
+# just ended who is still "arrived" is checked out as "left". Only bookings up to
+# that closing time are touched — tonight's and future guests are left alone.
+CLUB_CLOSE_HOUR = int(os.environ.get("CLUB_CLOSE_HOUR", "7"))
+
+def _vegas_naive(dt_utc):
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import timezone as _tz
+        return dt_utc.replace(tzinfo=_tz.utc).astimezone(ZoneInfo("America/Los_Angeles")).replace(tzinfo=None)
+    except Exception:
+        return dt_utc - timedelta(hours=7)
+
+def auto_close_night():
+    now_v = vegas_naive_now()
+    if now_v.hour < CLUB_CLOSE_HOUR:
+        return                                   # the night is still going
+    close_v = now_v.replace(hour=CLUB_CLOSE_HOUR, minute=0, second=0, microsecond=0)
+    closed = 0
+    for c in Customer.query.filter(Customer.club_status == "arrived").all():
+        # Which night: the booked pickup time, or (no usable time) when they arrived.
+        when = parse_pickup_datetime(c.pickup_datetime) or (_vegas_naive(c.arrived_at) if c.arrived_at else None)
+        if when is None or when > close_v:
+            continue
+        before = _ride_status_info(c)[0]
+        c.club_status = "left"
+        mark_status(c, "auto-close")
+        db.session.commit()
+        fire_webhook({
+            "event":          "club_status_change",
+            "customer_id":    c.id,
+            "customer_name":  c.nome,
+            "customer_phone": c.phone,
+            "destination":    c.destination,
+            "new_status":     "left",
+            "source":         "auto-close",
+            "timestamp":      datetime.utcnow().isoformat()
+        })
+        ride_status_changed(c, before, "auto-close")
+        closed += 1
+    if closed:
+        print(f"[NIGHT-CLOSE] {closed} guest(s) still 'arrived' after {CLUB_CLOSE_HOUR}:00 → left", flush=True)
+
 def _proximity_sms(c, label, body):
     car_photo_url = f"{PUBLIC_BASE_URL}/uploads/{c.car_photo}" if c.car_photo else ""
     fire_webhook({"type": "distance", "threshold": label, "customer_id": c.id,
@@ -8914,6 +8958,7 @@ def run_tracker_tick():
                       ("ASSIGN", auto_assign_pending),
                       ("AUTO-STATUS", auto_progress_rides),
                       ("FAILSAFE", auto_timeouts),
+                      ("NIGHT-CLOSE", auto_close_night),
                       ("GEO", backfill_ride_coords),        # slow part last
                       ("CLEANUP", _purge_old_here_photos)):
         try:
