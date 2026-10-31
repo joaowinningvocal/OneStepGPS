@@ -373,6 +373,96 @@ body{
 .chat-input{flex:1;background:var(--surf2,#1e1738);border:1px solid var(--bd);border-radius:22px;padding:12px 16px;color:var(--t);font-size:.92rem;font-family:'DM Sans',sans-serif;}
 .chat-input:focus{outline:none;border-color:var(--acc);}
 .chat-send{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;border:none;width:44px;height:44px;border-radius:50%;font-size:1.1rem;cursor:pointer;flex-shrink:0;}
+
+/* ── ADMIN MODE (staff linked on the ClubLifter website) ── */
+.hdr-right{display:flex;align-items:center;gap:8px;}
+.admin-chip{display:none;align-items:center;gap:5px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.4);color:var(--gold);padding:7px 11px;border-radius:100px;font-size:.76rem;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.is-staff .admin-chip{display:flex;}
+.adm-entry{display:none;width:100%;text-align:left;background:linear-gradient(135deg,rgba(251,191,36,.14),rgba(245,158,11,.06));border:1px solid rgba(251,191,36,.4);color:var(--gold);padding:14px 16px;border-radius:14px;font-family:'DM Sans',sans-serif;font-weight:700;font-size:.95rem;cursor:pointer;margin-bottom:18px;}
+.adm-entry span{display:block;color:var(--m);font-weight:500;font-size:.78rem;margin-top:3px;}
+.is-staff .adm-entry{display:block;}
+.admin-screen{background:var(--bg);}
+.adm-who{font-size:.74rem;color:var(--m2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.adm-icon-btn{background:rgba(255,255,255,.08);border:none;color:var(--t);width:38px;height:38px;border-radius:50%;font-size:1.1rem;cursor:pointer;flex-shrink:0;}
+.adm-body{flex:1;padding:16px 18px calc(150px + env(safe-area-inset-bottom));}
+.adm-filters{display:flex;gap:8px;margin-bottom:12px;}
+.adm-select,.adm-date,.adm-search,.adm-input{width:100%;min-width:0;background:var(--surf);border:1px solid var(--bd);color:var(--t);border-radius:11px;padding:11px 12px;font-size:.88rem;font-family:'DM Sans',sans-serif;-webkit-appearance:none;appearance:none;}
+.adm-select:focus,.adm-date:focus,.adm-search:focus,.adm-input:focus{outline:none;border-color:var(--acc);}
+.adm-date{color-scheme:dark;}
+.adm-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;}
+.adm-stat{background:var(--surf);border:1px solid var(--bd);border-radius:12px;padding:10px 4px;text-align:center;cursor:pointer;color:var(--t);font-family:'DM Sans',sans-serif;}
+.adm-stat b{display:block;font-size:1.35rem;font-weight:700;line-height:1;margin-bottom:4px;font-variant-numeric:tabular-nums;}
+.adm-stat span{font-size:.6rem;text-transform:uppercase;letter-spacing:.5px;color:var(--m2);font-weight:700;}
+.adm-stat.on{border-color:var(--bhi);background:rgba(138,92,246,.16);}
+.adm-alert{background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.4);color:#fb923c;border-radius:11px;padding:10px 12px;font-size:.8rem;font-weight:600;margin-bottom:12px;}
+.adm-search{margin-bottom:12px;}
+.g-row{display:flex;align-items:center;gap:12px;background:var(--surf);border:1px solid var(--bd);border-radius:14px;padding:12px 12px 12px 14px;margin-bottom:8px;cursor:pointer;}
+.g-row.prio{border-color:rgba(251,191,36,.5);}
+.g-main{flex:1;min-width:0;}
+.g-name{font-weight:700;font-size:.96rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.g-sub{font-size:.76rem;color:var(--m);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.g-warn{color:#fb923c;}
+.g-badge{font-size:.64rem;font-weight:800;padding:5px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;flex-shrink:0;}
+.st-coming{background:rgba(138,92,246,.16);color:var(--acc3);}
+.st-arrived{background:rgba(34,197,94,.16);color:#4ade80;}
+.st-left{background:rgba(255,255,255,.07);color:var(--m2);}
+.g-in{flex-shrink:0;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:11px;padding:10px 12px;font-weight:700;font-size:.8rem;font-family:'DM Sans',sans-serif;cursor:pointer;}
+.adm-fab{position:fixed;right:18px;bottom:calc(88px + env(safe-area-inset-bottom));z-index:90;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;border:none;border-radius:100px;padding:14px 20px;font-weight:700;font-size:.9rem;font-family:'DM Sans',sans-serif;box-shadow:0 8px 24px rgba(138,92,246,.45);cursor:pointer;}
+.adm-card{background:var(--surf);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:14px;}
+.adm-card-title{font-family:'Syne',sans-serif;font-weight:700;font-size:1rem;margin-bottom:4px;}
+.adm-field label{display:block;font-size:.7rem;font-weight:700;color:var(--m2);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px;}
+.adm-row2{display:flex;gap:8px;}
+.adm-row2>*{flex:1;min-width:0;}
+.adm-seg{display:flex;gap:6px;}
+.adm-seg button{flex:1;padding:11px 6px;border-radius:11px;border:1px solid var(--bd);background:var(--surf);color:var(--m2);font-weight:700;font-size:.82rem;font-family:'DM Sans',sans-serif;cursor:pointer;}
+.adm-seg button.on{border-color:var(--bhi);background:rgba(138,92,246,.18);color:var(--t);}
+.adm-seg button.on.s-arrived{border-color:rgba(34,197,94,.55);background:rgba(34,197,94,.18);}
+.adm-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;}
+.adm-btn{display:block;text-align:center;text-decoration:none;padding:13px 10px;border-radius:12px;border:1px solid var(--bd);background:var(--surf);color:var(--t);font-weight:700;font-size:.86rem;font-family:'DM Sans',sans-serif;cursor:pointer;}
+.adm-btn.pri{background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;color:#fff;}
+.adm-btn.danger{border-color:rgba(239,68,68,.35);color:#ef4444;background:none;}
+.adm-btn.full{grid-column:1/-1;}
+.adm-btn:disabled{opacity:.55;}
+.adm-sheet{position:absolute;inset:0;z-index:160;background:rgba(6,4,12,.82);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:none;align-items:flex-end;justify-content:center;}
+.adm-sheet.show{display:flex;animation:revFade .25s ease;}
+.adm-sheet-box{position:relative;background:var(--bg2);border:1px solid var(--bd);border-bottom:none;border-radius:24px 24px 0 0;width:100%;max-width:600px;max-height:90%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 20px calc(24px + env(safe-area-inset-bottom));-webkit-user-select:text;user-select:text;}
+.adm-grab{width:40px;height:4px;border-radius:2px;background:rgba(255,255,255,.18);margin:0 auto 14px;}
+.adm-x{position:absolute;top:12px;right:14px;background:rgba(255,255,255,.08);border:none;color:var(--t);width:34px;height:34px;border-radius:50%;font-size:1rem;cursor:pointer;}
+.adm-title{font-family:'Syne',sans-serif;font-weight:800;font-size:1.35rem;line-height:1.15;padding-right:40px;margin-bottom:4px;word-break:break-word;}
+.adm-subtitle{font-size:.82rem;color:var(--m);margin-bottom:14px;}
+.adm-kv{display:flex;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid var(--bd);font-size:.86rem;}
+.adm-kv span{color:var(--m2);flex-shrink:0;}
+.adm-kv b{text-align:right;font-weight:600;word-break:break-word;}
+.adm-kv a{color:var(--acc3);text-decoration:none;}
+.adm-ev{font-size:.82rem;padding:9px 0;border-bottom:1px solid var(--bd);line-height:1.4;}
+.adm-ev small{display:block;color:var(--m2);font-size:.72rem;}
+.adm-toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(100px + env(safe-area-inset-bottom));z-index:300;background:#16a34a;color:#fff;padding:11px 18px;border-radius:12px;font-weight:700;font-size:.86rem;display:none;max-width:88%;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.45);}
+.adm-toast.err{background:#dc2626;}
+.adm-toast.show{display:block;}
+.qr-card{display:flex;gap:12px;background:var(--surf);border:1px solid var(--bd);border-radius:14px;padding:12px;margin-bottom:10px;}
+.qr-card.off{opacity:.6;}
+.qr-card img{width:84px;height:84px;border-radius:10px;background:#fff;flex-shrink:0;cursor:pointer;}
+.qr-code{font-family:'Courier New',monospace;font-weight:700;font-size:1.05rem;letter-spacing:.08em;}
+.qr-meta{font-size:.76rem;color:var(--m);margin-top:3px;line-height:1.35;}
+.qr-btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;}
+.qr-btns button{font-size:.74rem;padding:7px 10px;border-radius:9px;border:1px solid var(--bd);background:none;color:var(--t);font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;}
+.qr-big{display:block;width:100%;max-width:280px;margin:6px auto 14px;border-radius:14px;background:#fff;}
+.qr-result{text-align:center;padding:6px 0 4px;}
+.qr-result .ico{width:64px;height:64px;border-radius:50%;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:800;color:#fff;}
+.qr-result .ico.ok{background:linear-gradient(135deg,#22c55e,#16a34a);}
+.qr-result .ico.no{background:linear-gradient(135deg,#ef4444,#b91c1c);}
+/* ── FREE PICKUP (managed clubs' "Take me there") ── */
+.club-pickup{display:flex;align-items:center;gap:4px;font-size:.72rem;color:var(--green);font-weight:700;}
+.pickup-hero{text-align:center;padding:10px 4px 22px;}
+.pickup-hero .ico{font-size:3.2rem;margin-bottom:10px;}
+.pickup-hero h1{font-family:'Syne',sans-serif;font-weight:800;font-size:1.9rem;line-height:1.1;letter-spacing:-.02em;margin-bottom:10px;}
+.pickup-hero p{color:var(--m);font-size:.95rem;line-height:1.5;}
+.pickup-hero b{color:var(--t);}
+.pickup-steps{background:var(--surf);border:1px solid var(--bd);border-radius:16px;padding:6px 16px;margin-bottom:20px;}
+.pickup-step{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--bd);font-size:.88rem;line-height:1.4;}
+.pickup-step:last-child{border-bottom:none;}
+.pickup-step i{font-style:normal;width:26px;height:26px;border-radius:50%;background:rgba(138,92,246,.2);color:var(--acc3);font-weight:800;font-size:.8rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.pickup-alt{width:100%;background:none;border:1px solid var(--bd);color:var(--m2);padding:14px;border-radius:13px;font-weight:600;font-size:.88rem;cursor:pointer;margin-top:12px;font-family:'DM Sans',sans-serif;}
 </style>
 <script>
 (function webpackUniversalModuleDefinition(root, factory) {
@@ -10505,7 +10595,10 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
   <div class="screen active" id="screen-home">
     <div class="hdr safe-top">
       <div class="brand"><span class="go">Club</span><span class="best">Lifter</span></div>
-      <div class="loc-chip"><span class="dot"></span><span id="locLabel">Locating…</span></div>
+      <div class="hdr-right">
+        <button class="admin-chip" onclick="openAdmin()">🛡️ Admin</button>
+        <div class="loc-chip"><span class="dot"></span><span id="locLabel">Locating…</span></div>
+      </div>
     </div>
     <div class="home-body">
       <div class="state-hero">
@@ -10641,6 +10734,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
         <div class="profile-name" id="profName">—</div>
         <div class="profile-phone" id="profPhone"></div>
       </div>
+      <button class="adm-entry" onclick="openAdmin()">🛡️ Open Admin mode<span>Guest list · check-in · QR codes for your ClubLifter staff account</span></button>
 
       <div class="level-card">
         <div class="level-top">
@@ -10805,6 +10899,81 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     </div>
   </div>
 
+  <!-- ═══ FREE PICKUP (ClubLifter-managed clubs' "Take me there") ═══ -->
+  <div class="screen history-screen" id="screen-pickup">
+    <div class="hist-hdr">
+      <button class="back" onclick="closePickup()">‹</button>
+      <div class="hist-hdr-title" id="puName">Free pickup</div>
+    </div>
+    <div class="hist-body">
+      <div class="pickup-hero">
+        <div class="ico">🚐</div>
+        <h1>Your ride is on us</h1>
+        <p>ClubLifter will pick you up and bring you to <b id="puClub">the club</b> — free.</p>
+      </div>
+      <div class="pickup-steps">
+        <div class="pickup-step"><i>1</i><div>Pick your pickup spot and time on the booking page.</div></div>
+        <div class="pickup-step"><i>2</i><div>We text you when your driver is assigned and on the way.</div></div>
+        <div class="pickup-step"><i>3</i><div>Booked with this phone number? Your ride shows up on your home screen so you can track it live.</div></div>
+      </div>
+      <button class="track-ride-btn" onclick="bookFreePickup()">🚐 Book my free pickup</button>
+      <button class="pickup-alt" onclick="pickupDirections()">🧭 I'll get there myself — show directions</button>
+    </div>
+  </div>
+
+  <!-- ═══ ADMIN: GUEST LIST (staff only — access is set on the ClubLifter website) ═══ -->
+  <div class="screen admin-screen" id="screen-admin">
+    <div class="hist-hdr">
+      <div style="flex:1;min-width:0;">
+        <div class="hist-hdr-title">Guest list</div>
+        <div class="adm-who" id="admWho"></div>
+      </div>
+      <button class="adm-icon-btn" onclick="loadAdminGuests()" aria-label="Refresh">⟳</button>
+    </div>
+    <div class="adm-body">
+      <div class="adm-filters">
+        <input type="date" id="admDate" class="adm-date" onchange="loadAdminGuests()">
+        <select id="admClub" class="adm-select" onchange="loadAdminGuests()"><option value="all">All clubs</option></select>
+      </div>
+      <div class="adm-stats" id="admStats"></div>
+      <div class="adm-alert" id="admAlert" style="display:none;"></div>
+      <input id="admSearch" class="adm-search" type="search" placeholder="Search name or phone" oninput="renderAdminGuests()" autocomplete="off">
+      <div id="admList"><div class="spinner"></div></div>
+    </div>
+    <button class="adm-fab" onclick="openGuestForm()">＋ Add guest</button>
+  </div>
+
+  <!-- ═══ ADMIN: QR CODES (same codes as App Manager on the website) ═══ -->
+  <div class="screen admin-screen" id="screen-adminqr">
+    <div class="hist-hdr">
+      <div style="flex:1;min-width:0;">
+        <div class="hist-hdr-title">QR codes</div>
+        <div class="adm-who">Same codes as App Manager on the website</div>
+      </div>
+      <button class="adm-icon-btn" onclick="loadAdminQr()" aria-label="Refresh">⟳</button>
+    </div>
+    <div class="adm-body">
+      <div class="adm-card">
+        <div class="adm-card-title">New QR code</div>
+        <div class="adm-field"><label>Club</label><select id="qrClub" class="adm-select"></select></div>
+        <div class="adm-field"><label>Label (where it goes)</label><input id="qrLabel" class="adm-input" placeholder="e.g. Front door"></div>
+        <div class="adm-field"><label>Free drink (blank = club default)</label><input id="qrDrink" class="adm-input" placeholder="e.g. House margarita"></div>
+        <button class="adm-btn pri full" style="margin-top:14px;width:100%;" onclick="createQr(this)">Create QR code</button>
+      </div>
+      <div id="admQrList"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+  <!-- ═══ ADMIN: shared bottom sheet (guest details, forms, QR check results) ═══ -->
+  <div class="adm-sheet" id="admSheet" onclick="if(event.target===this)closeAdmSheet()">
+    <div class="adm-sheet-box">
+      <div class="adm-grab"></div>
+      <button class="adm-x" onclick="closeAdmSheet()" aria-label="Close">✕</button>
+      <div id="admSheetBody"></div>
+    </div>
+  </div>
+  <div class="adm-toast" id="admToast"></div>
+
   <!-- ═══ WELCOME OVERLAY ═══ -->
   <div class="welcome" id="welcome">
     <div class="welcome-inner">
@@ -10820,8 +10989,16 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
   <!-- ═══ GLOBAL BOTTOM NAV (shown on Explore & Profile) ═══ -->
   <div class="nav" id="mainNav">
     <button class="nav-btn active" id="navExplore" onclick="tapExplore()"><span class="ico">🏙️</span>Explore</button>
-    <button class="nav-btn scan-btn" onclick="openScanner()"><span class="ico">⧉</span>Scan</button>
+    <button class="nav-btn scan-btn" onclick="startRedeemScan()"><span class="ico">⧉</span>Scan</button>
     <button class="nav-btn" id="navProfile" onclick="openProfile()"><span class="ico">👤</span>Profile</button>
+  </div>
+
+  <!-- ═══ ADMIN BOTTOM NAV (Admin mode only) ═══ -->
+  <div class="nav" id="adminNav" style="display:none;">
+    <button class="nav-btn" id="admNavGuests" onclick="openAdmin()"><span class="ico">📋</span>Guests</button>
+    <button class="nav-btn scan-btn" id="admNavScan" onclick="startValidateScan()"><span class="ico">⧉</span>Check QR</button>
+    <button class="nav-btn" id="admNavQr" onclick="openAdminQr()"><span class="ico">🎟️</span>QR codes</button>
+    <button class="nav-btn" onclick="exitAdmin()"><span class="ico">🏙️</span>Guest app</button>
   </div>
 
 </div>
@@ -10892,13 +11069,26 @@ async function init(){
 
 function getLocation(){
   return new Promise((resolve)=>{
-    if(!navigator.geolocation){ resolve(DEMO_STATES[0]); return; }
+    // No fix (location off/denied): Vegas, so the club list still loads. It's
+    // flagged approx so directions never start from it.
+    const fallback = ()=>resolve(Object.assign({approx:true}, DEMO_STATES[0]));
+    if(!navigator.geolocation){ fallback(); return; }
     navigator.geolocation.getCurrentPosition(
       p=>resolve({lat:p.coords.latitude, lng:p.coords.longitude}),
-      ()=>resolve(DEMO_STATES[0]),   // fallback to Vegas for the POC
+      fallback,
       {enableHighAccuracy:true, timeout:6000, maximumAge:60000}
     );
   });
+}
+
+// Live position while directions are on. native.js swaps in the Geolocation
+// plugin (same permission as getLocation, no second web prompt on iOS).
+function watchLocation(onPos){
+  if(!navigator.geolocation) return null;
+  const id = navigator.geolocation.watchPosition(
+    p=>onPos({lat:p.coords.latitude, lng:p.coords.longitude}),
+    ()=>{}, {enableHighAccuracy:true, maximumAge:5000, timeout:15000});
+  return {clear(){ navigator.geolocation.clearWatch(id); }};
 }
 
 async function detectAndLoad(coords, announce){
@@ -10999,6 +11189,7 @@ async function loadClubs(coords, state, detected){
         <div class="club-meta">
           ${c.distance_mi!=null?`<span class="club-dist">📍 ${c.distance_mi} mi</span>`:''}
           ${c.free_drink?`<span class="club-drink">🍸 Free drink</span>`:''}
+          ${c.take_me_there==='pickup'?`<span class="club-pickup">🚐 Free pickup</span>`:''}
         </div>
         <button class="take-me" onclick="event.stopPropagation();takeMeThere(${c.id})">🧭 Take me there!</button>
       </div>
@@ -11016,9 +11207,31 @@ let _clubsById = {};
 let _clubMap = null, _clubMarker = null, _meMarker = null, _routeLine = null;
 let _cmClub = null, _geoWatch = null, _routeFrom = null, _routeBusy = false;
 
+// ClubLifter-managed clubs with a booking link (set on the website's Clubs
+// screen) offer a free pickup; every other club — and a managed one whose link
+// isn't set yet — opens the in-app map with directions.
 function takeMeThere(id){
   const c = _clubsById[id];
   if(!c) return;
+  if(c.take_me_there === 'pickup' && c.pickup_booking_url) openFreePickup(c);
+  else openClubMap(c);
+}
+
+let _puClub = null;
+function openFreePickup(c){
+  stopDirections();
+  _puClub = c;
+  document.getElementById('puName').innerText = c.name || 'Free pickup';
+  document.getElementById('puClub').innerText = c.name || 'the club';
+  showScreen('pickup');
+}
+function bookFreePickup(){
+  if(_puClub && _puClub.pickup_booking_url) openExternal(_puClub.pickup_booking_url);
+}
+function pickupDirections(){ if(_puClub) openClubMap(_puClub); }
+function closePickup(){ showScreen('home'); setNav('navExplore'); }
+
+function openClubMap(c){
   stopDirections();
   _cmClub = c;
   document.getElementById('cmName').innerText = c.name || 'Club';
@@ -11047,7 +11260,7 @@ function takeMeThere(id){
       const pin = L.divIcon({html:'<div style="font-size:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))">📍</div>',className:'',iconSize:[34,34],iconAnchor:[17,32]});
       _clubMarker = L.marker([c.lat, c.lng],{icon:pin}).addTo(_clubMap);
     }
-    if(currentCoords) placeMe(currentCoords);
+    if(currentCoords && !currentCoords.approx) placeMe(currentCoords);
     recenterClubMap();
   }, 200);
 }
@@ -11096,6 +11309,15 @@ async function startDirections(){
   const btn = document.getElementById('cmGoBtn');
   btn.disabled = true; btn.innerText = 'Finding your route…';
   const me = await getLocation();
+  if(_cmClub !== c || !document.getElementById('screen-club').classList.contains('active')) return;
+  if(me.approx){
+    // No real fix (location off or denied) — never route from a made-up spot.
+    btn.disabled = false; btn.innerText = '🧭 Show me the way';
+    document.getElementById('cmRoute').style.display = 'block';
+    document.getElementById('cmEta').innerText = 'Location is off';
+    document.getElementById('cmStep').innerText = "Allow location for ClubLifter in your phone's Settings, then tap Show me the way again.";
+    return;
+  }
   currentCoords = me;
   placeMe(me);
   await drawRoute(me);
@@ -11105,22 +11327,17 @@ async function startDirections(){
   // Show the whole route first; from here the map pans along with the user.
   if(_clubMap && _routeLine) _clubMap.fitBounds(_routeLine.getBounds(), {padding:[40,40]});
   // Follow the user live; re-route once they've moved far enough.
-  if(navigator.geolocation){
-    _geoWatch = navigator.geolocation.watchPosition(p=>{
-      const pos = {lat:p.coords.latitude, lng:p.coords.longitude};
+  _geoWatch = watchLocation(pos=>{
       currentCoords = pos;
       placeMe(pos);
       if(_clubMap) _clubMap.panTo([pos.lat, pos.lng], {animate:true});
       if(distM(pos, {lat:c.lat, lng:c.lng}) <= ARRIVED_M){ showArrived(); return; }
       if(!_routeFrom || distM(pos, _routeFrom) >= REROUTE_M) drawRoute(pos);
-    }, ()=>{}, {enableHighAccuracy:true, maximumAge:5000, timeout:15000});
-  }else{
-    _geoWatch = 0;  // no live updates, but keep the "End directions" state
-  }
+  }) || 0;  // 0 = no live updates, but keep the "End directions" state
 }
 
 function stopDirections(){
-  if(_geoWatch!=null && navigator.geolocation) navigator.geolocation.clearWatch(_geoWatch);
+  if(_geoWatch && _geoWatch.clear) _geoWatch.clear();
   _geoWatch = null; _routeFrom = null;
   if(_routeLine && _clubMap){ _clubMap.removeLayer(_routeLine); _routeLine = null; }
   document.getElementById('cmRoute').style.display = 'none';
@@ -11172,7 +11389,7 @@ function showArrived(){
   document.getElementById('cmStep').innerText = `Welcome to ${name}. Scan the ClubLifter QR at the bar for your free drink.`;
   const btn = document.getElementById('cmGoBtn');
   btn.innerText = '⧉ Scan for my free drink';
-  btn.onclick = ()=>{ stopDirections(); openScanner(); };
+  btn.onclick = ()=>{ stopDirections(); startRedeemScan(); };
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -11238,7 +11455,7 @@ function closeScanner(){
   if(_scanTimer){ clearInterval(_scanTimer); _scanTimer = null; }
   if(_camStream){ _camStream.getTracks().forEach(t=>t.stop()); _camStream=null; }
   const v=document.getElementById('qr-video'); if(v) v.srcObject=null;
-  showScreen('home');
+  scanCancelled();
 }
 
 function startQRLoop(){
@@ -11260,7 +11477,7 @@ function startQRLoop(){
       _scanning = false;
       clearInterval(_scanTimer); _scanTimer = null;
       if(_camStream){ _camStream.getTracks().forEach(t=>t.stop()); _camStream=null; }
-      redeem(code.data.trim());
+      handleScanned(code.data.trim());
     }
   }, 250);
 }
@@ -11281,7 +11498,7 @@ async function submitCode(){
   _scanning = false;
   if(_scanTimer){ clearInterval(_scanTimer); _scanTimer=null; }
   if(_camStream){ _camStream.getTracks().forEach(t=>t.stop()); _camStream=null; }
-  await redeem(code);
+  await handleScanned(code);
 }
 
 async function redeem(code){
@@ -11463,6 +11680,7 @@ async function verifyCode(){
       if(_pendingCheckinCode){ const c=_pendingCheckinCode; _pendingCheckinCode=null; await recordCheckin(c); }
       // Enter the app on the home screen (loads clubs + active-ride card)
       init();
+      refreshStaff().then(st=>{ if(st) admToast('🛡️ Staff account — tap Admin for your tools'); });
     }else{ msg.className='login-msg err'; msg.innerText=d.error||'Verification failed'; }
   }catch(e){ msg.className='login-msg err'; msg.innerText='Network error'; }
 }
@@ -11472,6 +11690,7 @@ function skipLogin(){
 }
 function appLogout(){
   _token=null; _user=null;
+  clearStaff();
   storeRemove('cl_token');
   showScreen('home'); setNav('navExplore');
 }
@@ -11556,6 +11775,7 @@ function switchHistTab(which){
 function fullSignOut(forget){
   _token = null; _user = null;
   _pendingCheckinCode = null;
+  clearStaff();
   storeRemove('cl_token');
   const lc=document.getElementById('loginCode'); if(lc) lc.value='';
   if(forget){
@@ -11770,6 +11990,8 @@ function showScreen(name){
     const withNav = (name === 'home' || name === 'profile');
     nav.style.display = withNav ? 'flex' : 'none';
   }
+  const anav = document.getElementById('adminNav');
+  if(anav) anav.style.display = (name === 'admin' || name === 'adminqr') ? 'flex' : 'none';
   // Stop tracking/chat polling when leaving those screens
   if(name !== 'track' && _trackTimer){ clearInterval(_trackTimer); _trackTimer=null; }
   if(name !== 'chat' && _chatTimer){ clearInterval(_chatTimer); _chatTimer=null; }
@@ -11982,17 +12204,552 @@ async function sendChatMsg(){
   }catch(e){}
 }
 
+// ══════════════════════════════════════════════════════════════════
+//  ADMIN MODE — staff tools for accounts linked on the ClubLifter website.
+//  The website decides who is staff (Users → Mobile phone) and what their role
+//  allows; the app only asks (/api/app/admin/me) and the server re-checks every
+//  admin call. When access is removed there, the next check drops the app out
+//  of Admin mode.
+// ══════════════════════════════════════════════════════════════════
+let _staff = null;            // /api/app/admin/me payload while this user is staff
+let _adminMode = false;
+let _admGuests = [], _admCounts = null, _admFilter = 'all';
+let _admTimer = null, _admMeTimer = null, _admToastTimer = null;
+let _admQrs = [];
+let _scanPurpose = 'redeem';  // 'validate' while staff check a code
+
+async function refreshStaff(){
+  if(!_token){ clearStaff(); return null; }
+  try{
+    const r = await fetch(`${API_BASE}/api/app/admin/me`,{headers:{'Authorization':`Bearer ${_token}`}});
+    if(r.status === 401){ clearStaff(); return null; }   // loadProfile signs them out
+    const d = await r.json();
+    setStaff(d.success && d.is_admin ? d : null);
+  }catch(e){}  // offline: keep what we had; the server still checks each action
+  return _staff;
+}
+function setStaff(s){
+  const had = !!_staff;
+  _staff = s;
+  document.body.classList.toggle('is-staff', !!s);
+  if(s){ applyStaffUI(); return; }
+  if(had || _adminMode) exitAdmin(had ? 'Admin access was turned off for this account.' : '');
+}
+// Forget staff state without navigating (logout / sign-out paths).
+function clearStaff(){
+  _staff = null; _adminMode = false;
+  storeRemove('cl_mode');
+  stopAdminTimers();
+  closeAdmSheet();
+  document.body.classList.remove('is-staff');
+}
+function applyStaffUI(){
+  const s = _staff, p = s.permissions || {};
+  document.getElementById('admWho').innerText = `${s.staff.username} · ${s.staff.role_label}`;
+  document.getElementById('admNavQr').style.display = p.qr_manage ? '' : 'none';
+  document.getElementById('admNavScan').style.display = p.qr_validate ? '' : 'none';
+  const sel = document.getElementById('admClub'), cur = sel.value || 'all';
+  sel.innerHTML = '<option value="all">All clubs</option>' +
+    (s.clubs||[]).map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+  sel.value = Array.from(sel.options).some(o=>o.value===cur) ? cur : 'all';
+  const date = document.getElementById('admDate');
+  if(!date.value) date.value = s.today;
+}
+
+// All admin calls go through here: bearer token, JSON back, and a 403 makes the
+// app re-ask whether this account is still staff (it may have been revoked).
+async function adminApi(path, opts){
+  opts = opts || {};
+  let r;
+  try{
+    r = await fetch(`${API_BASE}/api/app/admin${path}`,
+      Object.assign({}, opts, {headers: Object.assign({'Authorization':`Bearer ${_token}`}, opts.headers||{})}));
+  }catch(e){ return {success:false, error:'No connection — try again.'}; }
+  if(r.status === 401){ fullSignOut(); return {success:false, error:'Please log in again.'}; }
+  let d;
+  try{ d = await r.json(); }catch(e){ d = {success:false, error:'Something went wrong. Try again.'}; }
+  if(r.status === 403) refreshStaff();
+  return d;
+}
+function adminPost(path, fields){
+  const fd = new FormData();
+  Object.keys(fields||{}).forEach(k=>{ if(fields[k]!==undefined && fields[k]!==null) fd.append(k, fields[k]); });
+  return adminApi(path, {method:'POST', body:fd});
+}
+function admToast(msg, err){
+  const t = document.getElementById('admToast');
+  t.innerText = msg; t.className = 'adm-toast show' + (err ? ' err' : '');
+  clearTimeout(_admToastTimer);
+  _admToastTimer = setTimeout(()=>{ t.className = 'adm-toast'; }, 2600);
+}
+function openAdmSheet(html){
+  document.getElementById('admSheetBody').innerHTML = html;
+  document.getElementById('admSheet').classList.add('show');
+  document.querySelector('#admSheet .adm-sheet-box').scrollTop = 0;
+}
+function closeAdmSheet(){ document.getElementById('admSheet').classList.remove('show'); }
+
+async function openAdmin(){
+  if(!_staff){ await refreshStaff(); if(!_staff) return; }
+  _adminMode = true;
+  storeSet('cl_mode', 'admin');
+  showScreen('admin'); setNav('admNavGuests');
+  loadAdminGuests();
+  startAdminTimers();
+}
+function exitAdmin(msg){
+  const wasAdmin = _adminMode;
+  _adminMode = false;
+  storeRemove('cl_mode');
+  stopAdminTimers();
+  closeAdmSheet();
+  const cur = document.querySelector('.screen.active');
+  if(wasAdmin || (cur && /^screen-admin/.test(cur.id))){ showScreen('home'); setNav('navExplore'); }
+  if(msg) alert(msg);
+}
+function startAdminTimers(){
+  stopAdminTimers();
+  // Keep the list live during service (the website's list polls the same way),
+  // and re-check access every minute so a revoke lands even if nobody taps.
+  _admTimer = setInterval(()=>{
+    if(document.getElementById('screen-admin').classList.contains('active') &&
+       !document.getElementById('admSheet').classList.contains('show')) loadAdminGuests(true);
+  }, 15000);
+  _admMeTimer = setInterval(refreshStaff, 60000);
+}
+function stopAdminTimers(){
+  if(_admTimer){ clearInterval(_admTimer); _admTimer = null; }
+  if(_admMeTimer){ clearInterval(_admMeTimer); _admMeTimer = null; }
+}
+
+// ── Guest list ──
+async function loadAdminGuests(silent){
+  if(!_staff) return;
+  const list = document.getElementById('admList');
+  if(!silent && !_admGuests.length) list.innerHTML = '<div class="spinner"></div>';
+  const date = document.getElementById('admDate').value || _staff.today;
+  const club = document.getElementById('admClub').value || 'all';
+  const d = await adminApi(`/guests?date=${encodeURIComponent(date)}&club=${encodeURIComponent(club)}`);
+  if(!d.success){
+    if(!silent) list.innerHTML = `<div class="hist-empty">${esc(d.error||'Could not load the guest list.')}</div>`;
+    return;
+  }
+  _admGuests = d.items || [];
+  _admCounts = d;
+  renderAdminGuests();
+}
+function setAdmFilter(f){ _admFilter = f; renderAdminGuests(); }
+const ADM_STATUS = {coming:'Coming', arrived:'Arrived', left:'Left'};
+function renderAdminGuests(){
+  const c = _admCounts || {total:0, coming:0, arrived:0, left:0, unassigned:0};
+  document.getElementById('admStats').innerHTML = [['all','Total',c.total],['coming','Coming',c.coming],['arrived','Arrived',c.arrived],['left','Left',c.left]]
+    .map(([k,l,n])=>`<button class="adm-stat ${_admFilter===k?'on':''}" onclick="setAdmFilter('${k}')"><b>${n||0}</b><span>${l}</span></button>`).join('');
+  const alertEl = document.getElementById('admAlert');
+  alertEl.style.display = c.unassigned ? 'block' : 'none';
+  alertEl.innerText = c.unassigned ? `⚠️ ${c.unassigned} pickup${c.unassigned>1?'s':''} without a driver yet` : '';
+  const q = (document.getElementById('admSearch').value || '').trim().toLowerCase();
+  const qd = q.replace(/\D/g,'');
+  const rows = _admGuests.filter(g=>{
+    if(_admFilter !== 'all' && (g.club_status||'coming') !== _admFilter) return false;
+    if(!q) return true;
+    return (g.name||'').toLowerCase().includes(q) ||
+           (qd.length >= 3 && (g.phones||[]).some(p=>(p||'').replace(/\D/g,'').includes(qd)));
+  });
+  const list = document.getElementById('admList');
+  if(!rows.length){
+    list.innerHTML = `<div class="hist-empty">${_admGuests.length ? 'No guests match.' : 'No guests on the list for this date.'}</div>`;
+    return;
+  }
+  list.innerHTML = rows.map(g=>{
+    const st = g.club_status || 'coming';
+    const ride = !g.needs_transport ? 'Walk-in' : (g.unassigned ? '<span class="g-warn">No driver yet</span>' : esc(g.ride_text||''));
+    const sub = [esc(g.time), esc(g.destination), g.guests ? `👥 ${g.guests}` : '', ride].filter(Boolean).join(' · ');
+    const right = st === 'coming'
+      ? `<button class="g-in" onclick="event.stopPropagation();setGuestStatus(${g.id},'arrived',this)">✓ Check in</button>`
+      : `<span class="g-badge st-${st}">${ADM_STATUS[st]||st}</span>`;
+    return `<div class="g-row ${g.priority?'prio':''}" onclick="openGuest(${g.id})">
+      <div class="g-main"><div class="g-name">${g.priority?'⭐ ':''}${esc(g.name||'Guest')}${g.reported?' ⚑':''}</div><div class="g-sub">${sub}</div></div>
+      ${right}</div>`;
+  }).join('');
+}
+function admGuest(id){ return _admGuests.find(g=>g.id===id); }
+
+// Check-in / check-out — the same status the website's Guest List sets.
+async function setGuestStatus(id, status, btn){
+  if(btn){ btn.disabled = true; }
+  const d = await adminPost(`/guests/${id}/status`, {club_status:status});
+  if(btn){ btn.disabled = false; }
+  if(!d.success){ admToast(d.error||'Could not update.', true); return; }
+  const g = admGuest(id);
+  if(g && _admCounts){
+    const old = g.club_status || 'coming';
+    if(_admCounts[old] != null) _admCounts[old] -= 1;
+    _admCounts[status] = (_admCounts[status]||0) + 1;
+    g.club_status = status;
+  }
+  renderAdminGuests();
+  if(document.getElementById('admSheet').classList.contains('show') && g) openGuest(id);
+  admToast(status==='arrived' ? `✓ ${g ? g.name : 'Guest'} checked in` : status==='left' ? 'Marked as left' : 'Back to coming');
+}
+
+function telLink(p){ return (p||'').replace(/[^\d+]/g,''); }
+function openGuest(id){
+  const g = admGuest(id);
+  if(!g) return;
+  const st = g.club_status || 'coming';
+  const kv = (k,v)=> v ? `<div class="adm-kv"><span>${k}</span><b>${v}</b></div>` : '';
+  const phones = (g.phones||[]).map(p=>`<a href="tel:${telLink(p)}">${esc(formatPhone(p))}</a>`).join('<br>');
+  const ride = !g.needs_transport ? 'Walk-in (no pickup)'
+    : esc([g.ride_text, g.driver ? `Driver: ${g.driver}` : '', g.note].filter(Boolean).join(' · '));
+  // Ride back returns them to their pickup address, so walk-ins (no address) can't.
+  const canRideBack = g.needs_transport && !g.is_return_ride && !g.has_return_ride && g.destination;
+  openAdmSheet(`
+    <div class="adm-title">${g.priority?'⭐ ':''}${esc(g.name||'Guest')}</div>
+    <div class="adm-subtitle">${esc(g.pickup_datetime||'')}${g.destination?' · '+esc(g.destination):''}</div>
+    <div class="adm-seg">
+      ${['coming','arrived','left'].map(s=>`<button class="${st===s?'on s-'+s:''}" onclick="setGuestStatus(${g.id},'${s}')">${ADM_STATUS[s]}</button>`).join('')}
+    </div>
+    <div style="margin-top:10px;">
+      ${kv('Phone', phones)}
+      ${kv('Party', g.guests ? esc(String(g.guests)) : '')}
+      ${kv('Package', esc(g.package))}
+      ${kv('Pickup', g.needs_transport ? esc(g.address) : '')}
+      ${kv('Ride', ride)}
+      ${g.picked_at ? kv('Picked up', esc(g.picked_at)) : ''}
+      ${g.dropped_at ? kv('Dropped off', esc(g.dropped_at) + (g.verified ? ' ✓' : '')) : ''}
+      ${kv('Notes', esc(g.details))}
+      ${kv('Driver notes', esc(g.driver_notes))}
+      ${g.reported ? kv('⚑ Reported', esc(g.report_reason||'Yes')) : ''}
+      ${kv('Booked by', esc(g.promoter || g.origin))}
+      ${g.dup_of ? kv('Possible duplicate', `of #${g.dup_of}`) : ''}
+    </div>
+    <div class="adm-actions">
+      ${g.phone ? `<a class="adm-btn" href="tel:${telLink(g.phone)}">📞 Call</a><a class="adm-btn" href="sms:${telLink(g.phone)}">💬 Text</a>` : ''}
+      <button class="adm-btn" onclick="toggleGuestPriority(${g.id})">${g.priority?'☆ Remove priority':'⭐ Priority'}</button>
+      <button class="adm-btn" onclick="openGuestForm(${g.id})">✏️ Edit</button>
+      ${canRideBack ? `<button class="adm-btn" onclick="guestRideBack(${g.id})">🔄 Ride back</button>` : ''}
+      <button class="adm-btn" onclick="guestActivity(${g.id})">🕑 Activity</button>
+      <button class="adm-btn danger full" onclick="deleteGuest(${g.id})">Remove from list</button>
+    </div>`);
+}
+
+async function toggleGuestPriority(id){
+  const d = await adminPost(`/guests/${id}/priority`);
+  if(!d.success){ admToast(d.error||'Could not update.', true); return; }
+  const g = admGuest(id); if(g) g.priority = !!d.priority;
+  renderAdminGuests(); openGuest(id);
+  admToast(d.priority ? 'Marked as priority' : 'Priority removed');
+}
+async function deleteGuest(id){
+  const g = admGuest(id);
+  if(!confirm(`Remove ${g ? g.name : 'this guest'} from the guest list?\n\nIf a driver was assigned, they're told the ride is cancelled. This can't be undone.`)) return;
+  const d = await adminPost(`/guests/${id}/delete`);
+  if(!d.success){ admToast(d.error||'Could not remove.', true); return; }
+  closeAdmSheet(); admToast('Removed from the list');
+  loadAdminGuests(true);
+}
+async function guestRideBack(id){
+  const g = admGuest(id);
+  if(!confirm(`Book a ride back for ${g ? g.name : 'this guest'} now?\n\nFrom ${g && g.destination ? g.destination : 'the club'} to their pickup spot, as soon as possible.`)) return;
+  const d = await adminPost(`/guests/${id}/ride-back`);
+  if(!d.success){ admToast(d.error||'Could not book the ride back.', true); return; }
+  closeAdmSheet(); admToast('Ride back booked 🚗');
+  loadAdminGuests(true);
+}
+async function guestActivity(id){
+  const g = admGuest(id);
+  openAdmSheet(`<div class="adm-title">Activity</div><div class="adm-subtitle">${esc(g ? g.name : '')}</div><div class="spinner"></div>`);
+  const d = await adminApi(`/guests/${id}/events`);
+  const evs = (d.success && d.events) || [];
+  const head = d.ride ? `<div class="adm-subtitle">Booked ${esc(d.ride.created_at||'')}${d.ride.source?' via '+esc(d.ride.source):''}${d.ride.created_by?' · '+esc(d.ride.created_by):''}</div>` : '';
+  document.getElementById('admSheetBody').innerHTML = `<div class="adm-title">Activity</div>
+    <div class="adm-subtitle">${esc(g ? g.name : '')}</div>${head}
+    ${evs.length ? evs.slice().reverse().map(e=>`<div class="adm-ev">${esc(e.detail||e.event)}<small>${esc(e.at)} · ${esc(e.actor||'')} · ${esc(e.event)}</small></div>`).join('')
+                 : `<div class="hist-empty">${esc(d.error||'No activity recorded yet.')}</div>`}
+    <button class="adm-btn full" style="margin-top:14px;width:100%;" onclick="openGuest(${id})">‹ Back to guest</button>`;
+}
+
+// Stored as "MM/DD/YYYY hh:mm AM" → date/time inputs, and back (the server
+// normalises "MM/DD/YYYY HH:MM").
+function splitPickup(dt){
+  const m = (dt||'').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+  if(!m) return {date:'', time:''};
+  let h = parseInt(m[4],10);
+  if(m[6]){ const pm = m[6].toUpperCase()==='PM'; if(h===12) h = pm ? 12 : 0; else if(pm) h += 12; }
+  const p2 = n=>String(n).padStart(2,'0');
+  return {date:`${m[3]}-${p2(m[1])}-${p2(m[2])}`, time:`${p2(h)}:${m[5]}`};
+}
+function joinPickup(date, time){
+  if(!date || !time) return '';
+  const [y,mo,d] = date.split('-');
+  return `${mo}/${d}/${y} ${time}`;
+}
+function openGuestForm(id){
+  const g = id ? admGuest(id) : null;
+  const pk = splitPickup(g ? g.pickup_datetime : '');
+  const date = pk.date || document.getElementById('admDate').value || (_staff && _staff.today) || '';
+  const curClub = g ? g.destination : (document.getElementById('admClub').value !== 'all' ? document.getElementById('admClub').value : '');
+  const clubs = (_staff.clubs||[]).map(c=>c.name);
+  if(curClub && !clubs.includes(curClub)) clubs.unshift(curClub);
+  const pkgs = (_staff.packages||[]).map(p=>p.name).filter((n,i,a)=>n && a.indexOf(n)===i);
+  if(g && g.package && !pkgs.includes(g.package)) pkgs.unshift(g.package);
+  const transport = g ? !!g.needs_transport : false;
+  openAdmSheet(`
+    <div class="adm-title">${g ? 'Edit guest' : 'Add guest'}</div>
+    <div class="adm-subtitle">${g ? 'Changes show on the website right away.' : 'Goes straight onto the website\'s guest list.'}</div>
+    ${g ? '' : `<div class="adm-seg" id="gfType">
+      <button class="on" data-v="walkin" onclick="gfSetType('walkin')">Walk-in</button>
+      <button data-v="transport" onclick="gfSetType('transport')">Needs pickup</button></div>`}
+    <div class="adm-field"><label>Name</label><input id="gfName" class="adm-input" value="${esc(g ? g.name : '')}" autocomplete="off"></div>
+    <div class="adm-field"><label>Phone</label><input id="gfPhone" class="adm-input" type="tel" inputmode="tel" value="${esc(g ? g.phone : '')}"></div>
+    <div class="adm-row2">
+      <div class="adm-field"><label>Party size</label><input id="gfGuests" class="adm-input" type="number" min="1" inputmode="numeric" value="${g ? (g.guests||1) : 1}"></div>
+      <div class="adm-field"><label>Club</label><select id="gfClub" class="adm-select">${clubs.map(n=>`<option ${n===curClub?'selected':''}>${esc(n)}</option>`).join('')}</select></div>
+    </div>
+    <div class="adm-row2">
+      <div class="adm-field"><label>Date</label><input id="gfDate" class="adm-date" type="date" value="${esc(date)}"></div>
+      <div class="adm-field"><label>Time</label><input id="gfTime" class="adm-date" type="time" value="${esc(pk.time || '22:00')}"></div>
+    </div>
+    <div class="adm-field" id="gfAddrWrap" style="display:${transport?'block':'none'};"><label>Pickup address</label><input id="gfAddr" class="adm-input" value="${esc(g && g.needs_transport ? g.address : '')}" placeholder="Hotel or street address"></div>
+    <div class="adm-field"><label>Package</label><select id="gfPkg" class="adm-select"><option value="">—</option>${pkgs.map(n=>`<option ${g && g.package===n?'selected':''}>${esc(n)}</option>`).join('')}</select></div>
+    <div class="adm-field"><label>Notes</label><input id="gfNotes" class="adm-input" value="${esc(g ? g.details : '')}"></div>
+    <button class="adm-btn pri full" id="gfSave" style="margin-top:16px;width:100%;" onclick="saveGuestForm(${g ? g.id : 0})">${g ? 'Save changes' : 'Add to guest list'}</button>
+    ${g ? `<button class="adm-btn full" style="margin-top:8px;width:100%;" onclick="openGuest(${g.id})">Cancel</button>` : ''}`);
+}
+function gfSetType(v){
+  document.querySelectorAll('#gfType button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
+  document.getElementById('gfAddrWrap').style.display = v==='transport' ? 'block' : 'none';
+}
+async function saveGuestForm(id, forceDuplicate){
+  const val = k=>(document.getElementById(k).value||'').trim();
+  const name = val('gfName');
+  if(!name){ admToast('Add the guest\'s name', true); return; }
+  const when = joinPickup(val('gfDate'), val('gfTime'));
+  if(!when){ admToast('Pick a date and time', true); return; }
+  const btn = document.getElementById('gfSave'); btn.disabled = true;
+  let d;
+  if(id){
+    const g = admGuest(id), f = {};
+    if(name !== g.name) f.nome = name;
+    if(val('gfPhone') !== (g.phone||'')) f.phone = val('gfPhone');
+    if(String(parseInt(val('gfGuests'),10)||0) !== String(g.guests||0)) f.guests = parseInt(val('gfGuests'),10)||0;
+    if(val('gfClub') !== (g.destination||'')) f.destination = val('gfClub');
+    if(g.needs_transport && val('gfAddr') !== (g.address||'')) f.endereco = val('gfAddr');
+    if(val('gfPkg') !== (g.package||'')) f.package = val('gfPkg');
+    if(val('gfNotes') !== (g.details||'')) f.details = val('gfNotes');
+    const was = splitPickup(g.pickup_datetime);
+    if(val('gfDate') !== was.date || val('gfTime') !== was.time) f.pickup_datetime = when;
+    if(!Object.keys(f).length){ btn.disabled = false; openGuest(id); return; }
+    d = await adminPost(`/guests/${id}/edit`, f);
+  }else{
+    const transport = document.querySelector('#gfType button.on').dataset.v === 'transport';
+    if(transport && !val('gfAddr')){ btn.disabled = false; admToast('Add the pickup address', true); return; }
+    d = await adminPost('/guests/add', {
+      nome:name, client_phone:val('gfPhone'), guests:parseInt(val('gfGuests'),10)||1,
+      destination:val('gfClub'), pickup_datetime:when, package:val('gfPkg'), details:val('gfNotes'),
+      needs_transport: transport ? 'true' : 'false', endereco_completo: transport ? val('gfAddr') : '',
+      force_duplicate: forceDuplicate ? 'true' : 'false',
+    });
+    if(!d.success && d.duplicate){
+      btn.disabled = false;
+      if(confirm(d.message || 'This guest may already be on the list. Add anyway?')) saveGuestForm(0, true);
+      return;
+    }
+  }
+  btn.disabled = false;
+  if(!d.success){ admToast(d.error || d.message || 'Could not save.', true); return; }
+  closeAdmSheet();
+  admToast(id ? 'Saved' : (d.walk_in ? 'Walk-in added ✓' : 'Pickup booked ✓'));
+  await loadAdminGuests(true);
+  if(id) openGuest(id);
+}
+
+// ── QR codes (App Manager) ──
+function openAdminQr(){
+  if(!_staff || !(_staff.permissions||{}).qr_manage) return;
+  showScreen('adminqr'); setNav('admNavQr');
+  loadAdminQr();
+}
+async function loadAdminQr(){
+  const list = document.getElementById('admQrList');
+  if(!_admQrs.length) list.innerHTML = '<div class="spinner"></div>';
+  const d = await adminApi('/qr');
+  if(!d.success){ list.innerHTML = `<div class="hist-empty">${esc(d.error||'Could not load QR codes.')}</div>`; return; }
+  _admQrs = d.qrs || [];
+  const sel = document.getElementById('qrClub'), cur = sel.value;
+  sel.innerHTML = (d.clubs||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  if(cur) sel.value = cur;
+  renderAdminQr();
+}
+function renderAdminQr(){
+  const list = document.getElementById('admQrList');
+  if(!_admQrs.length){ list.innerHTML = '<div class="hist-empty">No QR codes yet. Create the first one above.</div>'; return; }
+  list.innerHTML = _admQrs.map(q=>`
+    <div class="qr-card ${q.active?'':'off'}">
+      <img src="${API_BASE}${q.image_path}" alt="QR ${esc(q.code)}" onclick="viewQr(${q.id})" loading="lazy">
+      <div style="flex:1;min-width:0;">
+        <div class="qr-code">${esc(q.code)}</div>
+        <div class="qr-meta">${esc(q.club_name)}${q.label?' · '+esc(q.label):''}<br>🍸 ${esc(q.drink||'Club default')} · ${q.scan_count} redeemed${q.active?'':' · <b>Paused</b>'}</div>
+        <div class="qr-btns">
+          <button onclick="viewQr(${q.id})">View</button>
+          <button onclick="shareQr(${q.id})">Share</button>
+          <button onclick="openQrFlyer(${q.id})">Flyer</button>
+          <button onclick="toggleQr(${q.id})">${q.active?'Pause':'Activate'}</button>
+          <button style="color:#ef4444;border-color:rgba(239,68,68,.35);" onclick="deleteQr(${q.id})">Delete</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+function admQr(id){ return _admQrs.find(q=>q.id===id); }
+async function createQr(btn){
+  const club_id = document.getElementById('qrClub').value;
+  if(!club_id){ admToast('Pick a club', true); return; }
+  btn.disabled = true;
+  const d = await adminPost('/qr/create', {club_id, label:document.getElementById('qrLabel').value.trim(), drink:document.getElementById('qrDrink').value.trim()});
+  btn.disabled = false;
+  if(!d.success){ admToast(d.error||'Could not create the code.', true); return; }
+  document.getElementById('qrLabel').value = ''; document.getElementById('qrDrink').value = '';
+  _admQrs.unshift(d.qr); renderAdminQr();
+  admToast(`Created ${d.qr.code}`);
+  viewQr(d.qr.id);
+}
+function viewQr(id){
+  const q = admQr(id); if(!q) return;
+  openAdmSheet(`
+    <div class="adm-title">${esc(q.code)}</div>
+    <div class="adm-subtitle">${esc(q.club_name)}${q.label?' · '+esc(q.label):''}${q.active?'':' · Paused'}</div>
+    <img class="qr-big" src="${API_BASE}${q.image_path}" alt="QR ${esc(q.code)}">
+    <div class="adm-subtitle" style="text-align:center;">Guests scan it — or type <b>${esc(q.code)}</b> — in the ClubLifter app for 🍸 ${esc(q.drink||'the club\'s free drink')}.</div>
+    <div class="adm-actions">
+      <button class="adm-btn pri" onclick="shareQr(${q.id})">Share</button>
+      <button class="adm-btn" onclick="openQrFlyer(${q.id})">Printable flyer</button>
+    </div>`);
+}
+async function shareQr(id){
+  const q = admQr(id); if(!q) return;
+  await shareContent({title:`${q.club_name} — ClubLifter QR`,
+    text:`ClubLifter code ${q.code}: scan this QR or type the code in the ClubLifter app for a free drink at ${q.club_name}.`,
+    url:q.share_url});
+}
+async function openQrFlyer(id){
+  const d = await adminApi(`/qr/${id}/flyer-link`);
+  if(!d.success || !d.url){ admToast(d.error||'Could not open the flyer.', true); return; }
+  openExternal(d.url);
+}
+async function toggleQr(id){
+  const d = await adminPost(`/qr/${id}/toggle`);
+  if(!d.success){ admToast(d.error||'Could not update.', true); return; }
+  const q = admQr(id); if(q) q.active = !!d.active;
+  renderAdminQr(); admToast(d.active ? 'Code is live again' : 'Code paused — guests can\'t redeem it');
+}
+async function deleteQr(id){
+  const q = admQr(id);
+  if(!confirm(`Delete ${q ? q.code : 'this code'}?\n\nPrinted copies stop working. To stop it temporarily, use Pause instead.`)) return;
+  const d = await adminPost(`/qr/${id}/delete`);
+  if(!d.success){ admToast(d.error||'Could not delete.', true); return; }
+  _admQrs = _admQrs.filter(x=>x.id!==id); renderAdminQr(); closeAdmSheet();
+  admToast('Deleted');
+}
+
+// ── Check a QR (staff scan): read-only, never counts a redemption ──
+function startValidateScan(){
+  if(!_staff || !(_staff.permissions||{}).qr_validate) return;
+  _scanPurpose = 'validate';
+  setScanCopy();
+  openScanner();
+}
+function setScanCopy(){
+  const v = _scanPurpose === 'validate';
+  document.querySelector('#screen-scan .scan-hdr h2').innerText = v ? 'Check a QR code' : 'Scan club QR';
+  document.querySelector('#screen-scan .scan-hint').innerText = v ? 'Point the camera at a ClubLifter QR to check it' : 'Point your camera at the ClubLifter QR code at the venue';
+  document.querySelector('#codeEntry .ce-title').innerText = v ? 'Check a code' : 'Enter your code';
+  document.querySelector('#codeEntry .ce-go').innerText = v ? 'Check' : 'Redeem';
+}
+async function validateCode(raw){
+  _scanPurpose = 'redeem'; setScanCopy();
+  showScreen('admin'); setNav('admNavGuests');
+  openAdmSheet('<div class="adm-title">Checking…</div><div class="spinner"></div>');
+  const d = await adminPost('/qr/validate', {code:raw});
+  if(!d.success){ openAdmSheet(`<div class="adm-title">Couldn't check</div><div class="adm-subtitle">${esc(d.error||'Try again.')}</div>`); return; }
+  const kv = (k,v)=> v ? `<div class="adm-kv"><span>${k}</span><b>${esc(String(v))}</b></div>` : '';
+  openAdmSheet(`
+    <div class="qr-result"><div class="ico ${d.valid?'ok':'no'}">${d.valid?'✓':'✕'}</div>
+      <div class="adm-title" style="padding-right:0;">${d.valid ? 'Valid code' : (d.kind ? 'Not active' : 'Not valid')}</div>
+      <div class="adm-subtitle">${esc(d.message||'')}</div></div>
+    ${kv('Code', d.code)}${kv('Club', d.club_name)}${kv('Placed at', d.label)}${kv('Free drink', d.drink)}
+    ${d.kind==='managed' ? kv('Redeemed', `${d.scan_count} time${d.scan_count===1?'':'s'}`) : ''}${kv('Created', d.created_at)}
+    <div class="adm-actions"><button class="adm-btn pri" onclick="closeAdmSheet();startValidateScan()">Scan another</button><button class="adm-btn" onclick="closeAdmSheet()">Done</button></div>`);
+}
+
+function startRedeemScan(){
+  _scanPurpose = 'redeem'; setScanCopy();
+  openScanner();
+}
+// What a scan / typed code is for: staff checking it, or a guest redeeming it.
+function handleScanned(raw){
+  if(_scanPurpose === 'validate') return validateCode(raw);
+  return redeem(raw);
+}
+function scanCancelled(){
+  if(_scanPurpose === 'validate'){
+    _scanPurpose = 'redeem'; setScanCopy();
+    showScreen('admin'); setNav('admNavGuests');
+  }else{
+    showScreen('home'); setNav('navExplore');
+  }
+}
+
+// Re-check staff access whenever the app comes back to the foreground.
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && _token) refreshStaff(); });
+
+// ══════════════════════════════════════════════════════════════════
+//  Leaving the app's web view: booking pages and share sheets. Native uses the
+//  Browser / Share plugins when present; the web (and older builds) fall back.
+// ══════════════════════════════════════════════════════════════════
+function _nativePlugin(name){
+  const C = window.Capacitor;
+  return (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins[name]) || null;
+}
+function openExternal(url){
+  const B = _nativePlugin('Browser');
+  if(B){ B.open({url}).catch(()=>window.open(url, '_blank')); return; }
+  window.open(url, '_blank');
+}
+async function shareContent(o){
+  const text = o.url ? `${o.text}\n${o.url}` : o.text;
+  try{
+    const S = _nativePlugin('Share');
+    if(S){ await S.share({title:o.title, text:o.text, url:o.url, dialogTitle:o.title}); return; }
+    if(navigator.share){ await navigator.share({title:o.title, text:o.text, url:o.url}); return; }
+  }catch(e){
+    if(e && (e.name === 'AbortError' || /cancel/i.test(e.message||''))) return;  // they closed the sheet
+  }
+  try{ await navigator.clipboard.writeText(text); admToast('Copied — paste it anywhere'); }
+  catch(e){ window.prompt('Copy this:', text); }
+}
+
 // Boot: restore the saved session and 21+ answer first, so returning guests skip
 // the age gate and the SMS login and land straight on Explore.
 async function boot(){
-  const [tok, age] = await Promise.all([storeGet('cl_token'), storeGet('cl_age_ok')]);
+  const [tok, age, mode] = await Promise.all([storeGet('cl_token'), storeGet('cl_age_ok'), storeGet('cl_mode')]);
   if(tok) _token = tok;
   if(age === '1') _ageVerified = true;
   prefillLogin();
   ageGateStart();
-  if(_token) loadProfile();   // fills _user (first name in ride status) and validates the token
+  if(_token){
+    loadProfile();   // fills _user (first name in ride status) and validates the token
+    // Staff who left the app in Admin mode land back there — if the website
+    // still says they're staff.
+    refreshStaff().then(st=>{ if(st && mode === 'admin' && _ageVerified && _token) openAdmin(); });
+  }
 }
 boot();
+</script>
+<script>
+// Native bridge (ML Kit QR scanner, native GPS, welcome notifications). Only the
+// Capacitor app ships native.js, so it's only requested there. Keep this tag
+// when syncing this file between the website and the app repo.
+if(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform()) document.write('<script src="native.js"><\/script>');
 </script>
 </body>
 </html>

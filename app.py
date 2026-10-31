@@ -12,7 +12,8 @@ try:
     from zoneinfo import ZoneInfo
 except Exception:
     ZoneInfo = None
-from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session, g, has_request_context
+from werkzeug.local import LocalProxy
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 import warnings
@@ -21,6 +22,18 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "devverse_secret_CHANGE_ME")
+
+# `session` in this file is Flask's login session — except while an app Admin-mode
+# request runs a website view as the phone-linked staff account (see
+# app_staff_required), when it's that account's identity, in memory only.
+_flask_session = session
+def _active_session():
+    if has_request_context():
+        staff_session = g.get("staff_session")
+        if staff_session is not None:
+            return staff_session
+    return _flask_session._get_current_object()
+session = LocalProxy(_active_session)
 CORS(app)
 
 # ─── ERROR HANDLERS ────────────────────────────────────────────────────────────
@@ -276,6 +289,10 @@ class User(db.Model):
     clubs         = db.relationship('Club', secondary=user_clubs, backref='promoters')
     # NEW: commission amount the admin sets per promoter (manual $ per sale)
     commission    = db.Column(db.Float, default=0.0)
+    # Mobile phone in E.164 (+17025551234). A guest who signs into the ClubLifter
+    # app with this number (SMS-verified) gets this account's admin tools there.
+    # Clearing it revokes app access. Unique across accounts (enforced on save).
+    phone         = db.Column(db.String(20), default="")
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -296,7 +313,8 @@ class User(db.Model):
             "club_name": self.club.name if self.club else None,
             "clubs": [c.to_dict() for c in self.clubs],
             "club_names": self.get_club_names(),
-            "commission": self.commission
+            "commission": self.commission,
+            "phone": self.phone or "",
         }
 
 class Club(db.Model):
@@ -312,12 +330,28 @@ class Club(db.Model):
     free_drink  = db.Column(db.String(200), default="")    # e.g. "House margarita"
     gobest      = db.Column(db.Boolean, default=True)       # part of the GoBest network
     review_url  = db.Column(db.String(400), default="")     # Google review link for the app prompt
+    # Venues ClubLifter runs. In the app their "Take me there" opens the free
+    # pickup booking page (pickup_booking_url) instead of map directions.
+    managed            = db.Column(db.Boolean, default=False)
+    pickup_booking_url = db.Column(db.String(500), default="")
+
+    def take_me_there(self):
+        """What the app's "Take me there" does for this club: 'pickup' (open the
+        free pickup booking page) for a managed club with a booking link, else
+        'directions' (in-app map). A managed club without a link yet falls back to
+        directions, so the button never opens a broken page."""
+        if self.managed and valid_booking_url(self.pickup_booking_url):
+            return "pickup"
+        return "directions"
 
     def to_dict(self):
         return {"id": self.id, "name": self.name, "address": self.address, "active": self.active,
                 "state": self.state, "lat": self.lat, "lng": self.lng,
                 "photo_url": self.photo_url, "free_drink": self.free_drink,
-                "gobest": self.gobest, "review_url": self.review_url or ""}
+                "gobest": self.gobest, "review_url": self.review_url or "",
+                "managed": bool(self.managed),
+                "pickup_booking_url": self.pickup_booking_url or "",
+                "take_me_there": self.take_me_there()}
 
 class Setting(db.Model):
     """Generic key-value store for app settings (e.g. the global API key)."""
@@ -802,13 +836,19 @@ def calcular_distancia(lat1, lon1, lat2, lon2):
     except:
         return float('inf')
 
+# Role groups. The web helpers below and the app's admin mode (staff_permissions)
+# both read these, so a role means the same thing on both platforms.
+ADMIN_LEVEL_ROLES = ("master", "club_owner", "club_manager")
+DISPATCH_ROLES    = ("master", "club_owner", "club_manager", "dispatch", "dispatch_manager")
+APP_MANAGER_ROLES = ("master", "club_owner")
+
 def is_master():
     return session.get("role") == "master"
 
 def is_admin_level():
     """Master + club_owner + club_manager: near-full admin access.
     Club owner/manager see everything EXCEPT the API tab."""
-    return session.get("role") in ("master", "club_owner", "club_manager")
+    return session.get("role") in ADMIN_LEVEL_ROLES
 
 def can_see_api():
     """Only master sees the API tab."""
@@ -816,7 +856,7 @@ def can_see_api():
 
 def can_dispatch():
     """Operational tabs (Today, Schedule, Guest List, Tracking) + scheduling."""
-    return session.get("role") in ("master", "club_owner", "club_manager", "dispatch", "dispatch_manager")
+    return session.get("role") in DISPATCH_ROLES
 
 def is_dispatch_manager():
     """Can create/manage dispatch accounts."""
@@ -958,6 +998,29 @@ def clean_phone(p):
     keep = '+' if s.startswith('+') else ''
     digits = ''.join(ch for ch in s if ch.isdigit())
     return keep + digits
+
+def normalize_phone_e164(p):
+    """Phone → E.164 ('+17025551234'), or '' when it can't be a real number.
+    Bare 10-digit numbers (and 11 digits starting with 1) are US/Canada."""
+    s = clean_phone(p)
+    digits = s.lstrip('+')
+    if not s.startswith('+'):
+        if len(digits) == 10:
+            digits = '1' + digits
+        elif not (len(digits) == 11 and digits.startswith('1')):
+            return ""
+    if not (8 <= len(digits) <= 15) or digits.startswith('0'):
+        return ""
+    return '+' + digits
+
+def valid_booking_url(url):
+    """Only real web pages can be a club's free pickup booking link."""
+    u = (url or "").strip()
+    try:
+        parts = urllib.parse.urlparse(u)
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and bool(parts.netloc) and " " not in u
 
 def telnyx_configured():
     """True when Telnyx can send (API key + either a from-number or a profile)."""
@@ -1554,7 +1617,7 @@ def _gen_qr_code(club_name=""):
 
 def _can_manage_app():
     """Master and club owners can manage the app (QR codes, promos, banners)."""
-    return session.get("logged") and session.get("role") in ("master", "club_owner")
+    return session.get("logged") and session.get("role") in APP_MANAGER_ROLES
 
 def _build_flyer_pdf(item):
     """Build a printable flyer PDF (bytes) for a managed QR code. Uses the Hustler
@@ -1750,12 +1813,16 @@ def app_qr_flyer(qr_id):
     when it's a Hustler venue, otherwise a clean GoBest flyer)."""
     if not _can_manage_app():
         return redirect(url_for("login"))
-    item = QRCodeItem.query.get_or_404(qr_id)
+    return _flyer_response(QRCodeItem.query.get_or_404(qr_id))
+
+def _flyer_response(item, inline=False):
+    """The flyer PDF as a download (or shown inline, for the app's share link)."""
     pdf_bytes = _build_flyer_pdf(item)
     from flask import Response
     safe = "".join(ch for ch in (item.club_name or "venue") if ch.isalnum() or ch in " -_").strip().replace(" ", "_")
+    disp = "inline" if inline else "attachment"
     return Response(pdf_bytes, mimetype="application/pdf",
-                    headers={"Content-Disposition": f"attachment; filename=ClubLifter_Flyer_{safe}.pdf"})
+                    headers={"Content-Disposition": f"{disp}; filename=ClubLifter_Flyer_{safe}.pdf"})
 
 @app.route('/admin/app-manager/banner/create', methods=['POST'])
 def app_banner_create():
@@ -2667,7 +2734,17 @@ def _state_from_coords(lat, lng):
             return st
     except Exception as e:
         print(f"[GOBEST] reverse geocode failed: {e}", flush=True)
-    # Fallback: nearest known state centroid
+    # Fallback 1: next to one of our clubs → that club's state. (State centroids
+    # alone put Las Vegas in Arizona, which hid the Vegas clubs.)
+    near, near_d = None, 50.0
+    for c in Club.query.filter(Club.active == True, Club.lat.isnot(None), Club.lng.isnot(None),
+                               Club.state != "").all():
+        d = _haversine_mi(lat, lng, c.lat, c.lng)
+        if d < near_d:
+            near, near_d = c, d
+    if near:
+        return near.state
+    # Fallback 2: nearest known state centroid
     best, bestd = None, 1e9
     for name, (slat, slng) in US_STATES.items():
         d = _haversine_mi(lat, lng, slat, slng)
@@ -2812,6 +2889,7 @@ import secrets as _secrets
 # skips the SMS step and accepts the fixed code below. Can be overridden via env.
 DEMO_PHONE = clean_phone(os.environ.get("DEMO_PHONE", "7025550100"))
 DEMO_CODE  = os.environ.get("DEMO_CODE", "424242")
+STAFF_OTP_PER_DAY = 8   # SMS codes per 24 h for numbers linked to staff accounts
 
 def _app_user_from_token():
     """Resolve the logged-in AppUser from the Authorization header or ?token=."""
@@ -2854,6 +2932,17 @@ def app_auth_send_code():
         wait = int((oldest.created_at + timedelta(minutes=15) - datetime.utcnow()).total_seconds()) + 1
         return jsonify({"success": False, "retry_in": max(wait, 1),
                         "error": "Too many codes requested. Please try again in a few minutes."})
+    # A number linked to a staff account unlocks Admin mode, so it gets a daily
+    # cap too — keeps code guessing far out of reach.
+    e164 = normalize_phone_e164(phone)
+    if e164 and User.query.filter_by(phone=e164).first():
+        # Count every way the same number can be typed (+1702…, 1702…, 702…)
+        variants = {e164, e164[1:]} | ({e164[2:]} if e164.startswith("+1") else set())
+        day_count = OTPCode.query.filter(OTPCode.phone.in_(variants),
+                                         OTPCode.created_at >= datetime.utcnow() - timedelta(hours=24)).count()
+        if day_count >= STAFF_OTP_PER_DAY:
+            return jsonify({"success": False,
+                            "error": "Too many codes requested today. Please try again tomorrow or contact ClubLifter."})
     code = "".join(_secrets.choice("0123456789") for _ in range(6))
     otp = OTPCode(phone=phone, code=code, expires_at=datetime.utcnow() + timedelta(minutes=10))
     db.session.add(otp)
@@ -3056,6 +3145,14 @@ def app_chat_block():
     print(f"[CHAT-BLOCK] ride {c.id} chat blocked by {user.phone}", flush=True)
     return jsonify({"success": True, "message": "You won't receive further messages on this ride."})
 
+def qr_code_from_payload(raw):
+    """The code a ClubLifter QR carries ('GOBEST:HUST-4X9K' → 'HUST-4X9K'); a
+    typed code passes through unchanged."""
+    code = (raw or "").strip()
+    if code.upper().startswith("GOBEST:"):
+        code = code.split(":", 1)[1].strip()
+    return code
+
 @app.route('/api/app/checkin', methods=['POST'])
 def app_checkin():
     """Record a check-in when a logged-in user scans a club QR. Awards points
@@ -3064,8 +3161,7 @@ def app_checkin():
     if not user:
         return jsonify({"success": False, "error": "Not logged in", "need_login": True}), 401
     data = request.get_json(silent=True) or request.form
-    raw = (data.get("code") or "").strip()
-    code = raw.split(":", 1)[1].strip() if raw.upper().startswith("GOBEST:") else raw
+    code = qr_code_from_payload(data.get("code"))
 
     # Resolve the club from the QR code (managed code or club name/id)
     club = None
@@ -3165,10 +3261,7 @@ def app_redeem():
     either a managed QR code (QRCodeItem) or, for the original demo codes, a club
     id/name. Returns the free-drink details to display."""
     data = request.get_json(silent=True) or request.form
-    raw = (data.get('code') or "").strip()
-    code = raw
-    if code.upper().startswith("GOBEST:"):
-        code = code.split(":", 1)[1].strip()
+    code = qr_code_from_payload(data.get('code'))
 
     # 1) Managed QR code (also what typed codes match) — case-insensitive
     item = QRCodeItem.query.filter(func.upper(QRCodeItem.code) == code.upper()).first()
@@ -3199,6 +3292,248 @@ def app_redeem():
         "free_drink": club.free_drink or "a complimentary welcome drink",
         "instructions": "Show this screen and a valid photo ID to the bartender to claim your free drink.",
     })
+
+# ─── APP ADMIN MODE (staff tools inside the ClubLifter app) ───────────────────
+# Staff have no separate app login. On this website an account gets a phone
+# number (Users → Edit). Whoever signs into the app with that number — proven by
+# the SMS code — gets that account's tools in the app's Admin mode. Every admin
+# request re-reads the link and the role from the database, so clearing the
+# phone, changing the role or deleting the account here takes effect on the very
+# next request, even in an app that is already open.
+# The app endpoints run the SAME views the website uses (guest list, check-in,
+# QR codes…) as that account, so there is one copy of the business rules.
+from itsdangerous import URLSafeTimedSerializer, BadSignature
+
+STAFF_ROLE_LABELS = {"master": "Master", "club_owner": "Club Owner", "club_manager": "Club Manager",
+                     "dispatch_manager": "Dispatch Manager", "dispatch": "Dispatch"}
+
+def staff_for_app_user(app_user):
+    """The website account linked to this app user's verified phone, or None.
+    The review demo number never maps to staff (its code is public)."""
+    if not app_user or not app_user.verified:
+        return None
+    e164 = normalize_phone_e164(app_user.phone)
+    if not e164 or e164 == normalize_phone_e164(DEMO_PHONE):
+        return None
+    matches = User.query.filter_by(phone=e164).limit(2).all()
+    if len(matches) != 1:   # none, or ambiguous (only possible via direct DB edits)
+        return None
+    staff = matches[0]
+    if staff.is_active is False:
+        return None
+    return staff
+
+def staff_permissions(role):
+    """Which Admin-mode sections a website role unlocks in the app. Same role
+    groups as the website's own checks (can_dispatch, _can_manage_app)."""
+    dispatch = role in DISPATCH_ROLES
+    return {
+        "guestlist": dispatch,                    # guests, check-in/out, add, edit, delete, priority, ride back
+        "qr_validate": dispatch,                  # scan a ClubLifter QR to check it's live
+        "qr_manage": role in APP_MANAGER_ROLES,   # create / pause / delete / share QR codes (App Manager)
+    }
+
+def app_staff_required(perm):
+    """Bearer-token app request → run the view as the linked website account,
+    if its role grants `perm`. The website views read who's calling from
+    `session`, which for this request is the staff account's identity (in memory
+    only — no login cookie is issued). 403 + admin_revoked tells the app to
+    leave Admin mode."""
+    def deco(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            app_user = _app_user_from_token()
+            if not app_user:
+                return jsonify({"success": False, "error": "Not logged in", "need_login": True}), 401
+            staff = staff_for_app_user(app_user)
+            if not staff or not staff_permissions(staff.role).get(perm):
+                return jsonify({"success": False, "admin_revoked": True,
+                                "error": "Your account doesn't have access to this."}), 403
+            names = staff.get_club_names()
+            g.staff_session = {
+                "logged": True, "username": staff.username, "role": staff.role,
+                "user_id": staff.id, "club_name": ", ".join(names) if names else None,
+            }
+            try:
+                return f(*args, **kwargs)
+            finally:
+                g.pop("staff_session", None)
+        return wrapper
+    return deco
+
+@app.route('/api/app/admin/me', methods=['GET'])
+def app_admin_me():
+    """Is the signed-in app user staff, and which Admin sections can they open?
+    The app calls this at launch, on resume and periodically while in Admin."""
+    app_user = _app_user_from_token()
+    if not app_user:
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+    staff = staff_for_app_user(app_user)
+    perms = staff_permissions(staff.role) if staff else {}
+    if not any(perms.values()):
+        return jsonify({"success": True, "is_admin": False})
+    clubs = Club.query.filter_by(active=True).order_by(Club.name).all()
+    packages = sorted(Package.query.filter_by(active=True).all(),
+                      key=lambda p: (p.club_id is None, p.club_id or 0, p.price or 0))
+    return jsonify({
+        "success": True, "is_admin": True,
+        "staff": {"username": staff.username, "role": staff.role,
+                  "role_label": STAFF_ROLE_LABELS.get(staff.role, staff.role),
+                  "clubs": staff.get_club_names()},
+        "permissions": perms,
+        "today": vegas_today().strftime("%Y-%m-%d"),
+        "clubs": [{"id": c.id, "name": c.name} for c in clubs],
+        "packages": [{"name": p.name, "club_id": p.club_id, "price": p.price} for p in packages],
+    })
+
+@app.route('/api/app/admin/guests', methods=['GET'])
+@app_staff_required("guestlist")
+def app_admin_guests():
+    """The guest list for the app — same filters, rows and statuses as the
+    website's Guest List (type, club, date | view=all)."""
+    rows, f = _guestlist_rows()
+    dups = flag_duplicates(rows)
+    items = []
+    counts = {"coming": 0, "arrived": 0, "left": 0, "unassigned": 0}
+    for c in rows:
+        info = _guest_row_info(c, dup_of=dups.get(c.id))
+        item = _guest_status_item(c, info)
+        counts[item["club_status"] if item["club_status"] in ("arrived", "left") else "coming"] += 1
+        if info["unassigned"]:
+            counts["unassigned"] += 1
+        item.update({
+            "name": c.nome or "", "phone": c.phone or "", "phones": c.get_phones(),
+            "guests": c.guests or 0, "package": c.package or "",
+            "pickup_datetime": c.pickup_datetime or "", "time": _time_part(c.pickup_datetime),
+            "destination": c.destination or "", "address": c.endereco or "",
+            "details": c.details or "", "driver_notes": c.driver_notes or "",
+            "priority": bool(c.priority), "reported": bool(c.reported),
+            "report_reason": c.report_reason or "",
+            "is_return_ride": bool(c.is_return_ride), "has_return_ride": bool(c.has_return_ride),
+            "promoter": c.promoter or "",
+        })
+        items.append(item)
+    return jsonify({"success": True, "filters": f, "total": len(rows), **counts,
+                    "duplicates": len(dups), "items": items})
+
+# Guest actions — the website's own handlers, run as the staff account.
+@app.route('/api/app/admin/guests/add', methods=['POST'])
+@app_staff_required("guestlist")
+def app_admin_guest_add():
+    return cadastrar_cep()
+
+@app.route('/api/app/admin/guests/<int:customer_id>/status', methods=['POST'])
+@app_staff_required("guestlist")
+def app_admin_guest_status(customer_id):
+    return update_club_status(customer_id)
+
+@app.route('/api/app/admin/guests/<int:customer_id>/priority', methods=['POST'])
+@app_staff_required("guestlist")
+def app_admin_guest_priority(customer_id):
+    return toggle_priority(customer_id)
+
+@app.route('/api/app/admin/guests/<int:customer_id>/edit', methods=['POST'])
+@app_staff_required("guestlist")
+def app_admin_guest_edit(customer_id):
+    return edit_customer(customer_id)
+
+@app.route('/api/app/admin/guests/<int:customer_id>/delete', methods=['POST'])
+@app_staff_required("guestlist")
+def app_admin_guest_delete(customer_id):
+    return delete_guest(customer_id)
+
+@app.route('/api/app/admin/guests/<int:customer_id>/ride-back', methods=['POST'])
+@app_staff_required("guestlist")
+def app_admin_guest_ride_back(customer_id):
+    return admin_ride_back(customer_id)
+
+@app.route('/api/app/admin/guests/<int:customer_id>/events', methods=['GET'])
+@app_staff_required("guestlist")
+def app_admin_guest_events(customer_id):
+    return guest_events(customer_id)
+
+# QR codes — the App Manager's codes. The app shows each code's image from
+# /admin/app-manager/qr/<id>.png, the same GOBEST:<code> image the website prints.
+def _app_qr_dict(item):
+    d = item.to_dict()
+    d["image_path"] = f"/admin/app-manager/qr/{item.id}.png"
+    d["share_url"] = f"{PUBLIC_BASE_URL}/admin/app-manager/qr/{item.id}.png"
+    return d
+
+@app.route('/api/app/admin/qr', methods=['GET'])
+@app_staff_required("qr_manage")
+def app_admin_qr_list():
+    qrs = QRCodeItem.query.order_by(QRCodeItem.created_at.desc()).all()
+    clubs = Club.query.filter_by(active=True).order_by(Club.name).all()
+    return jsonify({"success": True, "qrs": [_app_qr_dict(q) for q in qrs],
+                    "clubs": [{"id": c.id, "name": c.name, "free_drink": c.free_drink or ""} for c in clubs]})
+
+@app.route('/api/app/admin/qr/create', methods=['POST'])
+@app_staff_required("qr_manage")
+def app_admin_qr_create():
+    resp = app_qr_create()
+    data = resp.get_json(silent=True) or {}
+    if data.get("success") and data.get("qr"):
+        data["qr"] = _app_qr_dict(QRCodeItem.query.get(data["qr"]["id"]))
+        return jsonify(data)
+    return resp
+
+@app.route('/api/app/admin/qr/<int:qr_id>/toggle', methods=['POST'])
+@app_staff_required("qr_manage")
+def app_admin_qr_toggle(qr_id):
+    return app_qr_toggle(qr_id)
+
+@app.route('/api/app/admin/qr/<int:qr_id>/delete', methods=['POST'])
+@app_staff_required("qr_manage")
+def app_admin_qr_delete(qr_id):
+    return app_qr_delete(qr_id)
+
+# Printable flyer: the app can't hand its token to the phone's browser or share
+# sheet, so it gets a signed link that opens just this one flyer for a day.
+QR_FLYER_LINK_TTL = 24 * 3600
+_flyer_signer = URLSafeTimedSerializer(app.secret_key, salt="qr-flyer-link")
+
+@app.route('/api/app/admin/qr/<int:qr_id>/flyer-link', methods=['GET'])
+@app_staff_required("qr_manage")
+def app_admin_qr_flyer_link(qr_id):
+    item = QRCodeItem.query.get_or_404(qr_id)
+    return jsonify({"success": True, "url": f"{PUBLIC_BASE_URL}/qr-flyer/{_flyer_signer.dumps(item.id)}"})
+
+@app.route('/qr-flyer/<token>')
+def qr_flyer_signed(token):
+    try:
+        qr_id = _flyer_signer.loads(token, max_age=QR_FLYER_LINK_TTL)
+    except BadSignature:   # also covers an expired link
+        return "This flyer link has expired. Open the flyer again from the ClubLifter app.", 410
+    return _flyer_response(QRCodeItem.query.get_or_404(qr_id), inline=True)
+
+@app.route('/api/app/admin/qr/validate', methods=['POST'])
+@app_staff_required("qr_validate")
+def app_admin_qr_validate():
+    """Staff scan (or type) a code to check it: which venue it's for, whether it's
+    live and how often it's been redeemed. Read-only — never counts a scan."""
+    data = request.get_json(silent=True) or request.form
+    code = qr_code_from_payload(data.get("code"))
+    if not code:
+        return jsonify({"success": False, "error": "No code to check."})
+    item = QRCodeItem.query.filter(func.upper(QRCodeItem.code) == code.upper()).first()
+    if item:
+        return jsonify({"success": True, "valid": bool(item.active), "kind": "managed",
+                        "code": item.code, "club_name": item.club_name, "label": item.label,
+                        "drink": item.drink, "scan_count": item.scan_count or 0,
+                        "created_at": item.to_dict()["created_at"],
+                        "message": "Live — guests can redeem it." if item.active
+                                   else "Paused — guests can't redeem this code."})
+    # Same legacy club id/name fallback the redeem endpoint accepts
+    club = Club.query.get(int(code)) if code.isdigit() else None
+    if not club:
+        club = Club.query.filter(func.lower(Club.name) == code.lower()).first()
+    if club and club.gobest:
+        return jsonify({"success": True, "valid": True, "kind": "club", "code": code,
+                        "club_name": club.name, "drink": club.free_drink or "",
+                        "message": "Older venue code — still redeems this club's free drink."})
+    return jsonify({"success": True, "valid": False, "code": code,
+                    "message": "Not a ClubLifter code."})
 
 # ─── AI AGENT APIs ────────────────────────────────────────────────────────────
 def _safe_int(v, default=0):
@@ -3841,6 +4176,27 @@ def debug_schema():
     return jsonify(out)
 
 # ─── ADMIN: USER MANAGEMENT ───────────────────────────────────────────────────
+def _apply_user_phone(user, raw):
+    """Set an account's app-access phone from a form value (None = field not sent,
+    blank = clear it, which revokes app admin access). Returns an error message,
+    or None when applied."""
+    if raw is None:
+        return None
+    raw = raw.strip()
+    if not raw:
+        user.phone = ""
+        return None
+    e164 = normalize_phone_e164(raw)
+    if not e164:
+        return "That phone number doesn't look right. Use the full number, e.g. (702) 555-1234."
+    if e164 == normalize_phone_e164(DEMO_PHONE):
+        return "That's the App Store review demo number — it can't be linked to an account."
+    clash = User.query.filter(User.phone == e164, User.id != (user.id or 0)).first()
+    if clash:
+        return f"That phone is already linked to {clash.username}."
+    user.phone = e164
+    return None
+
 @app.route('/admin/users')
 def admin_users():
     if not session.get("logged"):
@@ -3881,6 +4237,9 @@ def new_user():
         return jsonify({"success": False, "error": f"You are not allowed to create '{role}' accounts"})
 
     user = User(username=username, role=role, email=email)
+    phone_err = _apply_user_phone(user, request.form.get('phone'))
+    if phone_err:
+        return jsonify({"success": False, "error": phone_err})
     user.set_password(password)
     try:
         user.commission = float(commission or 0)
@@ -3930,6 +4289,9 @@ def invite_user():
     token = _s.token_urlsafe(32)
     user = User(username=username, role=role, email=email,
                 activation_token=token, is_active=False)
+    phone_err = _apply_user_phone(user, request.form.get('phone'))
+    if phone_err:
+        return jsonify({"success": False, "error": phone_err})
     # Set an unusable random password until they choose one
     user.set_password(_s.token_hex(24))
     if club_ids:
@@ -3989,6 +4351,10 @@ def edit_user(user_id):
     email    = request.form.get('email', None)
     if email is not None:
         user.email = email.strip()
+    phone_err = _apply_user_phone(user, request.form.get('phone'))
+    if phone_err:
+        db.session.rollback()
+        return jsonify({"success": False, "error": phone_err})
     # Safety: you can't change your own role (prevents locking yourself out)
     if user.id == session.get("user_id") and role != user.role:
         return jsonify({"success": False, "error": "You can't change your own role."})
@@ -4124,6 +4490,18 @@ def _apply_gobest_fields(club, f):
         if state and not club.state:
             club.state = state
 
+def _apply_pickup_fields(club, f):
+    """Managed-by-ClubLifter flag + free pickup booking link (drive the app's
+    "Take me there"). Fields not sent are left alone. Returns an error or None."""
+    if 'managed' in f:
+        club.managed = str(f.get('managed')).lower() in ('true', '1', 'yes', 'on')
+    if 'pickup_booking_url' in f:
+        url = (f.get('pickup_booking_url') or "").strip()
+        if url and not valid_booking_url(url):
+            return "The pickup booking link must be a full web address starting with https://"
+        club.pickup_booking_url = url[:500]
+    return None
+
 @app.route('/admin/clubs/new', methods=['POST'])
 def new_club():
     if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
@@ -4132,6 +4510,9 @@ def new_club():
     if Club.query.filter_by(name=name).first():
         return jsonify({"success": False, "error": "Club already exists"})
     club = Club(name=name, address=request.form.get('address', '').strip())
+    err = _apply_pickup_fields(club, request.form)
+    if err:
+        return jsonify({"success": False, "error": err})
     _apply_gobest_fields(club, request.form)
     db.session.add(club)
     db.session.commit()
@@ -4141,6 +4522,9 @@ def new_club():
 def edit_club(club_id):
     if not is_admin_level(): return jsonify({"success": False, "error": "Unauthorized"})
     club = Club.query.get_or_404(club_id)
+    err = _apply_pickup_fields(club, request.form)
+    if err:
+        return jsonify({"success": False, "error": err})
     old_address = club.address
     club.name    = request.form.get('name', club.name).strip()
     club.address = request.form.get('address', club.address).strip()
@@ -6647,6 +7031,61 @@ def dispatch_health():
     }
     return app.response_class(json.dumps(payload, indent=2, default=str), mimetype="application/json")
 
+def _guestlist_rows():
+    """The guest list's rows for the request's filters — type (all | transport |
+    walkin), club, date (ISO, default tonight in Vegas) or view=all. Shared by the
+    Guest List page, its status poller and the app's admin guest list, so all
+    three always show the same guests."""
+    f = {
+        "type": request.args.get('type', 'all'),
+        "club": request.args.get('club', 'all'),
+        "view_all": request.args.get('view', '') == 'all',
+        "date": request.args.get('date', vegas_today().strftime("%Y-%m-%d")),
+    }
+    q = Customer.query
+    if f["type"] == 'transport':
+        q = q.filter_by(needs_transport=True)
+    elif f["type"] == 'walkin':
+        q = q.filter_by(needs_transport=False)
+    if f["club"] != 'all':
+        q = q.filter_by(destination=f["club"])
+
+    if f["view_all"]:
+        # Newest first (most recently scheduled at top)
+        return q.order_by(Customer.id.desc()).all(), f
+    rows = q.order_by(Customer.pickup_datetime).all()
+    # Convert ISO date → MM/DD/YYYY for matching against stored pickup_datetime,
+    # both non-padded (6/20/2026) and padded (06/20/2026) forms
+    try:
+        y, m, d = f["date"].split("-")
+        match = f"{int(m)}/{int(d)}/{y}"
+        padded = f"{int(m):02d}/{int(d):02d}/{y}"
+    except Exception:
+        return rows, f
+    return [c for c in rows
+            if match in (c.pickup_datetime or "") or padded in (c.pickup_datetime or "")], f
+
+def _guest_status_item(c, info):
+    """One guest's live statuses (what the guest list polls for)."""
+    return {
+        "id": c.id,
+        "club_status": c.club_status or "coming",
+        "ride_status": info["code"],
+        "ride_text": info["text"],
+        "ride_source": info["source"],
+        "driver": info["driver"],
+        "note": info["note"],
+        "origin": info["origin"],
+        "dup_of": info["dup_of"],
+        "unassigned": info["unassigned"],
+        "needs_transport": bool(c.needs_transport),
+        "dispatch_status": c.dispatch_status,
+        "transport_status": c.status,
+        "picked_at": vegas_time(c.picked_up_at) if c.picked_up_at else "",
+        "dropped_at": vegas_time(c.dropped_off_at) if c.dropped_off_at else "",
+        "verified": bool(c.dropoff_verified),
+    }
+
 @app.route('/admin/guestlist/statuses')
 def guestlist_statuses():
     """Lightweight JSON of current statuses for the guest list, so the page can
@@ -6655,32 +7094,7 @@ def guestlist_statuses():
     if not session.get("logged") or not can_dispatch():
         return jsonify({"success": False, "error": "Unauthorized"}), 401
 
-    filter_type = request.args.get('type', 'all')
-    filter_club = request.args.get('club', 'all')
-    view_all    = request.args.get('view', '') == 'all'
-    filter_date_iso = request.args.get('date', vegas_today().strftime("%Y-%m-%d"))
-
-    q = Customer.query
-    if filter_type == 'transport':
-        q = q.filter_by(needs_transport=True)
-    elif filter_type == 'walkin':
-        q = q.filter_by(needs_transport=False)
-    if filter_club != 'all':
-        q = q.filter_by(destination=filter_club)
-
-    if view_all:
-        rows = q.order_by(Customer.id.desc()).all()
-    else:
-        rows = q.order_by(Customer.pickup_datetime).all()
-        try:
-            y, m, d = filter_date_iso.split("-")
-            match = f"{int(m)}/{int(d)}/{y}"
-            padded = f"{int(m):02d}/{int(d):02d}/{y}"
-            rows = [c for c in rows
-                    if match in (c.pickup_datetime or "") or padded in (c.pickup_datetime or "")]
-        except Exception:
-            pass
-
+    rows, _f = _guestlist_rows()
     items = []
     coming = arrived = left = unassigned = 0
     dups = flag_duplicates(rows)
@@ -6692,24 +7106,7 @@ def guestlist_statuses():
         info = _guest_row_info(c, dup_of=dups.get(c.id))
         if info["unassigned"]:
             unassigned += 1
-        items.append({
-            "id": c.id,
-            "club_status": cs,
-            "ride_status": info["code"],
-            "ride_text": info["text"],
-            "ride_source": info["source"],
-            "driver": info["driver"],
-            "note": info["note"],
-            "origin": info["origin"],
-            "dup_of": info["dup_of"],
-            "unassigned": info["unassigned"],
-            "needs_transport": bool(c.needs_transport),
-            "dispatch_status": c.dispatch_status,
-            "transport_status": c.status,
-            "picked_at": vegas_time(c.picked_up_at) if c.picked_up_at else "",
-            "dropped_at": vegas_time(c.dropped_off_at) if c.dropped_off_at else "",
-            "verified": bool(c.dropoff_verified),
-        })
+        items.append(_guest_status_item(c, info))
     return jsonify({
         "success": True,
         "total": len(rows),
@@ -6724,39 +7121,9 @@ def admin_guestlist():
     if not session.get("logged") or not can_dispatch():
         return redirect(url_for("login"))
 
-    # Filters
-    filter_type = request.args.get('type', 'all')   # all | transport | walkin
-    filter_club = request.args.get('club', 'all')
-    view_all    = request.args.get('view', '') == 'all'
-    # date arrives as ISO (YYYY-MM-DD) from the date picker; default = today
-    filter_date_iso = request.args.get('date', vegas_today().strftime("%Y-%m-%d"))
-
-    q = Customer.query
-    if filter_type == 'transport':
-        q = q.filter_by(needs_transport=True)
-    elif filter_type == 'walkin':
-        q = q.filter_by(needs_transport=False)
-    if filter_club != 'all':
-        q = q.filter_by(destination=filter_club)
-
-    if view_all:
-        # Newest first (most recently scheduled at top)
-        all_customers = q.order_by(Customer.id.desc()).all()
-    else:
-        all_customers = q.order_by(Customer.pickup_datetime).all()
-        # Convert ISO date → MM/DD/YYYY for matching against stored pickup_datetime
-        match = ""
-        try:
-            y, m, d = filter_date_iso.split("-")
-            match = f"{int(m)}/{int(d)}/{y}"   # e.g. 6/20/2026
-        except Exception:
-            match = ""
-        if match:
-            # Match both non-padded (6/20/2026) and padded (06/20/2026) forms
-            padded = f"{int(m):02d}/{int(d):02d}/{y}"
-            all_customers = [c for c in all_customers
-                             if match in (c.pickup_datetime or "")
-                             or padded in (c.pickup_datetime or "")]
+    all_customers, f = _guestlist_rows()
+    filter_type, filter_club = f["type"], f["club"]
+    view_all, filter_date_iso = f["view_all"], f["date"]
 
     clubs = Club.query.filter_by(active=True).all()
 
@@ -9231,6 +9598,12 @@ VENUES = {
     },
 }
 
+# Clubs switched to "Managed by ClubLifter" the first time the managed column is
+# created (names lower-cased; "Hustler Las Vegas" and "Hustler Club Las Vegas"
+# are the same venue, seeded under both names).
+INITIAL_MANAGED_CLUBS = ("hustler las vegas", "hustler club las vegas",
+                         "kings of hustler", "kings of hustler las vegas")
+
 def seed_venues():
     """Idempotently create/update the real clubs and their CartVIP packages.
     Matches existing rows by checkout_url (stable) so names can be corrected
@@ -9239,7 +9612,8 @@ def seed_venues():
         for club_name, info in VENUES.items():
             club = Club.query.filter_by(name=club_name).first()
             if not club:
-                club = Club(name=club_name, address=info["address"], active=True)
+                club = Club(name=club_name, address=info["address"], active=True,
+                            managed=club_name.lower() in INITIAL_MANAGED_CLUBS)
                 db.session.add(club)
                 db.session.flush()
                 print(f"[SEED] club created: {club_name}", flush=True)
@@ -9311,7 +9685,8 @@ def seed_gobest_clubs():
             club = Club.query.filter(func.lower(Club.name) == name.lower()).first()
             if not club:
                 club = Club(name=name, address=addr, active=True,
-                            state=state, lat=lat, lng=lng, free_drink=drink, gobest=True)
+                            state=state, lat=lat, lng=lng, free_drink=drink, gobest=True,
+                            managed=name.lower() in INITIAL_MANAGED_CLUBS)
                 db.session.add(club)
                 print(f"[SEED] GoBest club created: {name}", flush=True)
             else:
@@ -9478,6 +9853,7 @@ with app.app_context():
                 conn.execute(text(ddl))
                 conn.commit()
             print(f"[MIGRATION] added {table}.{column}", flush=True)
+            return True
         except Exception as e:
             print(f"[MIGRATION] FAILED {table}.{column}: {e}", flush=True)
 
@@ -9554,6 +9930,22 @@ with app.app_context():
     safe_migrate("user", "email",      'ALTER TABLE "user" ADD COLUMN email VARCHAR(200) DEFAULT \'\'')
     safe_migrate("user", "activation_token", 'ALTER TABLE "user" ADD COLUMN activation_token VARCHAR(64) DEFAULT \'\'')
     safe_migrate("user", "is_active",  'ALTER TABLE "user" ADD COLUMN is_active BOOLEAN DEFAULT 1')
+    # App admin mode + "Take me there" free pickup (additive, nothing dropped)
+    safe_migrate("user", "phone",      'ALTER TABLE "user" ADD COLUMN phone VARCHAR(20) DEFAULT \'\'')
+    added_managed = safe_migrate("club", "managed", "ALTER TABLE club ADD COLUMN managed BOOLEAN DEFAULT FALSE")
+    safe_migrate("club", "pickup_booking_url", "ALTER TABLE club ADD COLUMN pickup_booking_url VARCHAR(500) DEFAULT ''")
+    if added_managed:
+        # One-time starting point, the first boot only: the Las Vegas venues
+        # ClubLifter runs. From then on the "Managed by ClubLifter" switch on the
+        # Clubs screen is the only source (New Orleans venues are switched on there).
+        try:
+            n = (Club.query.filter(func.lower(Club.name).in_(INITIAL_MANAGED_CLUBS))
+                 .update({Club.managed: True}, synchronize_session=False))
+            db.session.commit()
+            print(f"[MIGRATION] marked {n} Las Vegas club(s) as managed", flush=True)
+        except Exception as e:
+            db.session.rollback()
+            print(f"[MIGRATION] managed-club seed skipped: {e}", flush=True)
 
     # ── BACKFILL: create Car records from old Driver car data (one-time) ───────
     if Car.query.count() == 0:
