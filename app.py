@@ -744,7 +744,11 @@ class Customer(db.Model):
     pickup_datetime = db.Column(db.String(50), default="")
     destination     = db.Column(db.String(100), default="")
     needs_transport = db.Column(db.Boolean, default=True)              # NEW: walk-in vs transport
-    club_status     = db.Column(db.String(20), default="coming")       # NEW: coming | arrived | left
+    club_status     = db.Column(db.String(20), default="coming")       # coming | arrived | left | no_show
+    # No-show: set ONLY by a dispatcher pressing "No show" (never automatically)
+    no_show_reason  = db.Column(db.String(255), default="")            # optional, typed by the dispatcher
+    no_show_at      = db.Column(db.DateTime, nullable=True)
+    no_show_by      = db.Column(db.String(120), default="")
     dispatch_status = db.Column(db.String(20), default="none")         # none | sent | confirmed | enroute
     here_photo      = db.Column(db.Text, default="")                   # base64 image from driver "I'm here"
     here_photo_at   = db.Column(db.DateTime, nullable=True)            # when photo was uploaded (for 24h cleanup)
@@ -3568,6 +3572,7 @@ def _ride_status_info(c):
       dropped_off → guest delivered (driver tap or GPS at the venue)
       at_venue    → guest at the venue (dispatcher/partner/GPS)
       left        → guest left the venue (dispatcher/partner, or their ride back started)
+      no_show     → guest never showed — set ONLY manually by a dispatcher (never automatic)
       waitlist    → waitlisted
     Time-based guesses are marked "(estimated)" / status_estimated=true, and the
     background failsafe (auto_timeouts) turns them into real completions."""
@@ -3772,6 +3777,7 @@ def api_set_status():
     if not new_status and redeemed:
         new_status = "arrived"   # "redeemed" means the guest showed up at the venue
 
+    # no_show is deliberately not settable here — only a dispatcher can mark it.
     valid = {"coming", "arrived", "left"}
     if new_status not in valid:
         return jsonify({
@@ -3782,6 +3788,8 @@ def api_set_status():
 
     old_status = cust.club_status
     _before = _ride_status_info(cust)[0]
+    if old_status == "no_show":
+        _clear_no_show(cust)   # partner says they did show up after all
     cust.club_status = new_status
     mark_status(cust, "partner")
     # Keep timestamps sensible when moving to arrived/left so the rest of the
@@ -3899,7 +3907,7 @@ def _app_active_ride(user):
         return None
     return (Customer.query
             .filter((Customer.phone.like(f"%{target}")) | (Customer.phones_json.like(f"%{target}%")))
-            .filter(Customer.club_status != "left")
+            .filter(Customer.club_status.notin_(("left", "no_show")))
             .filter(Customer.status != "dropped_off")
             .order_by(Customer.id.desc()).first())
 
@@ -4867,6 +4875,8 @@ def _driver_board_rides(driver_name):
     now_vegas = vegas_naive_now()
 
     def _visible_to_driver(c):
+        if c.club_status == "no_show":
+            return False                 # dispatcher marked it a no-show — nothing to do
         dt_txt = c.pickup_datetime or ""
         is_today = (today_np in dt_txt or today_p in dt_txt)
         # Completed rides only show for today (history clears next day)
@@ -6238,7 +6248,11 @@ def api_v1_customer_status(customer_id):
         "ride_status_text": ride_status_text,   # human-readable
         "pickup_status": ride_status,           # updated: now reflects the full progression (was raw c.status)
         "transport_status": c.status,           # raw transport field: scheduled|picked_up|dropped_off
-        "club_status": c.club_status,           # raw club field: coming|arrived|left
+        "club_status": c.club_status,           # raw club field: coming|arrived|left|no_show
+        # No-show (set only by a ClubLifter dispatcher). When true, status/ride_status = "no_show".
+        "no_show":        c.club_status == "no_show",
+        "no_show_reason": (c.no_show_reason or "") if c.club_status == "no_show" else "",
+        "no_show_at":     vegas_datetime(c.no_show_at) if (c.club_status == "no_show" and c.no_show_at) else "",
         "picked_up":      bool(c.picked_up_at),
         "picked_up_at":   vegas_datetime(c.picked_up_at) if c.picked_up_at else "",
         "driver_arrived": bool(c.driver_arrived_at),
@@ -7070,6 +7084,7 @@ def _guest_status_item(c, info):
     return {
         "id": c.id,
         "club_status": c.club_status or "coming",
+        "no_show_reason": c.no_show_reason or "",
         "ride_status": info["code"],
         "ride_text": info["text"],
         "ride_source": info["source"],
@@ -7096,13 +7111,14 @@ def guestlist_statuses():
 
     rows, _f = _guestlist_rows()
     items = []
-    coming = arrived = left = unassigned = 0
+    coming = arrived = left = no_show = unassigned = 0
     dups = flag_duplicates(rows)
     for c in rows:
         cs = c.club_status or "coming"
-        if cs == "arrived": arrived += 1
-        elif cs == "left":  left += 1
-        else:               coming += 1
+        if cs == "arrived":   arrived += 1
+        elif cs == "left":    left += 1
+        elif cs == "no_show": no_show += 1
+        else:                 coming += 1
         info = _guest_row_info(c, dup_of=dups.get(c.id))
         if info["unassigned"]:
             unassigned += 1
@@ -7110,7 +7126,7 @@ def guestlist_statuses():
     return jsonify({
         "success": True,
         "total": len(rows),
-        "coming": coming, "arrived": arrived, "left": left,
+        "coming": coming, "arrived": arrived, "left": left, "no_show": no_show,
         "unassigned": unassigned,
         "duplicates": len(dups),
         "items": items,
@@ -7132,6 +7148,7 @@ def admin_guestlist():
     coming   = sum(1 for c in all_customers if c.club_status == 'coming')
     arrived  = sum(1 for c in all_customers if c.club_status == 'arrived')
     left_    = sum(1 for c in all_customers if c.club_status == 'left')
+    no_show  = sum(1 for c in all_customers if c.club_status == 'no_show')
 
     _dups = flag_duplicates(all_customers)
     ride_info = {c.id: _guest_row_info(c, dup_of=_dups.get(c.id)) for c in all_customers}
@@ -7141,7 +7158,7 @@ def admin_guestlist():
         ride_info=ride_info, unassigned=unassigned,
         filter_type=filter_type, filter_club=filter_club,
         filter_date_iso=filter_date_iso, view_all=view_all,
-        total=total, coming=coming, arrived=arrived, left=left_,
+        total=total, coming=coming, arrived=arrived, left=left_, no_show=no_show,
         vt=vegas_time
     )
 
@@ -7167,7 +7184,8 @@ def export_guestlist():
                 "Pickup Address", "Destination", "Driver", "Car",
                 "Picked Up At", "Dropped Off At", "Arrived At Property",
                 "Distance To Venue (mi)", "Status", "Priority", "Promoter",
-                "Notes", "Driver Notes", "Reported", "Report Reason", "Reported By"])
+                "Notes", "Driver Notes", "Reported", "Report Reason", "Reported By",
+                "Club Status", "No-Show Reason"])
     for c in rows:
         parts = (c.pickup_datetime or "").split(" ")
         d_part = parts[0] if parts else ""
@@ -7182,6 +7200,7 @@ def export_guestlist():
             c.status, ("Yes" if getattr(c, 'priority', False) else "No"), c.promoter or "",
             c.details or "", c.driver_notes or "",
             ("Yes" if c.reported else "No"), c.report_reason or "", c.reported_by or "",
+            c.club_status or "coming", (c.no_show_reason or "") if c.club_status == "no_show" else "",
         ])
     out = buf.getvalue()
     fname = f"clublifter_guestlist_{'all' if view_all else filter_date_iso}.csv"
@@ -7194,9 +7213,13 @@ def update_club_status(customer_id):
         return jsonify({"success": False, "error": "Unauthorized"})
     customer = Customer.query.get_or_404(customer_id)
     new_status = request.form.get('club_status', '').strip()
-    if new_status not in ('coming', 'arrived', 'left'):
+    if new_status not in ('coming', 'arrived', 'left', 'no_show'):
         return jsonify({"success": False, "error": "Invalid status"})
     _before = _ride_status_info(customer)[0]
+    if new_status == "no_show":
+        _set_no_show(customer, request.form.get('reason', ''), session.get("username") or "dispatch")
+    elif customer.club_status == "no_show":
+        _clear_no_show(customer)
     customer.club_status = new_status
     mark_status(customer, "dispatch")
     # Stamp arrival time the first time they reach the venue — the live-tracking
@@ -7213,10 +7236,33 @@ def update_club_status(customer_id):
         "customer_phone":  customer.phone,
         "destination":     customer.destination,
         "new_status":      new_status,
+        "no_show_reason":  customer.no_show_reason or "",
         "timestamp":       datetime.utcnow().isoformat()
     })
     ride_status_changed(customer, _before, "dispatch")
-    return jsonify({"success": True, "club_status": new_status})
+    return jsonify({"success": True, "club_status": new_status,
+                    "no_show_reason": customer.no_show_reason or ""})
+
+def _set_no_show(c, reason, actor):
+    """Mark a booking as a no-show (dispatcher only). An unfinished ride also
+    leaves the dispatch pipeline: auto-assign, GPS progress and the failsafe only
+    pick up scheduled/waitlist/picked_up rides, so moving the ride to 'no_show'
+    stops them from assigning or auto-completing it."""
+    c.no_show_reason = (reason or "").strip()[:255]
+    c.no_show_at = datetime.utcnow()
+    c.no_show_by = (actor or "")[:120]
+    if c.status in ("scheduled", "waitlist", "picked_up"):
+        c.status = "no_show"
+    log_event(c, "no_show", c.no_show_reason or "no reason given", actor=actor)
+
+def _clear_no_show(c):
+    """Undo a no-show (dispatcher picked another status): put an unfinished ride
+    back in the pipeline."""
+    if c.status == "no_show":
+        c.status = "scheduled"
+    c.no_show_reason = ""
+    c.no_show_at = None
+    c.no_show_by = ""
 
 @app.route('/admin/guestlist/delete/<int:customer_id>', methods=['POST'])
 def delete_guest(customer_id):
@@ -8831,6 +8877,9 @@ def _ride_status_full(c):
     and are flagged as estimated. A ride with no driver says so — it is never
     reported as 'at the venue'."""
     ret = bool(getattr(c, "is_return_ride", False))
+    if c.club_status == "no_show":
+        reason = (c.no_show_reason or "").strip()
+        return "no_show", "Guest was a no-show" + (f" — {reason}" if reason else ""), False
     if c.club_status == "left":
         return "left", "Guest has left the venue", False
     if c.club_status == "arrived":
@@ -8924,6 +8973,8 @@ def ride_status_changed(c, before_code, source):
                    "driver_name": name, "driver_phone": phone,
                    "car": c.completed_car or c.car_string_val or "",
                    "club_status": c.club_status, "updated_at": vegas_datetime(datetime.utcnow())}
+        if c.club_status == "no_show":
+            payload["no_show_reason"] = c.no_show_reason or ""
         threading.Thread(target=_post_partner, args=(payload,), daemon=True).start()
     except Exception as e:
         print(f"[PARTNER] status push skipped: {e}", flush=True)
@@ -8943,6 +8994,10 @@ def driver_drop_link(cid, token):
     c = Customer.query.get_or_404(cid)
     if not hmac_compare(token, _drop_token(cid)):
         return "Invalid link", 403
+    if c.club_status == "no_show":
+        return (f"<html><body style='font-family:sans-serif;background:#08060f;color:#e8eaf0;"
+                f"padding:40px;text-align:center'><h2>🚫 Marked as a no-show</h2>"
+                f"<p>Dispatch marked {c.nome} as a no-show — nothing to drop off.</p></body></html>")
     if c.status != "dropped_off":
         before = _ride_status_info(c)[0]
         _complete_dropoff(c, datetime.utcnow(), None, "driver")
@@ -9041,7 +9096,7 @@ def _complete_dropoff(c, now_u, dist_mi, source):
         c.completed_driver = c.motorista or ""
     if not c.completed_car:
         c.completed_car = c.car_string_val or c.car_name or ""
-    if not c.is_return_ride:
+    if not c.is_return_ride and c.club_status != "no_show":   # a dispatcher's no-show always wins
         c.club_status = "arrived"
         if not c.arrived_at:
             c.arrived_at = now_u
@@ -9917,6 +9972,9 @@ with app.app_context():
     safe_migrate("customer", "source",            "ALTER TABLE customer ADD COLUMN source VARCHAR(40) DEFAULT ''")
     safe_migrate("customer", "created_by",        "ALTER TABLE customer ADD COLUMN created_by VARCHAR(160) DEFAULT ''")
     safe_migrate("customer", "external_ref",      "ALTER TABLE customer ADD COLUMN external_ref VARCHAR(80) DEFAULT ''")
+    safe_migrate("customer", "no_show_reason",    "ALTER TABLE customer ADD COLUMN no_show_reason VARCHAR(255) DEFAULT ''")
+    safe_migrate("customer", "no_show_at",        "ALTER TABLE customer ADD COLUMN no_show_at DATETIME")
+    safe_migrate("customer", "no_show_by",        "ALTER TABLE customer ADD COLUMN no_show_by VARCHAR(120) DEFAULT ''")
 
     safe_migrate("driver", "available", "ALTER TABLE driver ADD COLUMN available BOOLEAN DEFAULT 1")
     safe_migrate("driver", "assigned_car_id", "ALTER TABLE driver ADD COLUMN assigned_car_id INTEGER DEFAULT NULL")

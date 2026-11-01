@@ -34,7 +34,7 @@
         .m-nav a.act{color:var(--acc);border-color:var(--bhi);}
 
         /* STATS */
-        .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
+        .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;}
         .stat{background:var(--s);border:1px solid var(--bd);border-radius:14px;padding:16px;text-align:center;}
         .stat-v{font-family:'Syne',sans-serif;font-size:1.7rem;font-weight:800;}
         .stat-l{font-size:.74rem;color:var(--m2);margin-top:3px;}
@@ -42,6 +42,7 @@
         .stat.coming .stat-v{color:var(--b);}
         .stat.arrived .stat-v{color:var(--g);}
         .stat.left .stat-v{color:var(--m);}
+        .stat.noshow .stat-v{color:var(--r);}
 
         /* FILTERS */
         .filter-card{background:var(--s);border:1px solid var(--bd);border-radius:14px;padding:16px 18px;margin-bottom:14px;}
@@ -84,6 +85,7 @@
         .ride-chip.c-enroute,.ride-chip.c-arrived{background:rgba(59,130,246,.2);color:var(--b);}
         .ride-chip.c-picked_up{background:rgba(138,92,246,.2);color:var(--acc);}
         .ride-chip.c-dropped_off,.ride-chip.c-at_venue{background:rgba(34,197,94,.2);color:var(--g);}
+        .ride-chip.c-no_show{background:rgba(239,68,68,.18);color:var(--r);}
         .ride-note{color:var(--m2);font-size:.64rem;max-width:200px;white-space:normal;margin-top:2px;}
         .origin-tag{display:inline-block;margin-left:4px;padding:1px 5px;border-radius:4px;font-size:.58rem;font-weight:700;background:rgba(255,255,255,.06);color:var(--m2);vertical-align:middle;letter-spacing:.3px;}
         .dup-chip{display:inline-block;margin-top:3px;padding:2px 7px;border-radius:6px;font-size:.64rem;font-weight:700;background:rgba(251,191,36,.18);color:var(--gold);white-space:nowrap;}
@@ -145,6 +147,12 @@
         .stb.act-coming{background:rgba(59,130,246,.25);color:var(--b);}
         .stb.act-arrived{background:rgba(34,197,94,.25);color:var(--g);}
         .stb.act-left{background:rgba(90,98,112,.25);color:var(--m);}
+        /* No show — its own button under the three statuses; set only by hand */
+        .ns-wrap{margin-top:5px;}
+        .ns-btn{width:100%;padding:4px 10px;border-radius:7px;font-size:.68rem;font-weight:700;border:1px dashed rgba(239,68,68,.45);background:none;color:var(--m2);cursor:pointer;font-family:inherit;transition:.15s;}
+        .ns-btn:hover{color:var(--r);border-color:var(--r);}
+        .ns-btn.act{background:rgba(239,68,68,.2);border-style:solid;border-color:rgba(239,68,68,.6);color:var(--r);}
+        .ns-reason{color:var(--r);font-size:.64rem;margin-top:3px;max-width:190px;white-space:normal;opacity:.85;}
 
         /* Dispatch buttons */
         .dispatch-group{display:inline-flex;background:var(--s2);padding:2px;border-radius:8px;border:1px solid var(--bd);gap:1px;}
@@ -229,6 +237,7 @@
         <div class="stat coming"><div class="stat-v" id="statComing">{{ coming }}</div><div class="stat-l">🚗 Coming</div></div>
         <div class="stat arrived"><div class="stat-v" id="statArrived">{{ arrived }}</div><div class="stat-l">🎉 Arrived</div></div>
         <div class="stat left"><div class="stat-v" id="statLeft">{{ left }}</div><div class="stat-l">👋 Left</div></div>
+        <div class="stat noshow"><div class="stat-v" id="statNoShow">{{ no_show }}</div><div class="stat-l">🚫 No show</div></div>
     </div>
     <div class="nodrv-banner" id="nodrvBanner" style="{{ '' if unassigned else 'display:none;' }}">
         ⚠️ <span><span id="nodrvCount">{{ unassigned }}</span> ride(s) with no driver — the system keeps retrying every minute and texts dispatch. Use “Assign” to pick one now.</span>
@@ -315,7 +324,7 @@
                               <div class="ride-cell" id="ride-{{ c.id }}">
                                 <div class="ride-drv" id="rdrv-{{ c.id }}">{{ ri.driver or '—' }}{% if ri.origin %}<span class="origin-tag" title="How this booking was created">{{ ri.origin }}</span>{% endif %}</div>
                                 <div id="rdup-{{ c.id }}" style="{{ '' if ri.dup_of else 'display:none;' }}"><span class="dup-chip">⚠ possible duplicate of #<span class="dupof">{{ ri.dup_of or '' }}</span></span><button class="dup-btn" onclick="mergeDup({{ c.id }}, {{ ri.dup_of or 0 }}, {{ c.nome|tojson }})">Merge into #<span class="dupof">{{ ri.dup_of or '' }}</span></button></div>
-                                <span class="ride-chip c-{{ ri.code }}" id="rchip-{{ c.id }}" title="{{ ri.text }}">{{ {'unassigned':'⚠ No driver','waitlist':'⏳ Waitlist','scheduled':'🕓 Scheduled','enroute':'🚗 Driver en route','arrived':'📍 Driver at pickup','picked_up':'🚐 Guest on board','dropped_off':'🏁 Dropped off','at_venue':'✅ At venue','left':'👋 Left','unconfirmed':'❓ Not confirmed'}.get(ri.code, ri.code) }}{% if ri.source %}<span class="src">· {{ ri.source }}</span>{% endif %}</span>
+                                <span class="ride-chip c-{{ ri.code }}" id="rchip-{{ c.id }}" title="{{ ri.text }}">{{ {'unassigned':'⚠ No driver','waitlist':'⏳ Waitlist','scheduled':'🕓 Scheduled','enroute':'🚗 Driver en route','arrived':'📍 Driver at pickup','picked_up':'🚐 Guest on board','dropped_off':'🏁 Dropped off','at_venue':'✅ At venue','left':'👋 Left','no_show':'🚫 No show','unconfirmed':'❓ Not confirmed'}.get(ri.code, ri.code) }}{% if ri.source %}<span class="src">· {{ ri.source }}</span>{% endif %}</span>
                                 <div class="ride-note" id="rnote-{{ c.id }}" style="{{ '' if (ri.note and (ri.unassigned or 'double' in ri.note or 'online' in ri.note)) else 'display:none;' }}">{{ ri.note }}</div>
                                 <button class="assign-btn{{ '' if ri.unassigned else ' soft' }}" id="rassign-{{ c.id }}" onclick="openAssign({{ c.id }}, {{ c.nome|tojson }})">{{ '👤 Assign driver' if ri.unassigned else '↔ Change driver' }}</button>
                                 {% if c.picked_up_at %}<div class="ride-line">🚗 {{ vt(c.picked_up_at) }}</div>{% endif %}
@@ -343,6 +352,10 @@
                                 <button class="stb stb-coming {{ 'act-coming' if c.club_status=='coming' else '' }}"     onclick="setStatus({{ c.id }}, 'coming', this)">Coming</button>
                                 <button class="stb stb-arrived {{ 'act-arrived' if c.club_status=='arrived' else '' }}"   onclick="setStatus({{ c.id }}, 'arrived', this)">Arrived</button>
                                 <button class="stb stb-left {{ 'act-left' if c.club_status=='left' else '' }}"         onclick="setStatus({{ c.id }}, 'left', this)">Left</button>
+                            </div>
+                            <div class="ns-wrap">
+                                <button class="ns-btn {{ 'act' if c.club_status=='no_show' else '' }}" id="nsb-{{ c.id }}" onclick="markNoShow({{ c.id }})" title="Guest never showed up — only set by hand">🚫 No show</button>
+                                <div class="ns-reason" id="nsr-{{ c.id }}" style="{{ '' if (c.club_status=='no_show' and c.no_show_reason) else 'display:none;' }}">{{ c.no_show_reason or '' }}</div>
                             </div>
                         </td>
                         <td><button class="btn-del" onclick="delGuest({{ c.id }})">✕</button></td>
@@ -460,18 +473,45 @@ async function saveRt(){
 }
 
 
-async function setStatus(id, status, btn){
+// Highlight a row's club status: Coming / Arrived / Left, or the No show button
+// (plus its reason). Shared by the buttons and the auto-refresh.
+function paintClubStatus(id, status, reason){
+    const grp=document.querySelector('.status-group[data-cid="'+id+'"]');
+    if(grp){
+        ['coming','arrived','left'].forEach(s=>{
+            const b=grp.querySelector('.stb-'+s);
+            if(b) b.classList.toggle('act-'+s, s===status);
+        });
+    }
+    const nsb=document.getElementById('nsb-'+id);
+    if(nsb) nsb.classList.toggle('act', status==='no_show');
+    const nsr=document.getElementById('nsr-'+id);
+    if(nsr){
+        const show = status==='no_show' && reason;
+        nsr.style.display = show ? '' : 'none';
+        if(nsr.innerText !== (reason||'')) nsr.innerText = reason||'';
+    }
+}
+
+async function setStatus(id, status, btn, reason){
     const fd=new FormData(); fd.append('club_status', status);
+    if(reason) fd.append('reason', reason);
     const d=await(await fetch(`/admin/guestlist/status/${id}`, {method:'POST',body:fd})).json();
     if(d.success){
-        toast('Status updated to '+status);
-        // Update button styles in row
-        const row=document.getElementById('row-'+id);
-        row.querySelectorAll('.stb').forEach(b=>{b.className='stb';});
-        if(status==='coming')  btn.className='stb act-coming';
-        if(status==='arrived') btn.className='stb act-arrived';
-        if(status==='left')    btn.className='stb act-left';
+        toast(status==='no_show' ? 'Marked as no-show' : 'Status updated to '+status);
+        paintClubStatus(id, status, d.no_show_reason);
     } else toast(d.error||'Error', false);
+}
+
+// No show: only ever set by hand. The reason is optional (Cancel = don't mark).
+function markNoShow(id){
+    const nsb=document.getElementById('nsb-'+id);
+    const already = nsb && nsb.classList.contains('act');
+    const cur = already ? (document.getElementById('nsr-'+id)||{}).innerText||'' : '';
+    const reason = prompt(already ? 'Already a no-show. Update the reason (optional):'
+                                  : 'Mark as NO SHOW?\n\nReason (optional) — e.g. "didn\'t answer", "cancelled at pickup":', cur);
+    if(reason === null) return;
+    setStatus(id, 'no_show', null, reason.trim());
 }
 
 async function delGuest(id){
@@ -1133,22 +1173,14 @@ async function doAssign(driverName){
   let refreshTimer = null;
 
   function applyStatus(item){
-    const grp = document.querySelector('.status-group[data-cid="'+item.id+'"]');
-    if(!grp) return;
-    const map = {coming:'stb-coming', arrived:'stb-arrived', left:'stb-left'};
-    // Clear all active classes, then set the current one.
-    grp.querySelector('.stb-coming').classList.remove('act-coming');
-    grp.querySelector('.stb-arrived').classList.remove('act-arrived');
-    grp.querySelector('.stb-left').classList.remove('act-left');
-    const cls = map[item.club_status];
-    const btn = cls ? grp.querySelector('.'+cls) : null;
-    if(btn){ btn.classList.add('act-'+item.club_status); }
+    if(!document.querySelector('.status-group[data-cid="'+item.id+'"]')) return;
+    paintClubStatus(item.id, item.club_status, item.no_show_reason);
     applyRide(item);
   }
 
   const CHIP = {unassigned:'⚠ No driver',waitlist:'⏳ Waitlist',scheduled:'🕓 Scheduled',enroute:'🚗 Driver en route',
                 arrived:'📍 Driver at pickup',picked_up:'🚐 Guest on board',dropped_off:'🏁 Dropped off',
-                at_venue:'✅ At venue',left:'👋 Left',unconfirmed:'❓ Not confirmed'};
+                at_venue:'✅ At venue',left:'👋 Left',no_show:'🚫 No show',unconfirmed:'❓ Not confirmed'};
   function applyRide(item){
     if(!item.needs_transport) return;
     const chip = document.getElementById('rchip-'+item.id);
@@ -1187,7 +1219,7 @@ async function doAssign(driverName){
       // Update counters
       const set = (id,v)=>{ const el=document.getElementById(id); if(el && el.innerText!=String(v)) el.innerText=v; };
       set('statTotal', d.total); set('statComing', d.coming);
-      set('statArrived', d.arrived); set('statLeft', d.left);
+      set('statArrived', d.arrived); set('statLeft', d.left); set('statNoShow', d.no_show||0);
       const ban = document.getElementById('nodrvBanner');
       if(ban){ ban.style.display = d.unassigned ? '' : 'none'; set('nodrvCount', d.unassigned||0); }
       // Update each row's status badges
