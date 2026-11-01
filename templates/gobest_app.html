@@ -420,6 +420,16 @@ body{
 .adm-seg button.on.s-arrived{border-color:rgba(34,197,94,.55);background:rgba(34,197,94,.18);}
 .adm-seg button.on.s-no_show{border-color:rgba(239,68,68,.5);background:rgba(239,68,68,.16);}
 .prof-version{text-align:center;color:var(--m2);font-size:.72rem;margin-top:18px;}
+.prof-alerts{display:none;align-items:center;gap:12px;background:var(--surf);border:1px solid var(--bd);border-radius:14px;padding:14px 16px;margin-top:18px;}
+.prof-alerts.show{display:flex;}
+.prof-alerts b{display:block;font-size:.92rem;}
+.prof-alerts span{display:block;font-size:.76rem;color:var(--m);margin-top:3px;line-height:1.35;}
+.prof-toggle{flex-shrink:0;min-width:58px;padding:9px 12px;border-radius:100px;border:1px solid var(--bd);background:var(--surf2);color:var(--m2);font-weight:700;font-size:.8rem;font-family:'DM Sans',sans-serif;cursor:pointer;}
+.prof-toggle.on{background:linear-gradient(135deg,var(--acc),var(--acc2));border-color:transparent;color:#fff;}
+.arrival-box{background:linear-gradient(180deg,#1e1738,#110c20);border-color:var(--bhi);border-top-color:rgba(167,139,250,.6);}
+.arrival-box .rideback-glow{background:radial-gradient(ellipse,rgba(138,92,246,.45),transparent 70%);}
+.arrival-box .rideback-done{background:linear-gradient(135deg,var(--acc),var(--acc2));}
+.arrival-later{width:100%;background:none;border:none;color:var(--m2);padding:14px;font-weight:600;font-size:.88rem;cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:4px;}
 .adm-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;}
 .adm-btn{display:block;text-align:center;text-decoration:none;padding:13px 10px;border-radius:12px;border:1px solid var(--bd);background:var(--surf);color:var(--t);font-weight:700;font-size:.86rem;font-family:'DM Sans',sans-serif;cursor:pointer;}
 .adm-btn.pri{background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;color:#fff;}
@@ -10774,6 +10784,11 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
       <div id="profRecent"><div class="prof-empty">No check-ins yet — scan a venue's QR to start.</div></div>
       <button class="prof-history-btn" onclick="openHistory()">🕑 View full visit history</button>
 
+      <div class="prof-alerts" id="profAlerts">
+        <div style="flex:1;min-width:0;"><b>Arrival alerts</b><span id="profAlertsSub">A free-drink heads-up when you arrive somewhere with ClubLifter clubs.</span></div>
+        <button class="prof-toggle" id="profAlertsBtn" onclick="toggleArrivalAlerts()">Off</button>
+      </div>
+
       <button class="prof-logout" onclick="appLogout()">Log out</button>
       <button class="prof-delete" onclick="confirmDeleteAccount()">Delete my account</button>
       <div class="prof-version" id="profVersion"></div>
@@ -10807,6 +10822,20 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
         <div class="rideback-sub" id="rideBackSub">A driver will take you back to your pickup spot.</div>
         <div class="rideback-detail" id="rideBackDetail"></div>
         <button class="rideback-done" onclick="closeRideBackSheet()">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ARRIVAL ALERTS opt-in (native app with the ArrivalWatch plugin only) ═══ -->
+  <div class="rideback-sheet" id="arrivalAsk">
+    <div class="rideback-box arrival-box">
+      <div class="rideback-glow"></div>
+      <div class="rideback-inner">
+        <div class="rideback-emoji">🍸</div>
+        <div class="rideback-title">Free drinks when you land</div>
+        <div class="rideback-sub">Get a heads-up when you arrive somewhere with ClubLifter clubs — even with the app closed. We only check your location now and then, so it's easy on your battery.</div>
+        <button class="rideback-done" onclick="enableArrivalAlerts()">Turn on alerts</button>
+        <button class="arrival-later" onclick="closeArrivalAsk()">Not now</button>
       </div>
     </div>
   </div>
@@ -11070,6 +11099,8 @@ async function init(){
   currentCoords = coords;
   _lastGeoCheck = Date.now();
   await detectAndLoad(coords, false);
+  await showPendingWelcome();
+  if(!document.getElementById('welcome').classList.contains('show')) setTimeout(maybeAskArrivalAlerts, 2500);
   loadBanner();
   checkActiveRide();  // show the "track your ride" card on home if there's one
 }
@@ -11139,9 +11170,71 @@ async function noteArrival(d){
   storeSet('cl_last_state', d.state);
   if(d.has_clubs) showWelcome(d.state, d.welcome_message || 'Visit one of our clubs and get a free drink!');
 }
+// An arrival alert sent while the app was closed (ArrivalWatch plugin) leaves
+// cl_pending_welcome; the next time the app is open, welcome them in-app.
+async function showPendingWelcome(){
+  const st = await storeGet('cl_pending_welcome');
+  if(!st) return;
+  storeRemove('cl_pending_welcome');
+  showWelcome(st, 'Visit one of our clubs and get a free drink!');
+}
+
+// ── Arrival alerts with the app closed: the ArrivalWatch native plugin (low-power
+// location → /api/app/detect-state → notification). Builds without it, and the
+// web, never show any of this.
+function _arrivalPlugin(){ return _nativePlugin('ArrivalWatch'); }
+async function maybeAskArrivalAlerts(){
+  if(!_arrivalPlugin() || !_token || await storeGet('cl_arrival_asked')) return;
+  if(document.getElementById('welcome').classList.contains('show')) return;
+  storeSet('cl_arrival_asked', '1');
+  document.getElementById('arrivalAsk').classList.add('show');
+}
+function closeArrivalAsk(){ document.getElementById('arrivalAsk').classList.remove('show'); }
+async function enableArrivalAlerts(){
+  closeArrivalAsk();
+  const N = _nativePlugin('LocalNotifications');
+  try{
+    if(N){ const p = await N.checkPermissions(); if(p.display !== 'granted') await N.requestPermissions(); }
+  }catch(e){}
+  let st = null;
+  try{ st = await _arrivalPlugin().start({apiBase: API_BASE}); }catch(e){}
+  renderArrivalAlerts(st);
+  if(st && st.location === 'always') admToast('🍸 Arrival alerts on');
+  else if(st && st.location === 'denied') admToast('Location is off for ClubLifter — turn it on in Settings', true);
+  else admToast('Choose “Always” / “Allow all the time” for ClubLifter location in Settings so alerts work with the app closed');
+}
+async function toggleArrivalAlerts(){
+  const P = _arrivalPlugin(); if(!P) return;
+  let st = null;
+  try{ st = await P.status(); }catch(e){}
+  if(st && st.enabled){
+    try{ st = await P.stop(); }catch(e){}
+    renderArrivalAlerts(st);
+  }else{
+    enableArrivalAlerts();
+  }
+}
+function renderArrivalAlerts(st){
+  const row = document.getElementById('profAlerts');
+  if(!_arrivalPlugin() || !st){ row.classList.remove('show'); return; }
+  row.classList.add('show');
+  const on = !!st.enabled;
+  const btn = document.getElementById('profAlertsBtn');
+  btn.classList.toggle('on', on); btn.innerText = on ? 'On' : 'Off';
+  document.getElementById('profAlertsSub').innerText = !on
+    ? 'A free-drink heads-up when you arrive somewhere with ClubLifter clubs.'
+    : (st.location === 'always' ? 'On — even with the app closed.'
+       : 'Allow location “Always” for ClubLifter in Settings to get alerts with the app closed.');
+}
+async function refreshArrivalAlerts(){
+  const P = _arrivalPlugin(); if(!P) return;
+  try{ renderArrivalAlerts(await P.status()); }catch(e){}
+}
+
 // Coming back to the app: re-check where they are (at most every few minutes).
 let _lastGeoCheck = 0;
 document.addEventListener('visibilitychange', async ()=>{
+  if(!document.hidden && _ageVerified) showPendingWelcome();
   if(document.hidden || !_ageVerified || Date.now() - _lastGeoCheck < 5*60*1000) return;
   if(!document.getElementById('screen-home').classList.contains('active')) return;
   _lastGeoCheck = Date.now();
@@ -11432,7 +11525,10 @@ function showWelcome(state, msg){
   w.classList.add('show');
   dropConfetti(w);
 }
-function dismissWelcome(){ document.getElementById('welcome').classList.remove('show'); }
+function dismissWelcome(){
+  document.getElementById('welcome').classList.remove('show');
+  setTimeout(maybeAskArrivalAlerts, 600);
+}
 function dropConfetti(container){
   const colors=['#8a5cf6','#ec4899','#fbbf24','#22c55e','#a78bfa'];
   for(let i=0;i<40;i++){
@@ -11614,6 +11710,7 @@ function openProfile(){
   if(!_token){ showScreen('login'); return; }
   showScreen('profile');
   loadProfile();
+  refreshArrivalAlerts();
 }
 
 // ── Login flow ──
