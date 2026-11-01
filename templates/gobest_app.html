@@ -389,10 +389,10 @@ body{
 .adm-select,.adm-date,.adm-search,.adm-input{width:100%;min-width:0;background:var(--surf);border:1px solid var(--bd);color:var(--t);border-radius:11px;padding:11px 12px;font-size:.88rem;font-family:'DM Sans',sans-serif;-webkit-appearance:none;appearance:none;}
 .adm-select:focus,.adm-date:focus,.adm-search:focus,.adm-input:focus{outline:none;border-color:var(--acc);}
 .adm-date{color-scheme:dark;}
-.adm-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;}
+.adm-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px;}
 .adm-stat{background:var(--surf);border:1px solid var(--bd);border-radius:12px;padding:10px 4px;text-align:center;cursor:pointer;color:var(--t);font-family:'DM Sans',sans-serif;}
 .adm-stat b{display:block;font-size:1.35rem;font-weight:700;line-height:1;margin-bottom:4px;font-variant-numeric:tabular-nums;}
-.adm-stat span{font-size:.6rem;text-transform:uppercase;letter-spacing:.5px;color:var(--m2);font-weight:700;}
+.adm-stat span{font-size:.54rem;white-space:nowrap;text-transform:uppercase;letter-spacing:.5px;color:var(--m2);font-weight:700;}
 .adm-stat.on{border-color:var(--bhi);background:rgba(138,92,246,.16);}
 .adm-alert{background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.4);color:#fb923c;border-radius:11px;padding:10px 12px;font-size:.8rem;font-weight:600;margin-bottom:12px;}
 .adm-search{margin-bottom:12px;}
@@ -406,6 +406,7 @@ body{
 .st-coming{background:rgba(138,92,246,.16);color:var(--acc3);}
 .st-arrived{background:rgba(34,197,94,.16);color:#4ade80;}
 .st-left{background:rgba(255,255,255,.07);color:var(--m2);}
+.st-no_show{background:rgba(239,68,68,.14);color:#f87171;}
 .g-in{flex-shrink:0;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:11px;padding:10px 12px;font-weight:700;font-size:.8rem;font-family:'DM Sans',sans-serif;cursor:pointer;}
 .adm-fab{position:fixed;right:18px;bottom:calc(88px + env(safe-area-inset-bottom));z-index:90;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;border:none;border-radius:100px;padding:14px 20px;font-weight:700;font-size:.9rem;font-family:'DM Sans',sans-serif;box-shadow:0 8px 24px rgba(138,92,246,.45);cursor:pointer;}
 .adm-card{background:var(--surf);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:14px;}
@@ -417,6 +418,8 @@ body{
 .adm-seg button{flex:1;padding:11px 6px;border-radius:11px;border:1px solid var(--bd);background:var(--surf);color:var(--m2);font-weight:700;font-size:.82rem;font-family:'DM Sans',sans-serif;cursor:pointer;}
 .adm-seg button.on{border-color:var(--bhi);background:rgba(138,92,246,.18);color:var(--t);}
 .adm-seg button.on.s-arrived{border-color:rgba(34,197,94,.55);background:rgba(34,197,94,.18);}
+.adm-seg button.on.s-no_show{border-color:rgba(239,68,68,.5);background:rgba(239,68,68,.16);}
+.prof-version{text-align:center;color:var(--m2);font-size:.72rem;margin-top:18px;}
 .adm-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;}
 .adm-btn{display:block;text-align:center;text-decoration:none;padding:13px 10px;border-radius:12px;border:1px solid var(--bd);background:var(--surf);color:var(--t);font-weight:700;font-size:.86rem;font-family:'DM Sans',sans-serif;cursor:pointer;}
 .adm-btn.pri{background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;color:#fff;}
@@ -10606,6 +10609,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
         <h1 id="heroState">—</h1>
         <p id="heroSub">Finding the best clubs near you…</p>
       </div>
+      <button class="adm-entry" onclick="openAdmin()">🛡️ Open Admin mode<span>Guest list · check-in · QR codes for your ClubLifter staff account</span></button>
       <div class="active-ride-card" id="activeRideCard" style="display:none;">
         <div class="arc-glow"></div>
         <div class="arc-top">
@@ -10772,6 +10776,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
 
       <button class="prof-logout" onclick="appLogout()">Log out</button>
       <button class="prof-delete" onclick="confirmDeleteAccount()">Delete my account</button>
+      <div class="prof-version" id="profVersion"></div>
     </div>
   </div>
 
@@ -10928,6 +10933,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
         <div class="hist-hdr-title">Guest list</div>
         <div class="adm-who" id="admWho"></div>
       </div>
+      <button class="adm-icon-btn" onclick="testArrivalAlert()" aria-label="Test the arrival alert" style="margin-right:6px;">🔔</button>
       <button class="adm-icon-btn" onclick="loadAdminGuests()" aria-label="Refresh">⟳</button>
     </div>
     <div class="adm-body">
@@ -10980,7 +10986,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
       <div class="welcome-badge">🎉</div>
       <div class="eyebrow">ClubLifter</div>
       <h1 id="welcomeTitle">Welcome!</h1>
-      <p id="welcomeMsg">Be sure to check out our clubs and scan the QR code for a free drink!</p>
+      <p id="welcomeMsg">Visit one of our clubs and get a free drink!</p>
       <button class="cta" onclick="dismissWelcome()">Show me the clubs</button>
       <button class="skip" onclick="dismissWelcome()">Maybe later</button>
     </div>
@@ -11062,6 +11068,7 @@ async function init(){
   showScreen('home'); setNav('navExplore');
   const coords = await getLocation();
   currentCoords = coords;
+  _lastGeoCheck = Date.now();
   await detectAndLoad(coords, false);
   loadBanner();
   checkActiveRide();  // show the "track your ride" card on home if there's one
@@ -11117,8 +11124,31 @@ async function detectAndLoad(coords, announce){
   // Fire the welcome moment when arriving in a new state that has clubs
   if(announce && changed && detected.has_clubs){
     showWelcome(detected.state, detected.welcome_message);
+  }else if(!coords.approx){
+    noteArrival(detected);
   }
 }
+
+// The last state the guest was welcomed to is remembered (cl_last_state, shared
+// with native.js's background alerts), so they're welcomed once per new state —
+// in the app when it's open, by a phone notification when it isn't.
+async function noteArrival(d){
+  if(!d || !d.success || !d.state) return;
+  const last = await storeGet('cl_last_state');
+  if(d.state === last) return;
+  storeSet('cl_last_state', d.state);
+  if(d.has_clubs) showWelcome(d.state, d.welcome_message || 'Visit one of our clubs and get a free drink!');
+}
+// Coming back to the app: re-check where they are (at most every few minutes).
+let _lastGeoCheck = 0;
+document.addEventListener('visibilitychange', async ()=>{
+  if(document.hidden || !_ageVerified || Date.now() - _lastGeoCheck < 5*60*1000) return;
+  if(!document.getElementById('screen-home').classList.contains('active')) return;
+  _lastGeoCheck = Date.now();
+  const coords = await getLocation();
+  currentCoords = coords;
+  detectAndLoad(coords, false);
+});
 
 // ── Ad banner (rented to brand partners; audience is 21+) ──
 let _bannerId = null;
@@ -11397,7 +11427,7 @@ function showArrived(){
 // ══════════════════════════════════════════════════════════════════
 function showWelcome(state, msg){
   document.getElementById('welcomeTitle').innerText = `Welcome to ${state}!`;
-  document.getElementById('welcomeMsg').innerText = msg || 'Be sure to check out our clubs and scan the QR code for a free drink!';
+  document.getElementById('welcomeMsg').innerText = msg || 'Visit one of our clubs and get a free drink!';
   const w = document.getElementById('welcome');
   w.classList.add('show');
   dropConfetti(w);
@@ -12232,7 +12262,15 @@ function setStaff(s){
   const had = !!_staff;
   _staff = s;
   document.body.classList.toggle('is-staff', !!s);
-  if(s){ applyStaffUI(); return; }
+  if(s){
+    applyStaffUI();
+    if(!had && !_adminMode) storeGet('cl_staff_seen').then(v=>{
+      if(v === s.staff.username) return;
+      storeSet('cl_staff_seen', s.staff.username);
+      admToast('🛡️ Admin tools unlocked — tap Admin');
+    });
+    return;
+  }
   if(had || _adminMode) exitAdmin(had ? 'Admin access was turned off for this account.' : '');
 }
 // Forget staff state without navigating (logout / sign-out paths).
@@ -12339,10 +12377,10 @@ async function loadAdminGuests(silent){
   renderAdminGuests();
 }
 function setAdmFilter(f){ _admFilter = f; renderAdminGuests(); }
-const ADM_STATUS = {coming:'Coming', arrived:'Arrived', left:'Left'};
+const ADM_STATUS = {coming:'Coming', arrived:'Arrived', left:'Left', no_show:'No show'};
 function renderAdminGuests(){
-  const c = _admCounts || {total:0, coming:0, arrived:0, left:0, unassigned:0};
-  document.getElementById('admStats').innerHTML = [['all','Total',c.total],['coming','Coming',c.coming],['arrived','Arrived',c.arrived],['left','Left',c.left]]
+  const c = _admCounts || {total:0, coming:0, arrived:0, left:0, no_show:0, unassigned:0};
+  document.getElementById('admStats').innerHTML = [['all','Total',c.total],['coming','Coming',c.coming],['arrived','Arrived',c.arrived],['left','Left',c.left],['no_show','No show',c.no_show]]
     .map(([k,l,n])=>`<button class="adm-stat ${_admFilter===k?'on':''}" onclick="setAdmFilter('${k}')"><b>${n||0}</b><span>${l}</span></button>`).join('');
   const alertEl = document.getElementById('admAlert');
   alertEl.style.display = c.unassigned ? 'block' : 'none';
@@ -12374,10 +12412,10 @@ function renderAdminGuests(){
 }
 function admGuest(id){ return _admGuests.find(g=>g.id===id); }
 
-// Check-in / check-out — the same status the website's Guest List sets.
-async function setGuestStatus(id, status, btn){
+// Check-in / check-out / no-show — the same status the website's Guest List sets.
+async function setGuestStatus(id, status, btn, reason){
   if(btn){ btn.disabled = true; }
-  const d = await adminPost(`/guests/${id}/status`, {club_status:status});
+  const d = await adminPost(`/guests/${id}/status`, {club_status:status, reason: reason || ''});
   if(btn){ btn.disabled = false; }
   if(!d.success){ admToast(d.error||'Could not update.', true); return; }
   const g = admGuest(id);
@@ -12386,10 +12424,19 @@ async function setGuestStatus(id, status, btn){
     if(_admCounts[old] != null) _admCounts[old] -= 1;
     _admCounts[status] = (_admCounts[status]||0) + 1;
     g.club_status = status;
+    g.no_show_reason = d.no_show_reason || '';
   }
   renderAdminGuests();
   if(document.getElementById('admSheet').classList.contains('show') && g) openGuest(id);
-  admToast(status==='arrived' ? `✓ ${g ? g.name : 'Guest'} checked in` : status==='left' ? 'Marked as left' : 'Back to coming');
+  admToast(status==='arrived' ? `✓ ${g ? g.name : 'Guest'} checked in` : status==='left' ? 'Marked as left'
+           : status==='no_show' ? 'Marked as no-show' : 'Back to coming');
+}
+// No-show is only ever set by staff; the reason is optional (same as the website).
+function markNoShow(id){
+  const g = admGuest(id);
+  const reason = window.prompt(`Mark ${g ? g.name : 'this guest'} as a no-show?\n\nReason (optional):`, '');
+  if(reason === null) return;   // cancelled
+  setGuestStatus(id, 'no_show', null, reason.trim());
 }
 
 function telLink(p){ return (p||'').replace(/[^\d+]/g,''); }
@@ -12408,6 +12455,9 @@ function openGuest(id){
     <div class="adm-subtitle">${esc(g.pickup_datetime||'')}${g.destination?' · '+esc(g.destination):''}</div>
     <div class="adm-seg">
       ${['coming','arrived','left'].map(s=>`<button class="${st===s?'on s-'+s:''}" onclick="setGuestStatus(${g.id},'${s}')">${ADM_STATUS[s]}</button>`).join('')}
+    </div>
+    <div class="adm-seg" style="margin-top:6px;">
+      <button class="${st==='no_show'?'on s-no_show':''}" onclick="markNoShow(${g.id})">🚫 No show${st==='no_show' && g.no_show_reason ? ' · ' + esc(g.no_show_reason) : ''}</button>
     </div>
     <div style="margin-top:10px;">
       ${kv('Phone', phones)}
@@ -12681,6 +12731,19 @@ async function validateCode(raw){
     <div class="adm-actions"><button class="adm-btn pri" onclick="closeAdmSheet();startValidateScan()">Scan another</button><button class="adm-btn" onclick="closeAdmSheet()">Done</button></div>`);
 }
 
+async function testArrivalAlert(){
+  if(typeof window.sendArrivalAlert !== 'function'){ admToast('Phone alerts only work in the ClubLifter app', true); return; }
+  const coords = await getLocation();
+  let d = null;
+  try{ d = await (await fetch(`${API_BASE}/api/app/detect-state?lat=${coords.lat}&lng=${coords.lng}`)).json(); }catch(e){}
+  const state = (d && d.state) || 'Nevada';
+  const ok = await window.sendArrivalAlert({
+    state, title: (d && d.alert_title) || `Welcome to ${state}! 🎉`,
+    body: (d && d.alert_body) || 'Visit one of our clubs and get a free drink 🍸',
+    message: (d && d.welcome_message) || ''}, 5);
+  admToast(ok ? 'Test alert in 5 s — lock the phone or leave the app to see it' : 'Notifications are off for ClubLifter in Settings', !ok);
+}
+
 function startRedeemScan(){
   _scanPurpose = 'redeem'; setScanCopy();
   openScanner();
@@ -12728,6 +12791,17 @@ async function shareContent(o){
   catch(e){ window.prompt('Copy this:', text); }
 }
 
+// Web bundle version — bump when www/ changes, so Profile shows which build is installed.
+const APP_BUNDLE = '2026.11.01';
+async function showVersion(){
+  const el = document.getElementById('profVersion');
+  if(!el) return;
+  const A = _nativePlugin('App');
+  let txt = `ClubLifter web · bundle ${APP_BUNDLE}`;
+  try{ if(A){ const i = await A.getInfo(); txt = `ClubLifter ${i.version} (build ${i.build}) · bundle ${APP_BUNDLE}`; } }catch(e){}
+  el.innerText = txt;
+}
+
 // Boot: restore the saved session and 21+ answer first, so returning guests skip
 // the age gate and the SMS login and land straight on Explore.
 async function boot(){
@@ -12735,6 +12809,7 @@ async function boot(){
   if(tok) _token = tok;
   if(age === '1') _ageVerified = true;
   prefillLogin();
+  showVersion();
   ageGateStart();
   if(_token){
     loadProfile();   // fills _user (first name in ride status) and validates the token
@@ -12743,7 +12818,10 @@ async function boot(){
     refreshStaff().then(st=>{ if(st && mode === 'admin' && _ageVerified && _token) openAdmin(); });
   }
 }
-boot();
+// Start once the page is parsed: native.js (loaded by the tag below in the app)
+// must replace getLocation & co. before init() uses them.
+if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
 </script>
 <script>
 // Native bridge (ML Kit QR scanner, native GPS, welcome notifications). Only the

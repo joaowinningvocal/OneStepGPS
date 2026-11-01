@@ -170,7 +170,10 @@
                                 {% for cn in u.get_club_names() %}<span class="b-club">🏢 {{ cn }}</span> {% endfor %}
                             {% else %}<span style="color:var(--m)">—</span>{% endif %}
                         </td>
-                        <td style="white-space:nowrap;">{% if u.phone %}📱 {{ u.phone }}{% else %}<span style="color:var(--m)">—</span>{% endif %}</td>
+                        <td style="white-space:nowrap;">{% if u.phone %}📱 {{ u.phone }}
+                            {% if app_status.get(u.id) %}<div style="font-size:.68rem;color:var(--g);">✓ signed into the app{% if app_status[u.id] != 'yes' %} · last seen {{ app_status[u.id] }}{% endif %}</div>
+                            {% else %}<div style="font-size:.68rem;color:#f97316;">Nobody has signed into the app with this number yet</div>{% endif %}
+                        {% else %}<span style="color:var(--m)">—</span>{% endif %}</td>
                         <td style="color:var(--g);font-weight:600;">{% if u.commission %}${{ "%.2f"|format(u.commission) }}{% else %}—{% endif %}</td>
                         <td><div class="btns">
                             <button class="btn-e" data-uid="{{ u.id }}" data-uname="{{ u.username|e }}" data-urole="{{ u.role|e }}" data-uclubs="{{ u.clubs|map(attribute='id')|list|tojson|forceescape }}" data-ucomm="{{ u.commission or 0 }}" data-uphone="{{ (u.phone or '')|e }}" onclick="openEditEl(this)">Edit</button>

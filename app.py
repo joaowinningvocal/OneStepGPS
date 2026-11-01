@@ -1017,6 +1017,19 @@ def normalize_phone_e164(p):
         return ""
     return '+' + digits
 
+def phone_variants(e164):
+    """Every way a stored number can look for this E.164 phone (app accounts keep
+    what was typed, cleaned): +17025551234, 17025551234, 7025551234."""
+    return {e164, e164[1:]} | ({e164[2:]} if e164.startswith("+1") else set())
+
+def app_user_for_phone(phone):
+    """The verified app account signed in with this number (most recent), or None."""
+    e164 = normalize_phone_e164(phone)
+    if not e164:
+        return None
+    return (AppUser.query.filter(AppUser.phone.in_(phone_variants(e164)), AppUser.verified == True)
+            .order_by(AppUser.last_seen.desc()).first())
+
 def valid_booking_url(url):
     """Only real web pages can be a club's free pickup booking link."""
     u = (url or "").strip()
@@ -2777,7 +2790,12 @@ def app_detect_state():
         "state": state,
         "has_clubs": club_count > 0,
         "club_count": club_count,
-        "welcome_message": f"Welcome to {state}! Be sure to check out our clubs and scan the QR code for a free drink!" if club_count else "",
+        # Shown under "Welcome to <state>!" (in-app welcome, and the alert body in
+        # older app builds) — so it doesn't repeat the welcome itself.
+        "welcome_message": "Visit one of our clubs and get a free drink!" if club_count else "",
+        # Phone notification for arriving in a new state (edit here, no app release)
+        "alert_title": f"Welcome to {state}! 🎉" if club_count else "",
+        "alert_body": "Visit one of our clubs and get a free drink 🍸" if club_count else "",
     })
 
 @app.route('/api/app/clubs', methods=['GET'])
@@ -2940,9 +2958,7 @@ def app_auth_send_code():
     # cap too — keeps code guessing far out of reach.
     e164 = normalize_phone_e164(phone)
     if e164 and User.query.filter_by(phone=e164).first():
-        # Count every way the same number can be typed (+1702…, 1702…, 702…)
-        variants = {e164, e164[1:]} | ({e164[2:]} if e164.startswith("+1") else set())
-        day_count = OTPCode.query.filter(OTPCode.phone.in_(variants),
+        day_count = OTPCode.query.filter(OTPCode.phone.in_(phone_variants(e164)),
                                          OTPCode.created_at >= datetime.utcnow() - timedelta(hours=24)).count()
         if day_count >= STAFF_OTP_PER_DAY:
             return jsonify({"success": False,
@@ -3398,11 +3414,11 @@ def app_admin_guests():
     rows, f = _guestlist_rows()
     dups = flag_duplicates(rows)
     items = []
-    counts = {"coming": 0, "arrived": 0, "left": 0, "unassigned": 0}
+    counts = {"coming": 0, "arrived": 0, "left": 0, "no_show": 0, "unassigned": 0}
     for c in rows:
         info = _guest_row_info(c, dup_of=dups.get(c.id))
         item = _guest_status_item(c, info)
-        counts[item["club_status"] if item["club_status"] in ("arrived", "left") else "coming"] += 1
+        counts[item["club_status"] if item["club_status"] in ("arrived", "left", "no_show") else "coming"] += 1
         if info["unassigned"]:
             counts["unassigned"] += 1
         item.update({
@@ -4222,7 +4238,14 @@ def admin_users():
             visible.append("club_owner")
         users = User.query.filter(User.role.in_(visible)).order_by(User.role, User.username).all()
     clubs  = Club.query.filter_by(active=True).all()
-    return render_template('admin_users.html', users=users, clubs=clubs,
+    # For accounts with an app phone: has anyone signed into the app with that
+    # number yet? (Tells "wrong number in the app" apart from "not linked".)
+    app_status = {}
+    for u in users:
+        if u.phone:
+            au = app_user_for_phone(u.phone)
+            app_status[u.id] = vegas_datetime(au.last_seen) if au and au.last_seen else ("yes" if au else "")
+    return render_template('admin_users.html', users=users, clubs=clubs, app_status=app_status,
                            viewer_role=session.get("role"), creatable_roles=allowed)
 
 @app.route('/admin/users/new', methods=['POST'])
