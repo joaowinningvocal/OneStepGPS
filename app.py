@@ -3,7 +3,7 @@ import os
 import json
 import base64
 import threading
-from sqlalchemy import func
+from sqlalchemy import func, or_
 import time
 import requests
 import urllib.parse
@@ -7264,6 +7264,12 @@ def _clear_no_show(c):
     c.no_show_at = None
     c.no_show_by = ""
 
+def not_no_show():
+    """SQL filter: rows NOT marked as a no-show (NULL-safe — old rows may have no
+    club_status). Every automatic job adds it on top of its status filter, so a
+    no-show ride is never touched by automatic dispatch."""
+    return or_(Customer.club_status.is_(None), Customer.club_status != "no_show")
+
 @app.route('/admin/guestlist/delete/<int:customer_id>', methods=['POST'])
 def delete_guest(customer_id):
     if not can_dispatch():
@@ -8795,7 +8801,8 @@ def auto_assign_pending():
     now_v = vegas_naive_now()
     alerts = []
     rows = Customer.query.filter(Customer.needs_transport == True,
-                                 Customer.status.in_(("scheduled", "waitlist"))).all()
+                                 Customer.status.in_(("scheduled", "waitlist")),
+                                 not_no_show()).all()
     for c in rows:
         if _is_demo_ride(c):
             continue
@@ -9041,7 +9048,8 @@ def auto_timeouts():
     now_u = datetime.utcnow()
     now_v = vegas_naive_now()
     rows = Customer.query.filter(Customer.needs_transport == True,
-                                 Customer.status.in_(("scheduled", "picked_up"))).all()
+                                 Customer.status.in_(("scheduled", "picked_up")),
+                                 not_no_show()).all()
     for c in rows:
         if _is_demo_ride(c):
             continue
@@ -9188,7 +9196,8 @@ def auto_progress_rides():
     now_v = vegas_naive_now()
     now_u = datetime.utcnow()
     rows = Customer.query.filter(Customer.needs_transport == True,
-                                 Customer.status.in_(("scheduled", "picked_up"))).all()
+                                 Customer.status.in_(("scheduled", "picked_up")),
+                                 not_no_show()).all()
     for c in rows:
         if _is_demo_ride(c):
             continue
@@ -9337,7 +9346,8 @@ def backfill_ride_coords(limit=4, budget_sec=10):
     t0 = time.time()
     done = 0
     rows = Customer.query.filter(Customer.needs_transport == True,
-                                 Customer.status.in_(("scheduled", "waitlist", "picked_up"))).all()
+                                 Customer.status.in_(("scheduled", "waitlist", "picked_up")),
+                                 not_no_show()).all()
     for c in rows:
         if done >= limit or time.time() - t0 > budget_sec:
             break
