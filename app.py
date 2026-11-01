@@ -9759,7 +9759,6 @@ def seed_gobest_clubs():
     clubs = [
         # name, address, state, lat, lng, free_drink
         ("Hustler Club Las Vegas", "6007 Dean Martin Dr, Las Vegas, NV 89118", "Nevada", 36.0665, -115.1830, "House Margarita"),
-        ("Hustler Club New York", "641 W 51st St, New York, NY 10019", "New York", 40.7672, -73.9954, "House cocktail"),
         ("Kings of Hustler", "6007 Dean Martin Dr, Las Vegas, NV 89118", "Nevada", 36.0665, -115.1830, "House cocktail"),
         ("Little Darlings Las Vegas", "1514 Western Ave, Las Vegas, NV 89102", "Nevada", 36.1585, -115.1618, "Well Drink"),
         ("Erotic Heritage Museum Las Vegas", "3275 S Sammy Davis Jr Dr, Las Vegas, NV 89109", "Nevada", 36.1367, -115.1720, "Well drink"),
@@ -9788,6 +9787,30 @@ def seed_gobest_clubs():
     except Exception as e:
         db.session.rollback()
         print(f"[SEED] GoBest clubs seed failed: {e}", flush=True)
+
+# Venues that left the network (sold/closed). Retired once on boot: hidden from
+# the app and the admin lists, their QR codes paused. Rows are kept (not
+# deleted) so past bookings and QR history still make sense. The Clubs screen
+# can reactivate one later — this runs only once per club.
+RETIRED_CLUBS = ("hustler club new york",)   # sold, 2026-11
+
+def retire_clubs():
+    try:
+        for name in RETIRED_CLUBS:
+            flag = f"retired:{name}"
+            if get_setting(flag):
+                continue
+            for club in Club.query.filter(func.lower(Club.name) == name).all():
+                club.active = False
+                club.gobest = False
+                club.managed = False
+                QRCodeItem.query.filter_by(club_id=club.id).update({QRCodeItem.active: False})
+                print(f"[SEED] retired club: {club.name}", flush=True)
+            db.session.commit()
+            set_setting(flag, datetime.utcnow().strftime("%Y-%m-%d"))
+    except Exception as e:
+        db.session.rollback()
+        print(f"[SEED] club retirement skipped: {e}", flush=True)
 
 def seed_demo_ride():
     """Set up a ready-to-demo scenario: a driver who is enroute, a car with a
@@ -10053,6 +10076,7 @@ with app.app_context():
 
     seed_data()
     seed_gobest_clubs()
+    retire_clubs()
     fix_known_bad_venue_coords()
     seed_demo_ride()
 
