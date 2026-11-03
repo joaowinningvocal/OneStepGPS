@@ -464,18 +464,6 @@ body{
 .qr-result .ico{width:64px;height:64px;border-radius:50%;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:800;color:#fff;}
 .qr-result .ico.ok{background:linear-gradient(135deg,#22c55e,#16a34a);}
 .qr-result .ico.no{background:linear-gradient(135deg,#ef4444,#b91c1c);}
-/* ── FREE PICKUP (managed clubs' "Take me there") ── */
-.club-pickup{display:flex;align-items:center;gap:4px;font-size:.72rem;color:var(--green);font-weight:700;}
-.pickup-hero{text-align:center;padding:10px 4px 22px;}
-.pickup-hero .ico{font-size:3.2rem;margin-bottom:10px;}
-.pickup-hero h1{font-family:'Syne',sans-serif;font-weight:800;font-size:1.9rem;line-height:1.1;letter-spacing:-.02em;margin-bottom:10px;}
-.pickup-hero p{color:var(--m);font-size:.95rem;line-height:1.5;}
-.pickup-hero b{color:var(--t);}
-.pickup-steps{background:var(--surf);border:1px solid var(--bd);border-radius:16px;padding:6px 16px;margin-bottom:20px;}
-.pickup-step{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--bd);font-size:.88rem;line-height:1.4;}
-.pickup-step:last-child{border-bottom:none;}
-.pickup-step i{font-style:normal;width:26px;height:26px;border-radius:50%;background:rgba(138,92,246,.2);color:var(--acc3);font-weight:800;font-size:.8rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-.pickup-alt{width:100%;background:none;border:1px solid var(--bd);color:var(--m2);padding:14px;border-radius:13px;font-weight:600;font-size:.88rem;cursor:pointer;margin-top:12px;font-family:'DM Sans',sans-serif;}
 </style>
 <script>
 (function webpackUniversalModuleDefinition(root, factory) {
@@ -10933,28 +10921,6 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     </div>
   </div>
 
-  <!-- ═══ FREE PICKUP (ClubLifter-managed clubs' "Take me there") ═══ -->
-  <div class="screen history-screen" id="screen-pickup">
-    <div class="hist-hdr">
-      <button class="back" onclick="closePickup()">‹</button>
-      <div class="hist-hdr-title" id="puName">Free pickup</div>
-    </div>
-    <div class="hist-body">
-      <div class="pickup-hero">
-        <div class="ico">🚐</div>
-        <h1>Your ride is on us</h1>
-        <p>ClubLifter will pick you up and bring you to <b id="puClub">the club</b> — free.</p>
-      </div>
-      <div class="pickup-steps">
-        <div class="pickup-step"><i>1</i><div>Pick your pickup spot and time on the booking page.</div></div>
-        <div class="pickup-step"><i>2</i><div>We text you when your driver is assigned and on the way.</div></div>
-        <div class="pickup-step"><i>3</i><div>Booked with this phone number? Your ride shows up on your home screen so you can track it live.</div></div>
-      </div>
-      <button class="track-ride-btn" onclick="bookFreePickup()">🚐 Book my free pickup</button>
-      <button class="pickup-alt" onclick="pickupDirections()">🧭 I'll get there myself — show directions</button>
-    </div>
-  </div>
-
   <!-- ═══ ADMIN: GUEST LIST (staff only — access is set on the ClubLifter website) ═══ -->
   <div class="screen admin-screen" id="screen-admin">
     <div class="hist-hdr">
@@ -11312,9 +11278,10 @@ async function loadClubs(coords, state, detected){
         <div class="club-meta">
           ${c.distance_mi!=null?`<span class="club-dist">📍 ${c.distance_mi} mi</span>`:''}
           ${c.free_drink?`<span class="club-drink">🍸 Free drink</span>`:''}
-          ${c.take_me_there==='pickup'?`<span class="club-pickup">🚐 Free pickup</span>`:''}
         </div>
-        <button class="take-me" onclick="event.stopPropagation();takeMeThere(${c.id})">🧭 Take me there!</button>
+        ${c.take_me_there==='book'
+          ? `<button class="take-me" onclick="event.stopPropagation();bookPackage(${c.id})">🎟️ Book a package</button>`
+          : `<button class="take-me" onclick="event.stopPropagation();takeMeThere(${c.id})">🧭 Take me there!</button>`}
       </div>
     </div>`).join('');
 }
@@ -11330,29 +11297,18 @@ let _clubsById = {};
 let _clubMap = null, _clubMarker = null, _meMarker = null, _routeLine = null;
 let _cmClub = null, _geoWatch = null, _routeFrom = null, _routeBusy = false;
 
-// ClubLifter-managed clubs with a booking link (set on the website's Clubs
-// screen) offer a free pickup; every other club — and a managed one whose link
-// isn't set yet — opens the in-app map with directions.
+// Clubs with a booking link (CartVIP affiliate page, set on the website's Clubs
+// screen) get "Book a package", which opens it. Tapping a club card — and every
+// other club's "Take me there" — opens the in-app map with directions.
 function takeMeThere(id){
   const c = _clubsById[id];
-  if(!c) return;
-  if(c.take_me_there === 'pickup' && c.pickup_booking_url) openFreePickup(c);
-  else openClubMap(c);
+  if(c) openClubMap(c);
 }
-
-let _puClub = null;
-function openFreePickup(c){
-  stopDirections();
-  _puClub = c;
-  document.getElementById('puName').innerText = c.name || 'Free pickup';
-  document.getElementById('puClub').innerText = c.name || 'the club';
-  showScreen('pickup');
+function bookPackage(id){
+  const c = _clubsById[id];
+  if(c && c.take_me_there === 'book' && c.pickup_booking_url) openExternal(c.pickup_booking_url);
+  else takeMeThere(id);
 }
-function bookFreePickup(){
-  if(_puClub && _puClub.pickup_booking_url) openExternal(_puClub.pickup_booking_url);
-}
-function pickupDirections(){ if(_puClub) openClubMap(_puClub); }
-function closePickup(){ showScreen('home'); setNav('navExplore'); }
 
 function openClubMap(c){
   stopDirections();

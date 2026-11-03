@@ -330,18 +330,19 @@ class Club(db.Model):
     free_drink  = db.Column(db.String(200), default="")    # e.g. "House margarita"
     gobest      = db.Column(db.Boolean, default=True)       # part of the GoBest network
     review_url  = db.Column(db.String(400), default="")     # Google review link for the app prompt
-    # Venues ClubLifter runs. In the app their "Take me there" opens the free
-    # pickup booking page (pickup_booking_url) instead of map directions.
+    # Venues ClubLifter runs. In the app they get "Book a package", which opens
+    # their booking page (pickup_booking_url: the CartVIP affiliate link) instead
+    # of "Take me there" map directions.
     managed            = db.Column(db.Boolean, default=False)
     pickup_booking_url = db.Column(db.String(500), default="")
 
     def take_me_there(self):
-        """What the app's "Take me there" does for this club: 'pickup' (open the
-        free pickup booking page) for a managed club with a booking link, else
-        'directions' (in-app map). A managed club without a link yet falls back to
-        directions, so the button never opens a broken page."""
+        """What the club's button does in the app: 'book' ("Book a package", opens
+        the booking link) for a managed club with a link, else 'directions'
+        ("Take me there", in-app map). A managed club without a link yet falls back
+        to directions, so the button never opens a broken page."""
         if self.managed and valid_booking_url(self.pickup_booking_url):
-            return "pickup"
+            return "book"
         return "directions"
 
     def to_dict(self):
@@ -1031,7 +1032,7 @@ def app_user_for_phone(phone):
             .order_by(AppUser.last_seen.desc()).first())
 
 def valid_booking_url(url):
-    """Only real web pages can be a club's free pickup booking link."""
+    """Only real web pages can be a club's booking link."""
     u = (url or "").strip()
     try:
         parts = urllib.parse.urlparse(u)
@@ -4613,14 +4614,14 @@ def _apply_gobest_fields(club, f):
             club.state = state
 
 def _apply_pickup_fields(club, f):
-    """Managed-by-ClubLifter flag + free pickup booking link (drive the app's
-    "Take me there"). Fields not sent are left alone. Returns an error or None."""
+    """Managed-by-ClubLifter flag + booking link (the app's "Book a package"
+    button). Fields not sent are left alone. Returns an error or None."""
     if 'managed' in f:
         club.managed = str(f.get('managed')).lower() in ('true', '1', 'yes', 'on')
     if 'pickup_booking_url' in f:
         url = (f.get('pickup_booking_url') or "").strip()
         if url and not valid_booking_url(url):
-            return "The pickup booking link must be a full web address starting with https://"
+            return "The booking link must be a full web address starting with https://"
         club.pickup_booking_url = url[:500]
     return None
 
@@ -9908,6 +9909,36 @@ def retire_clubs():
 # there sticks. Skipped for a number another account already uses.
 INITIAL_ADMIN_PHONES = {"joaoacess": "7025307390", "randyacess": "7023540014"}
 
+# CartVIP affiliate links ("Book a package" in the app), filled once on the first
+# boot after they were given (2026-11-02) — only where a club has no link yet; the
+# Clubs screen owns them afterwards. Duplicate rows of the same venue get the same
+# link. Clubs not listed keep "Take me there" directions.
+INITIAL_BOOKING_LINKS = {
+    "https://app.cartvip.com/affiliate/acekh": ("kings of hustler",),
+    "https://app.cartvip.com/affiliate/hlv":   ("hustler las vegas", "hustler club las vegas"),
+    "https://app.cartvip.com/affiliate/hcm":   ("cats meow new orleans", "cat's meow"),
+    "https://app.cartvip.com/affiliate/hbl":   ("barely legal new orleans", "barely legal club new orleans"),
+    "https://app.cartvip.com/affiliate/hnola": ("hustler club new orleans",),
+}
+
+def seed_booking_links():
+    flag = "seeded:booking_links:2026-11-02"
+    if get_setting(flag):
+        return
+    try:
+        for url, names in INITIAL_BOOKING_LINKS.items():
+            for club in Club.query.filter(func.lower(Club.name).in_(names)).all():
+                if club.pickup_booking_url:
+                    continue
+                club.pickup_booking_url = url
+                club.managed = True
+                print(f"[SEED] booking link {url} → {club.name}", flush=True)
+        db.session.commit()
+        set_setting(flag, datetime.utcnow().strftime("%Y-%m-%d"))
+    except Exception as e:
+        db.session.rollback()
+        print(f"[SEED] booking links skipped: {e}", flush=True)
+
 def seed_admin_phones():
     flag = "seeded:admin_phones:2026-11-02"
     if get_setting(flag):
@@ -10163,7 +10194,7 @@ with app.app_context():
     safe_migrate("user", "email",      'ALTER TABLE "user" ADD COLUMN email VARCHAR(200) DEFAULT \'\'')
     safe_migrate("user", "activation_token", 'ALTER TABLE "user" ADD COLUMN activation_token VARCHAR(64) DEFAULT \'\'')
     safe_migrate("user", "is_active",  'ALTER TABLE "user" ADD COLUMN is_active BOOLEAN DEFAULT 1')
-    # App admin mode + "Take me there" free pickup (additive, nothing dropped)
+    # App admin mode + "Book a package" links (additive, nothing dropped)
     safe_migrate("user", "phone",      'ALTER TABLE "user" ADD COLUMN phone VARCHAR(20) DEFAULT \'\'')
     added_managed = safe_migrate("club", "managed", "ALTER TABLE club ADD COLUMN managed BOOLEAN DEFAULT FALSE")
     safe_migrate("club", "pickup_booking_url", "ALTER TABLE club ADD COLUMN pickup_booking_url VARCHAR(500) DEFAULT ''")
@@ -10197,6 +10228,7 @@ with app.app_context():
     seed_gobest_clubs()
     retire_clubs()
     seed_admin_phones()
+    seed_booking_links()
     fix_known_bad_venue_coords()
     seed_demo_ride()
 

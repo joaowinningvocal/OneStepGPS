@@ -121,15 +121,15 @@
         <div class="ctitle">Registered Clubs</div>
         <div class="tbl-wrap">
             <table>
-                <thead><tr><th>Club Name</th><th>Address</th><th>Status</th><th>App "Take me there"</th><th style="text-align:right">Actions</th></tr></thead>
+                <thead><tr><th>Club Name</th><th>Address</th><th>Status</th><th>App button</th><th style="text-align:right">Actions</th></tr></thead>
                 <tbody id="clubsTable">
                     {% for c in clubs %}
                     <tr id="row-{{ c.id }}">
                         <td class="name">{{ c.name }}</td>
                         <td style="font-size:.78rem;">{{ c.address or '—' }}</td>
                         <td><span class="{{ 'b-on' if c.active else 'b-off' }}">{{ 'Active' if c.active else 'Inactive' }}</span></td>
-                        <td>{% if c.take_me_there() == 'pickup' %}<span class="b-pick">🚐 Free pickup</span>
-                            {% elif c.managed %}<span class="b-dir">🧭 Directions</span><span class="b-warn">Managed — add the pickup booking link</span>
+                        <td>{% if c.take_me_there() == 'book' %}<span class="b-pick">🎟️ Book a package</span>
+                            {% elif c.managed %}<span class="b-dir">🧭 Directions</span><span class="b-warn">Managed — add the booking link</span>
                             {% else %}<span class="b-dir">🧭 Directions</span>{% endif %}</td>
                         <td><div class="btns">
                             <button class="btn-e" data-club="{{ c.to_dict()|tojson|forceescape }}" onclick="openEditEl(this)">Edit</button>
@@ -153,9 +153,9 @@
             <div class="f"><label>Club Name</label><input type="text" id="eName" class="fc"></div>
             <div class="f"><label>Address</label><input type="text" id="eAddr" class="fc" placeholder="Optional"></div>
             <div class="f"><label>Status</label><select id="eActive" class="fs" style="background:var(--s3);"><option value="true">Active</option><option value="false">Inactive</option></select></div>
-            <label class="chk"><input type="checkbox" id="eManaged"> Managed by ClubLifter (free pickup)</label>
-            <div class="f"><label>Free pickup booking link</label><input type="url" id="ePickupUrl" class="fc" placeholder="https://…">
-                <div class="hint">In the ClubLifter app, "Take me there" on a managed club opens this page so the guest can book their free pickup. Without a link — or for clubs we don't manage — it shows map directions instead. Changes reach the app right away, no app update needed.</div></div>
+            <label class="chk"><input type="checkbox" id="eManaged"> Managed by ClubLifter ("Book a package" in the app)</label>
+            <div class="f"><label>Booking link (CartVIP affiliate)</label><input type="url" id="ePickupUrl" class="fc" placeholder="https://app.cartvip.com/affiliate/…">
+                <div class="hint">In the ClubLifter app, a managed club's button becomes "Book a package" and opens this page. Without a link — or for clubs we don't manage — it stays "Take me there" with map directions. Changes reach the app right away, no app update needed.</div></div>
         </div>
         <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn-save" onclick="saveEdit()">Save</button></div>
     </div></div>
