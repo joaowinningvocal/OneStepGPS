@@ -1057,7 +1057,10 @@ class SmsLog(db.Model):
     provider_id = db.Column(db.String(64), default="")      # Telnyx message id
     error       = db.Column(db.String(255), default="")
 
+_SMS_LOG_STATS = {"pid": os.getpid(), "noted": 0, "written": 0, "last_error": ""}
+
 def _note_sms(to_e164, body, ok, sid="", error=""):
+    _SMS_LOG_STATS["noted"] += 1
     row = dict(to=to_e164, text=re.sub(r"\b\d{6}\b", "••••••", body)[:120],
                accepted=ok, provider_id=sid or "", error=(error or "")[:255])
     def write():
@@ -1069,7 +1072,9 @@ def _note_sms(to_e164, body, ok, sid="", error=""):
                 if datetime.utcnow().minute == 0:
                     SmsLog.query.filter(SmsLog.created_at < datetime.utcnow() - timedelta(days=30)).delete()
                 db.session.commit()
+            _SMS_LOG_STATS["written"] += 1
         except Exception as e:
+            _SMS_LOG_STATS["last_error"] = f"{type(e).__name__}: {e}"[:300]
             print(f"[SMS] log failed: {e}", flush=True)
     threading.Thread(target=write, daemon=True).start()
 
@@ -4215,7 +4220,8 @@ def sms_recent():
         except Exception as e:
             r["delivery"] = f"lookup failed: {e}"
     return jsonify({"note": "accepted = Telnyx took it; delivery = what the carrier did with it "
-                            "(last 30 days).", "messages": rows})
+                            "(last 30 days).", "messages": rows,
+                    "log_status": dict(_SMS_LOG_STATS, db=app.config['SQLALCHEMY_DATABASE_URI'].split(':', 1)[0])})
 
 @app.route('/api/sms-status')
 def sms_status():
