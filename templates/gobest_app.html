@@ -396,7 +396,7 @@ body{
 .adm-select,.adm-date,.adm-search,.adm-input{width:100%;min-width:0;background:var(--surf);border:1px solid var(--bd);color:var(--t);border-radius:11px;padding:11px 12px;font-size:.88rem;font-family:'DM Sans',sans-serif;-webkit-appearance:none;appearance:none;}
 .adm-select:focus,.adm-date:focus,.adm-search:focus,.adm-input:focus{outline:none;border-color:var(--acc);}
 .adm-date{color-scheme:dark;}
-.adm-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px;}
+.adm-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px;}
 .adm-stat{background:var(--surf);border:1px solid var(--bd);border-radius:12px;padding:10px 4px;text-align:center;cursor:pointer;color:var(--t);font-family:'DM Sans',sans-serif;}
 .adm-stat b{display:block;font-size:1.35rem;font-weight:700;line-height:1;margin-bottom:4px;font-variant-numeric:tabular-nums;}
 .adm-stat span{font-size:.54rem;white-space:normal;line-height:1.15;display:block;text-transform:uppercase;letter-spacing:.5px;color:var(--m2);font-weight:700;}
@@ -413,6 +413,7 @@ body{
 .st-coming{background:rgba(138,92,246,.16);color:var(--acc3);}
 .st-arrived{background:rgba(34,197,94,.16);color:#4ade80;}
 .st-left{background:rgba(255,255,255,.07);color:var(--m2);}
+.st-left_own{background:rgba(251,191,36,.14);color:#fbbf24;}
 .st-no_show{background:rgba(239,68,68,.14);color:#f87171;}
 .g-in{flex-shrink:0;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:11px;padding:10px 12px;font-weight:700;font-size:.8rem;font-family:'DM Sans',sans-serif;cursor:pointer;}
 .adm-fab{position:fixed;right:18px;bottom:calc(88px + env(safe-area-inset-bottom));z-index:90;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;border:none;border-radius:100px;padding:14px 20px;font-weight:700;font-size:.9rem;font-family:'DM Sans',sans-serif;box-shadow:0 8px 24px rgba(138,92,246,.45);cursor:pointer;}
@@ -422,9 +423,12 @@ body{
 .adm-row2{display:flex;gap:8px;}
 .adm-row2>*{flex:1;min-width:0;}
 .adm-seg{display:flex;gap:6px;}
+.adm-seg.wrap{flex-wrap:wrap;}
+.adm-seg.wrap button{flex:1 1 45%;}
 .adm-seg button{flex:1;padding:11px 6px;border-radius:11px;border:1px solid var(--bd);background:var(--surf);color:var(--m2);font-weight:700;font-size:.82rem;font-family:'DM Sans',sans-serif;cursor:pointer;}
 .adm-seg button.on{border-color:var(--bhi);background:rgba(138,92,246,.18);color:var(--t);}
 .adm-seg button.on.s-arrived{border-color:rgba(34,197,94,.55);background:rgba(34,197,94,.18);}
+.adm-seg button.on.s-left_own{border-color:rgba(251,191,36,.55);background:rgba(251,191,36,.16);}
 .adm-seg button.on.s-no_show{border-color:rgba(239,68,68,.5);background:rgba(239,68,68,.16);}
 .prof-version{text-align:center;color:var(--m2);font-size:.72rem;margin-top:18px;}
 .prof-alerts{display:none;align-items:center;gap:12px;background:var(--surf);border:1px solid var(--bd);border-radius:14px;padding:14px 16px;margin-top:18px;}
@@ -12443,10 +12447,10 @@ async function loadAdminGuests(silent){
   renderAdminGuests();
 }
 function setAdmFilter(f){ _admFilter = f; renderAdminGuests(); }
-const ADM_STATUS = {coming:'Guest Picked Up', arrived:'Arrived @ Venue', left:'Departed W CL', no_show:'No show'};
+const ADM_STATUS = {coming:'Guest Picked Up', arrived:'Arrived @ Venue', left:'Departed W CL', left_own:'Departed W/O CL', no_show:'No show'};
 function renderAdminGuests(){
-  const c = _admCounts || {total:0, coming:0, arrived:0, left:0, no_show:0, unassigned:0};
-  document.getElementById('admStats').innerHTML = [['all','Total',c.total],['coming',ADM_STATUS.coming,c.coming],['arrived',ADM_STATUS.arrived,c.arrived],['left',ADM_STATUS.left,c.left],['no_show',ADM_STATUS.no_show,c.no_show]]
+  const c = _admCounts || {total:0, coming:0, arrived:0, left:0, left_own:0, no_show:0, unassigned:0};
+  document.getElementById('admStats').innerHTML = [['all','Total',c.total],['coming',ADM_STATUS.coming,c.coming],['arrived',ADM_STATUS.arrived,c.arrived],['left',ADM_STATUS.left,c.left],['left_own',ADM_STATUS.left_own,c.left_own],['no_show',ADM_STATUS.no_show,c.no_show]]
     .map(([k,l,n])=>`<button class="adm-stat ${_admFilter===k?'on':''}" onclick="setAdmFilter('${k}')"><b>${n||0}</b><span>${l}</span></button>`).join('');
   const alertEl = document.getElementById('admAlert');
   alertEl.style.display = c.unassigned ? 'block' : 'none';
@@ -12494,7 +12498,7 @@ async function setGuestStatus(id, status, btn, reason){
   }
   renderAdminGuests();
   if(document.getElementById('admSheet').classList.contains('show') && g) openGuest(id);
-  admToast(status==='arrived' ? `✓ ${g ? g.name : 'Guest'} checked in` : status==='left' ? 'Marked as Departed W CL'
+  admToast(status==='arrived' ? `✓ ${g ? g.name : 'Guest'} checked in` : status==='left' ? 'Marked as Departed W CL' : status==='left_own' ? 'Marked as Departed W/O CL'
            : status==='no_show' ? 'Marked as no-show' : 'Back to Guest Picked Up');
 }
 // No-show is only ever set by staff; the reason is optional (same as the website).
@@ -12519,8 +12523,8 @@ function openGuest(id){
   openAdmSheet(`
     <div class="adm-title">${g.priority?'⭐ ':''}${esc(g.name||'Guest')}</div>
     <div class="adm-subtitle">${esc(g.pickup_datetime||'')}${g.destination?' · '+esc(g.destination):''}</div>
-    <div class="adm-seg">
-      ${['coming','arrived','left'].map(s=>`<button class="${st===s?'on s-'+s:''}" onclick="setGuestStatus(${g.id},'${s}')">${ADM_STATUS[s]}</button>`).join('')}
+    <div class="adm-seg wrap">
+      ${['coming','arrived','left','left_own'].map(s=>`<button class="${st===s?'on s-'+s:''}" onclick="setGuestStatus(${g.id},'${s}')">${ADM_STATUS[s]}</button>`).join('')}
     </div>
     <div class="adm-seg" style="margin-top:6px;">
       <button class="${st==='no_show'?'on s-no_show':''}" onclick="markNoShow(${g.id})">🚫 No show${st==='no_show' && g.no_show_reason ? ' · ' + esc(g.no_show_reason) : ''}</button>

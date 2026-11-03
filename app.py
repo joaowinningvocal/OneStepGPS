@@ -746,8 +746,9 @@ class Customer(db.Model):
     destination     = db.Column(db.String(100), default="")
     needs_transport = db.Column(db.Boolean, default=True)              # NEW: walk-in vs transport
     # Display names (Randy, 2026-11-03): coming = "Guest Picked Up", arrived = "Arrived @ Venue",
-    # left = "Departed W CL", no_show = "No show". The codes never change — the API uses them.
-    club_status     = db.Column(db.String(20), default="coming")       # coming | arrived | left | no_show
+    # left = "Departed W CL" (rode back with us), left_own = "Departed W/O CL" (left on their own —
+    # also what the overnight check-out sets), no_show = "No show". The codes never change — the API uses them.
+    club_status     = db.Column(db.String(20), default="coming")       # coming | arrived | left | left_own | no_show
     # No-show: set ONLY by a dispatcher pressing "No show" (never automatically)
     no_show_reason  = db.Column(db.String(255), default="")            # optional, typed by the dispatcher
     no_show_at      = db.Column(db.DateTime, nullable=True)
@@ -3503,11 +3504,11 @@ def app_admin_guests():
     rows, f = _guestlist_rows()
     dups = flag_duplicates(rows)
     items = []
-    counts = {"coming": 0, "arrived": 0, "left": 0, "no_show": 0, "unassigned": 0}
+    counts = {"coming": 0, "arrived": 0, "left": 0, "left_own": 0, "no_show": 0, "unassigned": 0}
     for c in rows:
         info = _guest_row_info(c, dup_of=dups.get(c.id))
         item = _guest_status_item(c, info)
-        counts[item["club_status"] if item["club_status"] in ("arrived", "left", "no_show") else "coming"] += 1
+        counts[item["club_status"] if item["club_status"] in ("arrived", "left", "left_own", "no_show") else "coming"] += 1
         if info["unassigned"]:
             counts["unassigned"] += 1
         item.update({
@@ -3676,7 +3677,8 @@ def _ride_status_info(c):
       picked_up   → guest on board (driver tap or GPS: car left the pickup)
       dropped_off → guest delivered (driver tap or GPS at the venue)
       at_venue    → guest at the venue (dispatcher/partner/GPS)
-      left        → guest left the venue (dispatcher/partner, or their ride back started)
+      left        → guest departed WITH ClubLifter transportation (their ride back started, or dispatcher/partner)
+      left_own    → guest departed WITHOUT ClubLifter transportation (dispatcher/partner, or the overnight check-out)
       no_show     → guest never showed — set ONLY manually by a dispatcher (never automatic)
       waitlist    → waitlisted
     Time-based guesses are marked "(estimated)" / status_estimated=true, and the
@@ -3852,7 +3854,7 @@ def api_set_status():
       phone=+16044188302   OR   customer_id=630
 
     Set the status with:
-      club_status=arrived     (coming | arrived | left)
+      club_status=arrived     (coming | arrived | left | left_own)
 
     Convenience aliases (any of these also work):
       status=arrived                 (same as club_status)
@@ -3883,7 +3885,7 @@ def api_set_status():
         new_status = "arrived"   # "redeemed" means the guest showed up at the venue
 
     # no_show is deliberately not settable here — only a dispatcher can mark it.
-    valid = {"coming", "arrived", "left"}
+    valid = {"coming", "arrived", "left", "left_own"}
     if new_status not in valid:
         return jsonify({
             "success": False,
@@ -3900,7 +3902,7 @@ def api_set_status():
     # Keep timestamps sensible when moving to arrived/left so the rest of the
     # system (which infers ride progress from these) stays consistent.
     now = datetime.utcnow()
-    if new_status in ("arrived", "left"):
+    if new_status in ("arrived", "left", "left_own"):
         if not cust.dropped_off_at:
             cust.dropped_off_at = now
         if not cust.picked_up_at:
@@ -4017,7 +4019,7 @@ def _app_active_ride(user):
         return None
     candidates = (Customer.query
                   .filter((Customer.phone.like(f"%{target}")) | (Customer.phones_json.like(f"%{target}%")))
-                  .filter(or_(Customer.club_status.is_(None), Customer.club_status.notin_(("left", "no_show"))))
+                  .filter(or_(Customer.club_status.is_(None), Customer.club_status.notin_(("left", "left_own", "no_show"))))
                   .filter(or_(Customer.status.is_(None), Customer.status.notin_(("dropped_off", "no_show"))))
                   .order_by(Customer.id.desc()).limit(30).all())
     now = vegas_naive_now()
@@ -4063,7 +4065,7 @@ def debug_demo_ride():
     # What _app_active_ride would pick:
     picked = (Customer.query
               .filter((Customer.phone.like(f"%{tail}")) | (Customer.phones_json.like(f"%{tail}%")))
-              .filter(Customer.club_status != "left")
+              .filter(Customer.club_status.notin_(("left", "left_own")))
               .filter(Customer.status != "dropped_off")
               .order_by(Customer.id.desc()).first())
     return jsonify({
@@ -7288,12 +7290,13 @@ def guestlist_statuses():
 
     rows, _f = _guestlist_rows()
     items = []
-    coming = arrived = left = no_show = unassigned = 0
+    coming = arrived = left = left_own = no_show = unassigned = 0
     dups = flag_duplicates(rows)
     for c in rows:
         cs = c.club_status or "coming"
         if cs == "arrived":   arrived += 1
         elif cs == "left":    left += 1
+        elif cs == "left_own": left_own += 1
         elif cs == "no_show": no_show += 1
         else:                 coming += 1
         info = _guest_row_info(c, dup_of=dups.get(c.id))
@@ -7303,7 +7306,7 @@ def guestlist_statuses():
     return jsonify({
         "success": True,
         "total": len(rows),
-        "coming": coming, "arrived": arrived, "left": left, "no_show": no_show,
+        "coming": coming, "arrived": arrived, "left": left, "left_own": left_own, "no_show": no_show,
         "unassigned": unassigned,
         "duplicates": len(dups),
         "items": items,
@@ -7325,6 +7328,7 @@ def admin_guestlist():
     coming   = sum(1 for c in all_customers if c.club_status == 'coming')
     arrived  = sum(1 for c in all_customers if c.club_status == 'arrived')
     left_    = sum(1 for c in all_customers if c.club_status == 'left')
+    left_own = sum(1 for c in all_customers if c.club_status == 'left_own')
     no_show  = sum(1 for c in all_customers if c.club_status == 'no_show')
 
     _dups = flag_duplicates(all_customers)
@@ -7335,7 +7339,7 @@ def admin_guestlist():
         ride_info=ride_info, unassigned=unassigned,
         filter_type=filter_type, filter_club=filter_club,
         filter_date_iso=filter_date_iso, view_all=view_all,
-        total=total, coming=coming, arrived=arrived, left=left_, no_show=no_show,
+        total=total, coming=coming, arrived=arrived, left=left_, left_own=left_own, no_show=no_show,
         vt=vegas_time
     )
 
@@ -7390,7 +7394,7 @@ def update_club_status(customer_id):
         return jsonify({"success": False, "error": "Unauthorized"})
     customer = Customer.query.get_or_404(customer_id)
     new_status = request.form.get('club_status', '').strip()
-    if new_status not in ('coming', 'arrived', 'left', 'no_show'):
+    if new_status not in ('coming', 'arrived', 'left', 'left_own', 'no_show'):
         return jsonify({"success": False, "error": "Invalid status"})
     _before = _ride_status_info(customer)[0]
     if new_status == "no_show":
@@ -9066,6 +9070,8 @@ def _ride_status_full(c):
         return "no_show", "Guest was a no-show" + (f" — {reason}" if reason else ""), False
     if c.club_status == "left":
         return "left", "Guest departed with ClubLifter transportation", False
+    if c.club_status == "left_own":
+        return "left_own", "Guest departed without ClubLifter transportation", False
     if c.club_status == "arrived":
         return "at_venue", "Guest arrived at the venue", False
     if c.status == "dropped_off" or c.dropped_off_at:
@@ -9301,7 +9307,8 @@ def _mark_original_left(ret_ride, source):
 
 # Venues run overnight (e.g. Hustler 5 PM → 7 AM), so a guest's "night" ends the
 # next morning. At CLUB_CLOSE_HOUR (Las Vegas time) everyone from the night that
-# just ended who is still "arrived" is checked out as "left". Only bookings up to
+# just ended who is still "arrived" is checked out as "left_own" (Departed W/O CL —
+# anyone who rode back with us was already moved to "left" when that ride started). Only bookings up to
 # that closing time are touched — tonight's and future guests are left alone.
 CLUB_CLOSE_HOUR = int(os.environ.get("CLUB_CLOSE_HOUR", "7"))
 
@@ -9325,7 +9332,7 @@ def auto_close_night():
         if when is None or when > close_v:
             continue
         before = _ride_status_info(c)[0]
-        c.club_status = "left"
+        c.club_status = "left_own"
         mark_status(c, "auto-close")
         db.session.commit()
         fire_webhook({
@@ -9334,14 +9341,14 @@ def auto_close_night():
             "customer_name":  c.nome,
             "customer_phone": c.phone,
             "destination":    c.destination,
-            "new_status":     "left",
+            "new_status":     "left_own",
             "source":         "auto-close",
             "timestamp":      datetime.utcnow().isoformat()
         })
         ride_status_changed(c, before, "auto-close")
         closed += 1
     if closed:
-        print(f"[NIGHT-CLOSE] {closed} guest(s) still 'arrived' after {CLUB_CLOSE_HOUR}:00 → left", flush=True)
+        print(f"[NIGHT-CLOSE] {closed} guest(s) still 'arrived' after {CLUB_CLOSE_HOUR}:00 → left_own (Departed W/O CL)", flush=True)
 
 def _proximity_sms(c, label, body):
     car_photo_url = f"{PUBLIC_BASE_URL}/uploads/{c.car_photo}" if c.car_photo else ""
@@ -10136,7 +10143,7 @@ def seed_demo_ride():
                           .filter(Customer.is_return_ride == False)
                           .filter((Customer.phone.like(f"%{tail}")) |
                                   (Customer.phones_json.like(f"%{tail}%")))
-                          .filter(Customer.club_status != "left")
+                          .filter(Customer.club_status.notin_(("left", "left_own")))
                           .filter(Customer.status != "dropped_off")
                           .order_by(Customer.id.desc()).all())
         demo_ride = existing_rides[0] if existing_rides else None
@@ -10179,7 +10186,7 @@ def seed_demo_ride():
                     r.car_string_val = car_str; changed = True
                 if r.dispatch_status != "enroute":
                     r.dispatch_status = "enroute"; changed = True
-                if r.club_status == "left" or r.status == "dropped_off":
+                if r.club_status in ("left", "left_own") or r.status == "dropped_off":
                     r.club_status = "coming"; r.status = "scheduled"; changed = True
             if changed:
                 db.session.commit()
