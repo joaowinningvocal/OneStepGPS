@@ -3053,8 +3053,12 @@ def app_auth_verify():
     if code != otp.code:
         return jsonify({"success": False, "error": "Incorrect code. Try again."})
 
-    # Success — find or create the user
+    # Success — find or create the user. The same number may have been typed as
+    # 702…, 1702… or +1702… before: reuse that account instead of starting a new one.
     user = AppUser.query.filter_by(phone=phone).first()
+    if not user and normalize_phone_e164(phone):
+        user = (AppUser.query.filter(AppUser.phone.in_(phone_variants(normalize_phone_e164(phone))))
+                .order_by(AppUser.last_seen.desc()).first())
     if not user:
         user = AppUser(phone=phone, name=name, verified=True)
         db.session.add(user)
@@ -3062,7 +3066,10 @@ def app_auth_verify():
         user.verified = True
         if name:
             user.name = name
-    user.auth_token = _secrets.token_hex(24)
+    # Keep an existing session: signing in on a second device (e.g. the web app)
+    # must not log the phone app out. Deleting the account ends it.
+    if not user.auth_token:
+        user.auth_token = _secrets.token_hex(24)
     user.last_seen = datetime.utcnow()
     db.session.commit()
     # Clean up used codes for this phone
@@ -3418,6 +3425,48 @@ def app_staff_required(perm):
                 g.pop("staff_session", None)
         return wrapper
     return deco
+
+@app.route('/api/app-access-check', methods=['GET'])
+def app_access_check():
+    """Why is (or isn't) this phone an admin in the app? Master only.
+    /api/app-access-check?phone=7025551234"""
+    if not (session.get("logged") and is_master()):
+        return jsonify({"error": "Unauthorized"}), 401
+    e164 = normalize_phone_e164(request.args.get("phone", ""))
+    if not e164:
+        return jsonify({"error": "add ?phone=7025551234"}), 400
+    accounts = User.query.filter_by(phone=e164).all()
+    app_users = AppUser.query.filter(AppUser.phone.in_(phone_variants(e164))).all()
+    verdicts = []
+    for au in app_users:
+        staff = staff_for_app_user(au)
+        perms = staff_permissions(staff.role) if staff else {}
+        verdicts.append({
+            "app_phone_stored": au.phone, "name": au.name, "verified": bool(au.verified),
+            "signed_in": bool(au.auth_token), "last_seen": vegas_datetime(au.last_seen) if au.last_seen else "",
+            "admin_in_app": any(perms.values()), "as": staff.username if staff else None,
+        })
+    reason = ""
+    if e164 == normalize_phone_e164(DEMO_PHONE):
+        reason = "This is the App Store review demo number — it never gets admin."
+    elif not accounts:
+        reason = "No website account has this phone. Users → Edit → Mobile phone."
+    elif len(accounts) > 1:
+        reason = "More than one website account has this phone — keep it on one."
+    elif accounts[0].is_active is False:
+        reason = f"{accounts[0].username} isn't activated yet (setup link not used)."
+    elif not any(staff_permissions(accounts[0].role).values()):
+        reason = f"{accounts[0].username} is a {accounts[0].role} — that role has no app admin tools."
+    elif not app_users:
+        reason = "Linked correctly, but nobody has signed into the app with this number yet."
+    return jsonify({
+        "phone": e164,
+        "website_accounts": [{"username": u.username, "role": u.role, "active": u.is_active is not False,
+                              "admin_tools": staff_permissions(u.role)} for u in accounts],
+        "app_accounts": verdicts,
+        "problem": reason or "None — the server gives this number admin. If the app doesn't show it, "
+                             "that installed build predates Admin mode: use www.clublifter.com/app-preview.",
+    })
 
 @app.route('/api/app/admin/me', methods=['GET'])
 def app_admin_me():
