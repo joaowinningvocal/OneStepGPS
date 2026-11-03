@@ -1043,20 +1043,35 @@ def telnyx_configured():
     """True when Telnyx can send (API key + either a from-number or a profile)."""
     return bool(TELNYX_API_KEY and (TELNYX_FROM_NUMBER or TELNYX_MESSAGING_PROFILE_ID))
 
-# The last outgoing texts (this process only, newest first), so a master can see
-# what Telnyx did with them at /api/sms-recent — Telnyx accepting a message
-# doesn't mean the carrier delivered it.
-from collections import deque
+# Outgoing texts are logged so a master can see what Telnyx did with them at
+# /api/sms-recent — Telnyx accepting a message doesn't mean the carrier
+# delivered it. Kept in the DB (every worker, survives deploys), last 30 days.
 import re
-_recent_sms = deque(maxlen=60)
+
+class SmsLog(db.Model):
+    id          = db.Column(db.Integer, primary_key=True)
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    to          = db.Column(db.String(20), index=True)
+    text        = db.Column(db.String(120), default="")     # login codes masked
+    accepted    = db.Column(db.Boolean, default=False)      # Telnyx took it
+    provider_id = db.Column(db.String(64), default="")      # Telnyx message id
+    error       = db.Column(db.String(255), default="")
 
 def _note_sms(to_e164, body, ok, sid="", error=""):
-    _recent_sms.appendleft({
-        "at": vegas_datetime(datetime.utcnow()),
-        "to": to_e164,
-        "text": re.sub(r"\b\d{6}\b", "••••••", body)[:90],   # login codes masked
-        "accepted": ok, "id": sid, "error": error,
-    })
+    row = dict(to=to_e164, text=re.sub(r"\b\d{6}\b", "••••••", body)[:120],
+               accepted=ok, provider_id=sid or "", error=(error or "")[:255])
+    def write():
+        # Own thread + app context = own DB session: never commits the caller's
+        # pending changes, and never makes a request wait on the SQLite lock.
+        try:
+            with app.app_context():
+                db.session.add(SmsLog(**row))
+                if datetime.utcnow().minute == 0:
+                    SmsLog.query.filter(SmsLog.created_at < datetime.utcnow() - timedelta(days=30)).delete()
+                db.session.commit()
+        except Exception as e:
+            print(f"[SMS] log failed: {e}", flush=True)
+    threading.Thread(target=write, daemon=True).start()
 
 def send_sms(to, body, media_url=""):
     """Send one SMS/MMS through Telnyx. Never raises — messaging failures must not
@@ -4179,7 +4194,12 @@ def sms_recent():
     if not (session.get("logged") and is_master()):
         return jsonify({"error": "Unauthorized"}), 401
     only = normalize_phone_e164(request.args.get("to", "")) if request.args.get("to") else ""
-    rows = [dict(r) for r in _recent_sms if not only or r["to"] == only][:25]
+    q = SmsLog.query
+    if only:
+        q = q.filter(SmsLog.to == only)
+    rows = [{"at": vegas_datetime(s.created_at), "to": s.to, "text": s.text, "accepted": bool(s.accepted),
+             "id": s.provider_id, "error": s.error}
+            for s in q.order_by(SmsLog.created_at.desc()).limit(25).all()]
     for r in rows:
         if not r["id"]:
             continue
@@ -4194,8 +4214,8 @@ def sms_recent():
                            for e in (data.get("errors") or [])]
         except Exception as e:
             r["delivery"] = f"lookup failed: {e}"
-    return jsonify({"note": "accepted = Telnyx took it; delivery = what the carrier did with it. "
-                            "Kept in memory since the last deploy.", "messages": rows})
+    return jsonify({"note": "accepted = Telnyx took it; delivery = what the carrier did with it "
+                            "(last 30 days).", "messages": rows})
 
 @app.route('/api/sms-status')
 def sms_status():
