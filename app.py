@@ -10022,6 +10022,46 @@ def seed_admin_phones():
         db.session.rollback()
         print(f"[SEED] admin phones skipped: {e}", flush=True)
 
+# Jason and Summer (numbers from Randy, 2026-11-02). Their website usernames aren't
+# known here: link the one account whose username contains the name; if there is
+# none, create it (Jason runs clubs → club_owner, Summer works the door/dispatch →
+# club_manager) with an unusable password — they only need the app (SMS login);
+# a master can "Reset PWD" on Users if they ever need the website. Runs once.
+INITIAL_STAFF = [
+    # (name to look for, phone, role if the account has to be created)
+    ("jason",  "3109307413", "club_owner"),
+    ("summer", "7253121048", "club_manager"),
+]
+
+def seed_staff_accounts():
+    flag = "seeded:staff:2026-11-02"
+    if get_setting(flag):
+        return
+    try:
+        for name, raw, role in INITIAL_STAFF:
+            e164 = normalize_phone_e164(raw)
+            if User.query.filter(User.phone == e164).first():
+                print(f"[SEED] {name}: {e164} already linked", flush=True)
+                continue
+            matches = User.query.filter(func.lower(User.username).contains(name)).all()
+            if len(matches) > 1:
+                print(f"[SEED] {name}: several accounts match ({[u.username for u in matches]}); "
+                      f"set the phone on Users by hand", flush=True)
+                continue
+            user = matches[0] if matches else None
+            if not user:
+                user = User(username=name, role=role, is_active=True)
+                user.set_password(_secrets.token_hex(24))
+                db.session.add(user)
+                print(f"[SEED] {name}: created account '{name}' ({role})", flush=True)
+            user.phone = e164
+            print(f"[SEED] app admin phone {e164} → {user.username} ({user.role})", flush=True)
+        db.session.commit()
+        set_setting(flag, datetime.utcnow().strftime("%Y-%m-%d"))
+    except Exception as e:
+        db.session.rollback()
+        print(f"[SEED] staff accounts skipped: {e}", flush=True)
+
 def seed_demo_ride():
     """Set up a ready-to-demo scenario: a driver who is enroute, a car with a
     (simulated) GPS position, an active ride, and a couple of chat messages. Lets
@@ -10288,6 +10328,7 @@ with app.app_context():
     seed_gobest_clubs()
     retire_clubs()
     seed_admin_phones()
+    seed_staff_accounts()
     seed_booking_links()
     fix_known_bad_venue_coords()
     seed_demo_ride()
