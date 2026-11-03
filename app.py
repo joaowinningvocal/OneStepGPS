@@ -3951,18 +3951,40 @@ def app_ride_back():
         "pickup_datetime": ride.pickup_datetime or "As soon as possible",
     })
 
+ACTIVE_RIDE_PAST_HOURS = 12   # a ride stays "current" this long after its pickup time
+
 def _app_active_ride(user):
-    """Find the logged-in app user's current active ride (scheduled or in progress,
-    not dropped off/left). Returns the most recent one."""
+    """The logged-in app user's current ride: booked for their number, not finished
+    (dropped off / left / no-show) and current — pickup within the last
+    ACTIVE_RIDE_PAST_HOURS or still ahead. Old test or abandoned bookings that were
+    never closed no longer show as "your driver is on the way". When several
+    qualify: one already in progress (picked up), else the pickup closest to now."""
     digits = clean_phone(user.phone)
     target = digits[-10:] if len(digits) >= 10 else digits
     if not target:
         return None
-    return (Customer.query
-            .filter((Customer.phone.like(f"%{target}")) | (Customer.phones_json.like(f"%{target}%")))
-            .filter(Customer.club_status.notin_(("left", "no_show")))
-            .filter(Customer.status != "dropped_off")
-            .order_by(Customer.id.desc()).first())
+    candidates = (Customer.query
+                  .filter((Customer.phone.like(f"%{target}")) | (Customer.phones_json.like(f"%{target}%")))
+                  .filter(or_(Customer.club_status.is_(None), Customer.club_status.notin_(("left", "no_show"))))
+                  .filter(or_(Customer.status.is_(None), Customer.status.notin_(("dropped_off", "no_show"))))
+                  .order_by(Customer.id.desc()).limit(30).all())
+    now = vegas_naive_now()
+    best, best_gap = None, None
+    for c in candidates:
+        when = parse_pickup_datetime(c.pickup_datetime or "")
+        if when is None:
+            # No readable pickup time: only a booking made in the last day counts
+            if not c.created_at or c.created_at < datetime.utcnow() - timedelta(hours=24):
+                continue
+            gap = timedelta(0)
+        elif when < now - timedelta(hours=ACTIVE_RIDE_PAST_HOURS):
+            continue
+        else:
+            gap = abs(when - now)
+        rank = (0 if c.status == "picked_up" else 1, gap)
+        if best_gap is None or rank < best_gap:
+            best, best_gap = c, rank
+    return best
 
 @app.route('/api/debug/demo-ride', methods=['GET'])
 def debug_demo_ride():
@@ -9881,6 +9903,34 @@ def retire_clubs():
         db.session.rollback()
         print(f"[SEED] club retirement skipped: {e}", flush=True)
 
+# App admin phones linked once, on the first boot after they were requested
+# (2026-11-02). From then on the Users screen owns them: clearing or changing one
+# there sticks. Skipped for a number another account already uses.
+INITIAL_ADMIN_PHONES = {"joaoacess": "7025307390", "randyacess": "7023540014"}
+
+def seed_admin_phones():
+    flag = "seeded:admin_phones:2026-11-02"
+    if get_setting(flag):
+        return
+    try:
+        for uname, raw in INITIAL_ADMIN_PHONES.items():
+            user = User.query.filter(func.lower(User.username) == uname).first()
+            e164 = normalize_phone_e164(raw)
+            if not user or not e164:
+                print(f"[SEED] admin phone skipped: no account {uname}", flush=True)
+                continue
+            other = User.query.filter(User.phone == e164, User.id != user.id).first()
+            if other:
+                print(f"[SEED] admin phone {e164} already on {other.username}; left as is", flush=True)
+                continue
+            user.phone = e164
+            print(f"[SEED] app admin phone {e164} → {user.username}", flush=True)
+        db.session.commit()
+        set_setting(flag, datetime.utcnow().strftime("%Y-%m-%d"))
+    except Exception as e:
+        db.session.rollback()
+        print(f"[SEED] admin phones skipped: {e}", flush=True)
+
 def seed_demo_ride():
     """Set up a ready-to-demo scenario: a driver who is enroute, a car with a
     (simulated) GPS position, an active ride, and a couple of chat messages. Lets
@@ -10146,6 +10196,7 @@ with app.app_context():
     seed_data()
     seed_gobest_clubs()
     retire_clubs()
+    seed_admin_phones()
     fix_known_bad_venue_coords()
     seed_demo_ride()
 

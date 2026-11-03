@@ -11234,7 +11234,7 @@ async function refreshArrivalAlerts(){
 // Coming back to the app: re-check where they are (at most every few minutes).
 let _lastGeoCheck = 0;
 document.addEventListener('visibilitychange', async ()=>{
-  if(!document.hidden && _ageVerified) showPendingWelcome();
+  if(!document.hidden && _ageVerified){ showPendingWelcome(); checkActiveRide(); }
   if(document.hidden || !_ageVerified || Date.now() - _lastGeoCheck < 5*60*1000) return;
   if(!document.getElementById('screen-home').classList.contains('active')) return;
   _lastGeoCheck = Date.now();
@@ -12189,6 +12189,12 @@ async function checkActiveRide(){
     }
   }catch(e){ card.style.display='none'; }
 }
+
+// Keep the ride card current: a ride booked, started, finished or cancelled
+// elsewhere shows up (or goes away) within a minute while Explore is open.
+setInterval(()=>{
+  if(_token && !document.hidden && document.getElementById('screen-home').classList.contains('active')) checkActiveRide();
+}, 60000);
 
 async function openTracking(){
   showScreen('track');
