@@ -4818,6 +4818,17 @@ def pwa_manifest():
     }
     return app.response_class(json.dumps(manifest), mimetype="application/manifest+json")
 
+@app.route('/native.js')
+def native_bridge_js():
+    """The Capacitor native bridge (real QR scanner, native GPS, notifications).
+    The app page requests ./native.js; in the native app (which loads this site
+    via Capacitor server.url) it resolves here, so the one build never has to be
+    updated again for app-side changes. In a plain browser native.js is a no-op."""
+    resp = send_from_directory(os.path.join(app.root_path, 'static'), 'native.js')
+    resp.headers['Content-Type'] = 'application/javascript'
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
+
 @app.route('/service-worker.js')
 def service_worker():
     # Minimal service worker — just enough to make the app installable.
