@@ -1043,6 +1043,21 @@ def telnyx_configured():
     """True when Telnyx can send (API key + either a from-number or a profile)."""
     return bool(TELNYX_API_KEY and (TELNYX_FROM_NUMBER or TELNYX_MESSAGING_PROFILE_ID))
 
+# The last outgoing texts (this process only, newest first), so a master can see
+# what Telnyx did with them at /api/sms-recent — Telnyx accepting a message
+# doesn't mean the carrier delivered it.
+from collections import deque
+import re
+_recent_sms = deque(maxlen=60)
+
+def _note_sms(to_e164, body, ok, sid="", error=""):
+    _recent_sms.appendleft({
+        "at": vegas_datetime(datetime.utcnow()),
+        "to": to_e164,
+        "text": re.sub(r"\b\d{6}\b", "••••••", body)[:90],   # login codes masked
+        "accepted": ok, "id": sid, "error": error,
+    })
+
 def send_sms(to, body, media_url=""):
     """Send one SMS/MMS through Telnyx. Never raises — messaging failures must not
     break a booking. Keeps the same return shape as before ({"ok":..., "sid":...})
@@ -1093,8 +1108,10 @@ def send_sms(to, body, media_url=""):
             try: sid = (r.json().get("data", {}) or {}).get("id", "")
             except Exception: pass
             print(f"[SMS] sent via Telnyx to={to_e164} media={'yes' if 'media_urls' in payload else 'no'} id={sid}", flush=True)
+            _note_sms(to_e164, body, True, sid=sid)
             return {"ok": True, "sid": sid}
         print(f"[SMS] FAILED (Telnyx) to={to_e164} status={r.status_code} resp={r.text[:300]}", flush=True)
+        _note_sms(to_e164, body, False, error=f"HTTP {r.status_code}: {r.text[:200]}")
         return {"ok": False, "status": r.status_code, "error": r.text[:300]}
     except Exception as e:
         print(f"[SMS] EXCEPTION (Telnyx) to={to_e164}: {e}", flush=True)
@@ -4153,6 +4170,32 @@ def sms_test():
     result = send_sms(to, text or "ClubLifter test message — your Telnyx integration is working.")
     return jsonify({"status": status, "sent_text": text or "(default test text)", "result": result,
                     "next": f"/api/sms-status?id={result.get('sid')}" if result.get("sid") else None})
+
+@app.route('/api/sms-recent')
+def sms_recent():
+    """The last texts this server sent, with each one's delivery status from
+    Telnyx (delivered / delivery_failed + the carrier's error). Master only.
+    ?to=7025551234 narrows it to one number."""
+    if not (session.get("logged") and is_master()):
+        return jsonify({"error": "Unauthorized"}), 401
+    only = normalize_phone_e164(request.args.get("to", "")) if request.args.get("to") else ""
+    rows = [dict(r) for r in _recent_sms if not only or r["to"] == only][:25]
+    for r in rows:
+        if not r["id"]:
+            continue
+        try:
+            resp = requests.get(f"https://api.telnyx.com/v2/messages/{r['id']}",
+                                headers={"Authorization": f"Bearer {TELNYX_API_KEY}"}, timeout=10)
+            data = (resp.json() or {}).get("data", {}) if resp.text else {}
+            tos = data.get("to") or [{}]
+            r["delivery"] = tos[0].get("status")
+            r["carrier"] = tos[0].get("carrier")
+            r["errors"] = [f"{e.get('code')}: {e.get('title')} — {e.get('detail') or ''}".strip(" —")
+                           for e in (data.get("errors") or [])]
+        except Exception as e:
+            r["delivery"] = f"lookup failed: {e}"
+    return jsonify({"note": "accepted = Telnyx took it; delivery = what the carrier did with it. "
+                            "Kept in memory since the last deploy.", "messages": rows})
 
 @app.route('/api/sms-status')
 def sms_status():
