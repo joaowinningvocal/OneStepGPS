@@ -745,6 +745,8 @@ class Customer(db.Model):
     pickup_datetime = db.Column(db.String(50), default="")
     destination     = db.Column(db.String(100), default="")
     needs_transport = db.Column(db.Boolean, default=True)              # NEW: walk-in vs transport
+    # Display names (Randy, 2026-11-03): coming = "Guest Picked Up", arrived = "Arrived @ Venue",
+    # left = "Departed W CL", no_show = "No show". The codes never change — the API uses them.
     club_status     = db.Column(db.String(20), default="coming")       # coming | arrived | left | no_show
     # No-show: set ONLY by a dispatcher pressing "No show" (never automatically)
     no_show_reason  = db.Column(db.String(255), default="")            # optional, typed by the dispatcher
@@ -9063,9 +9065,9 @@ def _ride_status_full(c):
         reason = (c.no_show_reason or "").strip()
         return "no_show", "Guest was a no-show" + (f" — {reason}" if reason else ""), False
     if c.club_status == "left":
-        return "left", "Guest has left the venue", False
+        return "left", "Guest departed with ClubLifter transportation", False
     if c.club_status == "arrived":
-        return "at_venue", "Guest has arrived at the venue", False
+        return "at_venue", "Guest arrived at the venue", False
     if c.status == "dropped_off" or c.dropped_off_at:
         return "dropped_off", ("Guest was dropped off at their destination" if ret
                                else "Guest was dropped off at the venue"), False
@@ -9087,7 +9089,7 @@ def _ride_status_full(c):
             # Nothing recorded yet — estimate from the clock, clearly labeled. (The
             # background failsafe writes the real completion at SCHEDULED_TIMEOUT_MIN.)
             if mins_past >= 180:
-                return "at_venue", "Guest has arrived at the venue (estimated)", True
+                return "at_venue", "Guest arrived at the venue (estimated)", True
             if mins_past >= 30:
                 return "picked_up", "Guest picked up, en route to the venue (estimated)", True
     except Exception:

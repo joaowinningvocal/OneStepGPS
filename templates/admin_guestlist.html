@@ -234,9 +234,9 @@
     <!-- STATS -->
     <div class="stats">
         <div class="stat total"><div class="stat-v" id="statTotal">{{ total }}</div><div class="stat-l">📋 Total Guests</div></div>
-        <div class="stat coming"><div class="stat-v" id="statComing">{{ coming }}</div><div class="stat-l">🚗 Coming</div></div>
-        <div class="stat arrived"><div class="stat-v" id="statArrived">{{ arrived }}</div><div class="stat-l">🎉 Arrived</div></div>
-        <div class="stat left"><div class="stat-v" id="statLeft">{{ left }}</div><div class="stat-l">👋 Left</div></div>
+        <div class="stat coming"><div class="stat-v" id="statComing">{{ coming }}</div><div class="stat-l">🚗 Guest Picked Up</div></div>
+        <div class="stat arrived"><div class="stat-v" id="statArrived">{{ arrived }}</div><div class="stat-l">🎉 Arrived @ Venue</div></div>
+        <div class="stat left"><div class="stat-v" id="statLeft">{{ left }}</div><div class="stat-l">👋 Departed W CL</div></div>
         <div class="stat noshow"><div class="stat-v" id="statNoShow">{{ no_show }}</div><div class="stat-l">🚫 No show</div></div>
     </div>
     <div class="nodrv-banner" id="nodrvBanner" style="{{ '' if unassigned else 'display:none;' }}">
@@ -324,7 +324,7 @@
                               <div class="ride-cell" id="ride-{{ c.id }}">
                                 <div class="ride-drv" id="rdrv-{{ c.id }}">{{ ri.driver or '—' }}{% if ri.origin %}<span class="origin-tag" title="How this booking was created">{{ ri.origin }}</span>{% endif %}</div>
                                 <div id="rdup-{{ c.id }}" style="{{ '' if ri.dup_of else 'display:none;' }}"><span class="dup-chip">⚠ possible duplicate of #<span class="dupof">{{ ri.dup_of or '' }}</span></span><button class="dup-btn" onclick="mergeDup({{ c.id }}, {{ ri.dup_of or 0 }}, {{ c.nome|tojson }})">Merge into #<span class="dupof">{{ ri.dup_of or '' }}</span></button></div>
-                                <span class="ride-chip c-{{ ri.code }}" id="rchip-{{ c.id }}" title="{{ ri.text }}">{{ {'unassigned':'⚠ No driver','waitlist':'⏳ Waitlist','scheduled':'🕓 Scheduled','enroute':'🚗 Driver en route','arrived':'📍 Driver at pickup','picked_up':'🚐 Guest on board','dropped_off':'🏁 Dropped off','at_venue':'✅ At venue','left':'👋 Left','no_show':'🚫 No show','unconfirmed':'❓ Not confirmed'}.get(ri.code, ri.code) }}{% if ri.source %}<span class="src">· {{ ri.source }}</span>{% endif %}</span>
+                                <span class="ride-chip c-{{ ri.code }}" id="rchip-{{ c.id }}" title="{{ ri.text }}">{{ {'unassigned':'⚠ No driver','waitlist':'⏳ Waitlist','scheduled':'🕓 Scheduled','enroute':'🚗 Driver en route','arrived':'📍 Driver at pickup','picked_up':'🚐 Guest on board','dropped_off':'🏁 Dropped off','at_venue':'✅ Arrived @ Venue','left':'👋 Departed W CL','no_show':'🚫 No show','unconfirmed':'❓ Not confirmed'}.get(ri.code, ri.code) }}{% if ri.source %}<span class="src">· {{ ri.source }}</span>{% endif %}</span>
                                 <div class="ride-note" id="rnote-{{ c.id }}" style="{{ '' if (ri.note and (ri.unassigned or 'double' in ri.note or 'online' in ri.note)) else 'display:none;' }}">{{ ri.note }}</div>
                                 <button class="assign-btn{{ '' if ri.unassigned else ' soft' }}" id="rassign-{{ c.id }}" onclick="openAssign({{ c.id }}, {{ c.nome|tojson }})">{{ '👤 Assign driver' if ri.unassigned else '↔ Change driver' }}</button>
                                 {% if c.picked_up_at %}<div class="ride-line">🚗 {{ vt(c.picked_up_at) }}</div>{% endif %}
@@ -349,9 +349,9 @@
                         </td>
                         <td>
                             <div class="status-group" data-cid="{{ c.id }}">
-                                <button class="stb stb-coming {{ 'act-coming' if c.club_status=='coming' else '' }}"     onclick="setStatus({{ c.id }}, 'coming', this)">Coming</button>
-                                <button class="stb stb-arrived {{ 'act-arrived' if c.club_status=='arrived' else '' }}"   onclick="setStatus({{ c.id }}, 'arrived', this)">Arrived</button>
-                                <button class="stb stb-left {{ 'act-left' if c.club_status=='left' else '' }}"         onclick="setStatus({{ c.id }}, 'left', this)">Left</button>
+                                <button class="stb stb-coming {{ 'act-coming' if c.club_status=='coming' else '' }}"     onclick="setStatus({{ c.id }}, 'coming', this)">Guest Picked Up</button>
+                                <button class="stb stb-arrived {{ 'act-arrived' if c.club_status=='arrived' else '' }}"   onclick="setStatus({{ c.id }}, 'arrived', this)">Arrived @ Venue</button>
+                                <button class="stb stb-left {{ 'act-left' if c.club_status=='left' else '' }}"         onclick="setStatus({{ c.id }}, 'left', this)">Departed W CL</button>
                             </div>
                             <div class="ns-wrap">
                                 <button class="ns-btn {{ 'act' if c.club_status=='no_show' else '' }}" id="nsb-{{ c.id }}" onclick="markNoShow({{ c.id }})" title="Guest never showed up — only set by hand">🚫 No show</button>
@@ -473,7 +473,8 @@ async function saveRt(){
 }
 
 
-// Highlight a row's club status: Coming / Arrived / Left, or the No show button
+// Highlight a row's club status: Guest Picked Up / Arrived @ Venue / Departed W CL, or the No show button
+const CLUB_STATUS_LABEL={coming:'Guest Picked Up',arrived:'Arrived @ Venue',left:'Departed W CL',no_show:'No show'};
 // (plus its reason). Shared by the buttons and the auto-refresh.
 function paintClubStatus(id, status, reason){
     const grp=document.querySelector('.status-group[data-cid="'+id+'"]');
@@ -498,7 +499,7 @@ async function setStatus(id, status, btn, reason){
     if(reason) fd.append('reason', reason);
     const d=await(await fetch(`/admin/guestlist/status/${id}`, {method:'POST',body:fd})).json();
     if(d.success){
-        toast(status==='no_show' ? 'Marked as no-show' : 'Status updated to '+status);
+        toast(status==='no_show' ? 'Marked as no-show' : 'Status updated to '+(CLUB_STATUS_LABEL[status]||status));
         paintClubStatus(id, status, d.no_show_reason);
     } else toast(d.error||'Error', false);
 }
@@ -1180,7 +1181,7 @@ async function doAssign(driverName){
 
   const CHIP = {unassigned:'⚠ No driver',waitlist:'⏳ Waitlist',scheduled:'🕓 Scheduled',enroute:'🚗 Driver en route',
                 arrived:'📍 Driver at pickup',picked_up:'🚐 Guest on board',dropped_off:'🏁 Dropped off',
-                at_venue:'✅ At venue',left:'👋 Left',no_show:'🚫 No show',unconfirmed:'❓ Not confirmed'};
+                at_venue:'✅ Arrived @ Venue',left:'👋 Departed W CL',no_show:'🚫 No show',unconfirmed:'❓ Not confirmed'};
   function applyRide(item){
     if(!item.needs_transport) return;
     const chip = document.getElementById('rchip-'+item.id);

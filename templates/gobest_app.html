@@ -399,7 +399,7 @@ body{
 .adm-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px;}
 .adm-stat{background:var(--surf);border:1px solid var(--bd);border-radius:12px;padding:10px 4px;text-align:center;cursor:pointer;color:var(--t);font-family:'DM Sans',sans-serif;}
 .adm-stat b{display:block;font-size:1.35rem;font-weight:700;line-height:1;margin-bottom:4px;font-variant-numeric:tabular-nums;}
-.adm-stat span{font-size:.54rem;white-space:nowrap;text-transform:uppercase;letter-spacing:.5px;color:var(--m2);font-weight:700;}
+.adm-stat span{font-size:.54rem;white-space:normal;line-height:1.15;display:block;text-transform:uppercase;letter-spacing:.5px;color:var(--m2);font-weight:700;}
 .adm-stat.on{border-color:var(--bhi);background:rgba(138,92,246,.16);}
 .adm-alert{background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.4);color:#fb923c;border-radius:11px;padding:10px 12px;font-size:.8rem;font-weight:600;margin-bottom:12px;}
 .adm-search{margin-bottom:12px;}
@@ -12443,10 +12443,10 @@ async function loadAdminGuests(silent){
   renderAdminGuests();
 }
 function setAdmFilter(f){ _admFilter = f; renderAdminGuests(); }
-const ADM_STATUS = {coming:'Coming', arrived:'Arrived', left:'Left', no_show:'No show'};
+const ADM_STATUS = {coming:'Guest Picked Up', arrived:'Arrived @ Venue', left:'Departed W CL', no_show:'No show'};
 function renderAdminGuests(){
   const c = _admCounts || {total:0, coming:0, arrived:0, left:0, no_show:0, unassigned:0};
-  document.getElementById('admStats').innerHTML = [['all','Total',c.total],['coming','Coming',c.coming],['arrived','Arrived',c.arrived],['left','Left',c.left],['no_show','No show',c.no_show]]
+  document.getElementById('admStats').innerHTML = [['all','Total',c.total],['coming',ADM_STATUS.coming,c.coming],['arrived',ADM_STATUS.arrived,c.arrived],['left',ADM_STATUS.left,c.left],['no_show',ADM_STATUS.no_show,c.no_show]]
     .map(([k,l,n])=>`<button class="adm-stat ${_admFilter===k?'on':''}" onclick="setAdmFilter('${k}')"><b>${n||0}</b><span>${l}</span></button>`).join('');
   const alertEl = document.getElementById('admAlert');
   alertEl.style.display = c.unassigned ? 'block' : 'none';
@@ -12494,8 +12494,8 @@ async function setGuestStatus(id, status, btn, reason){
   }
   renderAdminGuests();
   if(document.getElementById('admSheet').classList.contains('show') && g) openGuest(id);
-  admToast(status==='arrived' ? `✓ ${g ? g.name : 'Guest'} checked in` : status==='left' ? 'Marked as left'
-           : status==='no_show' ? 'Marked as no-show' : 'Back to coming');
+  admToast(status==='arrived' ? `✓ ${g ? g.name : 'Guest'} checked in` : status==='left' ? 'Marked as Departed W CL'
+           : status==='no_show' ? 'Marked as no-show' : 'Back to Guest Picked Up');
 }
 // No-show is only ever set by staff; the reason is optional (same as the website).
 function markNoShow(id){
