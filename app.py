@@ -586,6 +586,11 @@ class Driver(db.Model):
     # is open is "on duty" — used so rides aren't auto-assigned to someone who
     # isn't working tonight.
     last_seen_at = db.Column(db.DateTime, nullable=True)
+    # Clock in / clock out from the driver dashboard ("in" | "out"). A clock-out
+    # takes the driver off tonight's roster and hands their pickups over; everyone
+    # is clocked out automatically at CLUB_CLOSE_HOUR. See driver_clock().
+    duty_state      = db.Column(db.String(8), default="")
+    duty_changed_at = db.Column(db.DateTime, nullable=True)
 
     def to_dict(self):
         return {
@@ -761,6 +766,19 @@ class Shift(db.Model):
             "end_time": self.end_time,
             "active": self.active
         }
+
+class DriverDay(db.Model):
+    """Dispatch's word on who works a given night: an explicit working / off per
+    driver and service date (MM/DD/YYYY — the evening the night starts on). It
+    overrides the car / shift set-up in roster_at. No row = Driver Management
+    decides, as before. Set from the "Drivers tonight" panel on the dashboard."""
+    id        = db.Column(db.Integer, primary_key=True)
+    driver_id = db.Column(db.Integer, index=True, nullable=False)
+    date      = db.Column(db.String(10), index=True, nullable=False)
+    working   = db.Column(db.Boolean, default=True)
+    note      = db.Column(db.String(120), default="")
+    set_by    = db.Column(db.String(60), default="")
+    set_at    = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Customer(db.Model):
     id              = db.Column(db.Integer, primary_key=True)
@@ -3565,7 +3583,7 @@ def app_admin_guests():
         })
         items.append(item)
     return jsonify({"success": True, "filters": f, "total": len(rows), **counts,
-                    "duplicates": len(dups), "items": items})
+                    "duplicates": len(dups), "dup_pairs": _dup_pairs(rows, dups), "items": items})
 
 # Guest actions — the website's own handlers, run as the staff account.
 @app.route('/api/app/admin/guests/add', methods=['POST'])
@@ -5169,6 +5187,7 @@ def driver_dashboard():
             if driver_profile:
                 break
     driver_available = driver_profile.available if driver_profile else True
+    clocked_in = driver_clock(driver_profile) == "in" if driver_profile else False
 
     # The driver's currently assigned car (1:1), shown next to Switch Car
     current_car = None
@@ -5290,6 +5309,7 @@ def driver_dashboard():
         board_sig=board_sig,
         driver_name=driver_name,
         driver_available=driver_available,
+        clocked_in=clocked_in,
         today_str=today_str,
         current_car=current_car,
         car_lat=car_lat, car_lng=car_lng
@@ -5725,6 +5745,147 @@ def driver_set_available():
         fire_webhook({"event": "driver_back_online", "driver_name": driver_name,
                       "driver_phone": prof.phone, "timestamp": datetime.utcnow().isoformat()})
     return jsonify({"success": True, "available": prof.available})
+
+def _release_driver_rides(drv, reason, sdate=None):
+    """A driver is done (clocked out / marked off by dispatch): move their open
+    pickups for that service night to someone else, or leave them unassigned so
+    the engine keeps retrying and ops gets the NO DRIVER alert. Returns the
+    guests' names. Rides already in progress are left alone."""
+    now_v = vegas_naive_now()
+    sdate = sdate or service_date(now_v)
+    tonight = sdate == service_date(now_v)
+    out = []
+    rows = Customer.query.filter(Customer.motorista == drv.name, Customer.status == "scheduled",
+                                 Customer.needs_transport == True, not_no_show()).all()
+    for c in rows:
+        pdt = parse_pickup_datetime(c.pickup_datetime)
+        if pdt is None or service_date(pdt) != sdate:
+            continue
+        if pdt < now_v - timedelta(minutes=30):
+            continue                                   # already past — nothing to hand over
+        if c.dispatch_status in ("enroute", "arrived") or c.driver_arrived_at or c.picked_up_at:
+            continue                                   # in progress — stays with them
+        before = _ride_status_info(c)[0]
+        pick, _why = pick_driver(c.pickup_lat, c.pickup_lng, pdt, exclude_ids={drv.id},
+                                 require_on_duty=tonight)
+        if pick:
+            reassign_ride(c, pick, prev_driver=None, note=f"auto-reassigned from {drv.name} ({reason})")
+        else:
+            c.motorista = ""; c.motorista_phone = ""
+            c.car_name = ""; c.car_string_val = ""; c.car_photo = ""
+            c.assign_note = f"{drv.name} {reason} — no other driver yet"[:200]
+            c.unassigned_alert_level = 0
+            db.session.commit()
+            log_event(c, "assigned", f"{drv.name} → (none) — {reason}", actor="auto")
+            ride_status_changed(c, before, "auto")
+        out.append(c.nome or "")
+    return out
+
+@app.route('/driver/clock', methods=['POST'])
+def driver_clock_set():
+    """Driver clocks in (gets pickups) or out (done for the night: their remaining
+    pickups tonight go to another driver or back to dispatch)."""
+    if not session.get("logged") or session.get("role") != "driver":
+        return jsonify({"success": False, "error": "Unauthorized"})
+    state = (request.form.get('state') or '').strip().lower()
+    if state not in ("in", "out"):
+        return jsonify({"success": False, "error": "state must be in or out"})
+    prof = get_driver_record(session.get("username"))
+    if not prof:
+        return jsonify({"success": False, "error": "Driver profile not found"})
+    prof.duty_state = state
+    prof.duty_changed_at = datetime.utcnow()
+    if state == "in":
+        prof.available = True
+        prof.last_seen_at = datetime.utcnow()
+    db.session.commit()
+    released = _release_driver_rides(prof, "clocked out") if state == "out" else []
+    print(f"[DUTY] {prof.name} clocked {state}" + (f" — released {len(released)} ride(s)" if released else ""), flush=True)
+    fire_webhook({"event": f"driver_clock_{state}", "driver_name": prof.name, "driver_phone": prof.phone,
+                  "released": released, "timestamp": datetime.utcnow().isoformat()})
+    return jsonify({"success": True, "state": state, "released": released})
+
+def _drivers_tonight_payload(date_s):
+    d = datetime.strptime(date_s, "%m/%d/%Y").date()
+    at = datetime(d.year, d.month, d.day, 22, 0)          # 10 PM that night, representative
+    roster_ids = {e.driver.id for e in roster_at(at)}
+    overrides = driver_day_overrides(date_s)
+    positions = gps_positions(allow_fetch=False) or {}
+    loads = {}
+    for c in Customer.query.filter(Customer.status.in_(("scheduled", "picked_up")),
+                                   Customer.needs_transport == True, not_no_show()).all():
+        pdt = parse_pickup_datetime(c.pickup_datetime)
+        if pdt and service_date(pdt) == d and c.motorista:
+            loads[c.motorista] = loads.get(c.motorista, 0) + 1
+    rows = []
+    for drv in Driver.query.order_by(Driver.name).all():
+        if _is_demo_driver(drv):
+            continue
+        car = driver_car_at(drv, at)
+        rows.append({
+            "id": drv.id, "name": drv.name, "phone": drv.phone or "",
+            "car": car.name if car else "", "has_car": bool(car),
+            "working": drv.id in roster_ids, "override": overrides.get(drv.id),
+            "clock": driver_clock(drv),
+            "online": driver_on_duty(drv, car=car, positions=positions),
+            "last_seen": vegas_datetime(drv.last_seen_at) if drv.last_seen_at else "",
+            "available": bool(drv.available), "rides": loads.get(drv.name, 0),
+        })
+    return {"date": date_s, "tonight": date_s == service_date_str(), "drivers": rows}
+
+@app.route('/api/drivers-tonight', methods=['GET'])
+def drivers_tonight():
+    """Who the engine will give pickups to on a night (default: tonight), with
+    each driver's car, clock state and load. ?date=MM/DD/YYYY"""
+    if not can_dispatch():
+        return jsonify({"error": "Unauthorized"}), 401
+    date_s = (request.args.get("date") or service_date_str()).strip()
+    try:
+        return jsonify(_drivers_tonight_payload(date_s))
+    except ValueError:
+        return jsonify({"error": "date must be MM/DD/YYYY"}), 400
+
+@app.route('/api/drivers-tonight', methods=['POST'])
+def drivers_tonight_set():
+    """Dispatch marks a driver working / off for a night (or clears the override).
+    {driver_id, date, working: true|false|null}. Marking someone off hands their
+    pickups for that night to another driver, or back to dispatch."""
+    if not can_dispatch():
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or request.form
+    drv = Driver.query.get(_safe_int(data.get("driver_id")))
+    if not drv:
+        return jsonify({"error": "Unknown driver"}), 404
+    date_s = (data.get("date") or service_date_str()).strip()
+    try:
+        d = datetime.strptime(date_s, "%m/%d/%Y").date()
+    except ValueError:
+        return jsonify({"error": "date must be MM/DD/YYYY"}), 400
+    working = data.get("working")
+    if isinstance(working, str):
+        working = {"true": True, "false": False}.get(working.lower())
+    who = session.get("username") or "dispatch"
+    row = DriverDay.query.filter_by(driver_id=drv.id, date=date_s).first()
+    if working is None:
+        if row:
+            db.session.delete(row)
+    else:
+        if not row:
+            row = DriverDay(driver_id=drv.id, date=date_s)
+            db.session.add(row)
+        row.working = bool(working)
+        row.set_by = who
+        row.set_at = datetime.utcnow()
+    db.session.commit()
+    _memo().pop("driver_days", None); _memo().pop("roster", None)
+    released = []
+    if working is False:
+        released = _release_driver_rides(drv, f"marked off by {who}", sdate=d)
+    print(f"[DUTY] {who}: {drv.name} {'working' if working else ('OFF' if working is False else 'default')} on {date_s}"
+          + (f" — released {len(released)} ride(s)" if released else ""), flush=True)
+    out = _drivers_tonight_payload(date_s)
+    out["released"] = released
+    return jsonify(out)
 
 @app.route('/driver/enroute/<int:customer_id>', methods=['POST'])
 def driver_enroute(customer_id):
@@ -7350,8 +7511,23 @@ def guestlist_statuses():
         "coming": coming, "arrived": arrived, "left": left, "left_own": left_own, "no_show": no_show,
         "unassigned": unassigned,
         "duplicates": len(dups),
+        "dup_pairs": _dup_pairs(rows, dups),
         "items": items,
     })
+
+def _dup_pairs(rows, dups):
+    """What the duplicate banner shows: each suspected copy with its original,
+    and whether the two sit with different drivers (two cars would show up)."""
+    by_id = {c.id: c for c in rows}
+    out = []
+    for cid, oid in dups.items():
+        c, o = by_id.get(cid), by_id.get(oid)
+        if not c:
+            continue
+        out.append({"id": cid, "of": oid, "name": c.nome or "", "time": _time_part(c.pickup_datetime) or "",
+                    "driver": c.motorista or "", "of_driver": (o.motorista if o else "") or "",
+                    "two_drivers": bool(o and c.motorista and o.motorista and c.motorista != o.motorista)})
+    return out
 
 @app.route('/admin/guestlist')
 def admin_guestlist():
@@ -8702,6 +8878,33 @@ def _shift_on_date(sh, d):
         return _parse_shift_date(sh.specific_date) == d
     return sh.day_of_week is not None and sh.day_of_week == d.weekday()
 
+DUTY_WINDOW_H = 14   # a clock in/out older than this says nothing about tonight
+
+def service_date(dt=None):
+    """The night a moment belongs to: before CLUB_CLOSE_HOUR it is still 'yesterday'."""
+    dt = dt or vegas_naive_now()
+    d = dt.date()
+    return d - timedelta(days=1) if dt.hour < CLUB_CLOSE_HOUR else d
+
+def service_date_str(dt=None):
+    return service_date(dt).strftime("%m/%d/%Y")
+
+def driver_day_overrides(sdate_str):
+    """{driver_id: working?} that dispatch set for that night (memoized per request)."""
+    m = _memo().setdefault("driver_days", {})
+    if sdate_str not in m:
+        m[sdate_str] = {r.driver_id: bool(r.working) for r in DriverDay.query.filter_by(date=sdate_str).all()}
+    return m[sdate_str]
+
+def driver_clock(drv, now=None):
+    """'in' / 'out' if the driver clocked in or out within DUTY_WINDOW_H, else ''."""
+    if not drv or not drv.duty_state or not drv.duty_changed_at:
+        return ""
+    now = now or datetime.utcnow()
+    if (now - drv.duty_changed_at).total_seconds() > DUTY_WINDOW_H * 3600:
+        return ""
+    return drv.duty_state
+
 def roster_at(dt=None, include_unavailable=False):
     """Drivers (with their car) who can drive at `dt` (Las Vegas local time).
     Per driver: a date-specific shift (e.g. from Switch Car) beats their
@@ -8739,11 +8942,18 @@ def roster_at(dt=None, include_unavailable=False):
             entries[sh.driver_id] = RosterEntry(sh.driver, sh.car, "shift-weekly")
             used_cars.add(sh.car_id)
     out = []
+    overrides = driver_day_overrides(service_date_str(dt))
+    tonight = service_date(dt) == service_date()
     for e in entries.values():
         if e.car.active is False:
             continue
-        if not include_unavailable and not e.driver.available:
-            continue
+        if not include_unavailable:
+            if not e.driver.available:
+                continue
+            if overrides.get(e.driver.id) is False:          # dispatch: off that night
+                continue
+            if tonight and driver_clock(e.driver) == "out":  # driver: done for tonight
+                continue
         out.append(e)
     _rm[_mk] = list(out)
     return out
@@ -8845,6 +9055,11 @@ def driver_on_duty(drv, car=None, positions=None):
     their car is reporting GPS and has moved in the last CAR_MOVED_MIN minutes."""
     if not drv:
         return False
+    clk = driver_clock(drv)
+    if clk == "out":
+        return False
+    if clk == "in":
+        return True
     now = datetime.utcnow()
     if drv.last_seen_at and (now - drv.last_seen_at).total_seconds() <= DRIVER_ACTIVE_MIN * 60:
         return True
@@ -9390,6 +9605,21 @@ def auto_close_night():
         closed += 1
     if closed:
         print(f"[NIGHT-CLOSE] {closed} guest(s) still 'arrived' after {CLUB_CLOSE_HOUR}:00 → left_own (Departed W/O CL)", flush=True)
+    # The night is over for the drivers too: clock out anyone still clocked in
+    # from before closing time, so a forgotten "in" never carries into tomorrow.
+    try:
+        n = 0
+        for drv in Driver.query.filter(Driver.duty_state == "in").all():
+            if drv.duty_changed_at and _vegas_naive(drv.duty_changed_at) < close_v:
+                drv.duty_state = "out"
+                drv.duty_changed_at = datetime.utcnow()
+                n += 1
+        if n:
+            db.session.commit()
+            print(f"[NIGHT-CLOSE] clocked out {n} driver(s) at {CLUB_CLOSE_HOUR}:00", flush=True)
+    except Exception as e:
+        db.session.rollback()
+        print(f"[NIGHT-CLOSE] clock-out failed: {e}", flush=True)
 
 def _proximity_sms(c, label, body):
     car_photo_url = f"{PUBLIC_BASE_URL}/uploads/{c.car_photo}" if c.car_photo else ""
@@ -10575,6 +10805,8 @@ with app.app_context():
     safe_migrate("customer", "assign_note",       "ALTER TABLE customer ADD COLUMN assign_note VARCHAR(200) DEFAULT ''")
     safe_migrate("customer", "unassigned_alert_level", "ALTER TABLE customer ADD COLUMN unassigned_alert_level INTEGER DEFAULT 0")
     safe_migrate("driver", "last_seen_at",        "ALTER TABLE driver ADD COLUMN last_seen_at DATETIME")
+    safe_migrate("driver", "duty_state",          "ALTER TABLE driver ADD COLUMN duty_state VARCHAR(8) DEFAULT ''")
+    safe_migrate("driver", "duty_changed_at",     "ALTER TABLE driver ADD COLUMN duty_changed_at DATETIME")
     safe_migrate("customer", "source",            "ALTER TABLE customer ADD COLUMN source VARCHAR(40) DEFAULT ''")
     safe_migrate("customer", "created_by",        "ALTER TABLE customer ADD COLUMN created_by VARCHAR(160) DEFAULT ''")
     safe_migrate("customer", "external_ref",      "ALTER TABLE customer ADD COLUMN external_ref VARCHAR(80) DEFAULT ''")

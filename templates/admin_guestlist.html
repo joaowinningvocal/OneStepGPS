@@ -242,6 +242,7 @@
         <div class="stat leftown"><div class="stat-v" id="statLeftOwn">{{ left_own }}</div><div class="stat-l">🚶 Departed W/O CL</div></div>
         <div class="stat noshow"><div class="stat-v" id="statNoShow">{{ no_show }}</div><div class="stat-l">🚫 No show</div></div>
     </div>
+    <div class="nodrv-banner" id="dupBanner" style="display:none;background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.4);color:var(--gold);flex-wrap:wrap;"></div>
     <div class="nodrv-banner" id="nodrvBanner" style="{{ '' if unassigned else 'display:none;' }}">
         ⚠️ <span><span id="nodrvCount">{{ unassigned }}</span> ride(s) with no driver — the system keeps retrying every minute and texts dispatch. Use “Assign” to pick one now.</span>
     </div>
@@ -1227,6 +1228,17 @@ async function doAssign(driverName){
       set('statArrived', d.arrived); set('statLeft', d.left); set('statLeftOwn', d.left_own||0); set('statNoShow', d.no_show||0);
       const ban = document.getElementById('nodrvBanner');
       if(ban){ ban.style.display = d.unassigned ? '' : 'none'; set('nodrvCount', d.unassigned||0); }
+      // Possible duplicates: same guest, pickups within 3 h. Dispatch decides; we just shout.
+      const dupBan = document.getElementById('dupBanner'), pairs = d.dup_pairs || [];
+      if(dupBan){
+        if(pairs.length){
+          dupBan.style.display = 'flex';
+          dupBan.innerHTML = `⚠ ${pairs.length} ride${pairs.length>1?'s look':' looks'} duplicated — check before two cars go: ` +
+            pairs.map(p=>`<b>${esc(p.name)}</b> ${esc(p.time)} (#${p.id} ↔ #${p.of}${p.two_drivers ? ', <b>two different drivers</b>' : ''})`).join(' · ');
+          if(pairs.length > (window._dupSeen||0) && window._dupSeen !== undefined) toast('⚠ Possible duplicate ride: ' + pairs[pairs.length-1].name);
+          window._dupSeen = pairs.length;
+        } else { dupBan.style.display = 'none'; window._dupSeen = 0; }
+      }
       // Update each row's status badges
       (d.items||[]).forEach(applyStatus);
     }catch(e){ /* silent — will retry next tick */ }

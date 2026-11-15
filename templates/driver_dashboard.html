@@ -122,13 +122,13 @@
     </div>
 
     <!-- Availability -->
-    <div class="avail-bar {{ 'avail-on' if driver_available else 'avail-off' }}" id="availBar">
+    <div class="avail-bar {{ 'avail-on' if clocked_in else 'avail-off' }}" id="availBar">
         <div>
-            <div class="avail-txt" id="availTxt">{{ '🟢 Available' if driver_available else '🟡 Busy / Offline' }}</div>
-            <div class="avail-sub" id="availSub">{{ 'You can be assigned new pickups.' if driver_available else 'You will not get new pickups until you tap Available.' }}</div>
+            <div class="avail-txt" id="availTxt">{{ '🟢 Clocked in' if clocked_in else '⚫ Clocked out' }}</div>
+            <div class="avail-sub" id="availSub">{{ "You're working tonight — new pickups come to you." if clocked_in else "Tap Clock In when you start your night. Clock Out when you're done so nothing else is sent to you." }}</div>
         </div>
-        <button class="toggle-btn {{ 'toggle-busy' if driver_available else 'toggle-avail' }}" id="availBtn" onclick="toggleAvail()">
-            {{ 'Set Busy' if driver_available else "I'm Available" }}
+        <button class="toggle-btn {{ 'toggle-busy' if clocked_in else 'toggle-avail' }}" id="availBtn" onclick="toggleClock()">
+            {{ 'Clock Out' if clocked_in else 'Clock In' }}
         </button>
         <div style="display:flex;align-items:center;gap:8px;margin-left:8px;flex-wrap:wrap;">
             {% if current_car %}<span style="font-size:.8rem;color:var(--m2,#8892a0);">🚘 Current: <b style="color:var(--t,#e8eaf0);">{{ current_car }}</b></span>{% else %}<span style="font-size:.8rem;color:#fbbf24;">⚠️ No car assigned</span>{% endif %}
@@ -245,6 +245,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const DRIVER_AVAILABLE = {{ 'true' if driver_available else 'false' }};
+const DRIVER_CLOCKED_IN = {{ 'true' if clocked_in else 'false' }};
 const CAR_LAT = {{ car_lat if car_lat else 'null' }};
 const CAR_LNG = {{ car_lng if car_lng else 'null' }};
 const PICKUPS = {{ pickups|tojson }};
@@ -287,16 +288,23 @@ ROUTES.forEach(route=>{
 });
 if(bounds.length) map.fitBounds(bounds,{padding:[50,50],maxZoom:13});
 
-// ---- Availability ----
-let avail = DRIVER_AVAILABLE;
-async function toggleAvail(){
-    const fd=new FormData(); fd.append('available', (!avail).toString());
-    const d=await(await fetch('/driver/available',{method:'POST',body:fd})).json();
+// ---- Clock in / out ----
+let clockedIn = DRIVER_CLOCKED_IN;
+function paintClock(){
+    const bar=document.getElementById('availBar'),txt=document.getElementById('availTxt'),sub=document.getElementById('availSub'),btn=document.getElementById('availBtn');
+    if(clockedIn){bar.className='avail-bar avail-on';txt.innerText='🟢 Clocked in';sub.innerText="You're working tonight — new pickups come to you.";btn.className='toggle-btn toggle-busy';btn.innerText='Clock Out';}
+    else{bar.className='avail-bar avail-off';txt.innerText='⚫ Clocked out';sub.innerText="Tap Clock In when you start your night. Clock Out when you're done so nothing else is sent to you.";btn.className='toggle-btn toggle-avail';btn.innerText='Clock In';}
+}
+async function toggleClock(){
+    const next = clockedIn ? 'out' : 'in';
+    if(next==='out' && !confirm("Clock out for tonight?\n\nAny pickups still on your list tonight are handed to another driver (or back to dispatch).")) return;
+    const fd=new FormData(); fd.append('state', next);
+    const d=await(await fetch('/driver/clock',{method:'POST',body:fd})).json();
     if(d.success){
-        avail=d.available;
-        const bar=document.getElementById('availBar'),txt=document.getElementById('availTxt'),sub=document.getElementById('availSub'),btn=document.getElementById('availBtn');
-        if(avail){bar.className='avail-bar avail-on';txt.innerText='🟢 Available';sub.innerText='You can be assigned new pickups.';btn.className='toggle-btn toggle-busy';btn.innerText='Set Busy';toast('You are now available');}
-        else{bar.className='avail-bar avail-off';txt.innerText='🟡 Busy / Offline';sub.innerText='You will not get new pickups until you tap Available.';btn.className='toggle-btn toggle-avail';btn.innerText="I'm Available";toast('Marked as busy');}
+        clockedIn = d.state==='in'; paintClock();
+        const n=(d.released||[]).length;
+        toast(clockedIn ? 'Clocked in — have a good night' : (n ? `Clocked out — ${n} pickup${n>1?'s':''} handed over` : 'Clocked out. See you next time!'));
+        if(!clockedIn && n) setTimeout(()=>location.reload(), 1500);
     } else toast(d.error||'Error',false);
 }
 

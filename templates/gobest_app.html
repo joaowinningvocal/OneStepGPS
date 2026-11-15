@@ -401,7 +401,7 @@ body{
 .adm-stat b{display:block;font-size:1.35rem;font-weight:700;line-height:1;margin-bottom:4px;font-variant-numeric:tabular-nums;}
 .adm-stat span{font-size:.54rem;white-space:normal;line-height:1.15;display:block;text-transform:uppercase;letter-spacing:.5px;color:var(--m2);font-weight:700;}
 .adm-stat.on{border-color:var(--bhi);background:rgba(138,92,246,.16);}
-.adm-alert{background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.4);color:#fb923c;border-radius:11px;padding:10px 12px;font-size:.8rem;font-weight:600;margin-bottom:12px;}
+.adm-alert{background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.4);color:#fb923c;border-radius:11px;padding:10px 12px;font-size:.8rem;font-weight:600;margin-bottom:12px;white-space:pre-line;}
 .adm-search{margin-bottom:12px;}
 .g-row{display:flex;align-items:center;gap:12px;background:var(--surf);border:1px solid var(--bd);border-radius:14px;padding:12px 12px 12px 14px;margin-bottom:8px;cursor:pointer;}
 .g-row.prio{border-color:rgba(251,191,36,.5);}
@@ -12453,8 +12453,13 @@ function renderAdminGuests(){
   document.getElementById('admStats').innerHTML = [['all','Total',c.total],['coming',ADM_STATUS.coming,c.coming],['arrived',ADM_STATUS.arrived,c.arrived],['left',ADM_STATUS.left,c.left],['left_own',ADM_STATUS.left_own,c.left_own],['no_show',ADM_STATUS.no_show,c.no_show]]
     .map(([k,l,n])=>`<button class="adm-stat ${_admFilter===k?'on':''}" onclick="setAdmFilter('${k}')"><b>${n||0}</b><span>${l}</span></button>`).join('');
   const alertEl = document.getElementById('admAlert');
-  alertEl.style.display = c.unassigned ? 'block' : 'none';
-  alertEl.innerText = c.unassigned ? `⚠️ ${c.unassigned} pickup${c.unassigned>1?'s':''} without a driver yet` : '';
+  const dups = c.dup_pairs || [];
+  const alerts = [
+    c.unassigned ? `⚠️ ${c.unassigned} pickup${c.unassigned>1?'s':''} without a driver yet` : '',
+    dups.length ? `⚠️ ${dups.length} ride${dups.length>1?'s look':' looks'} duplicated: ${dups.map(p=>`${p.name} ${p.time}${p.two_drivers?' (two drivers!)':''}`).join(', ')}` : '',
+  ].filter(Boolean);
+  alertEl.style.display = alerts.length ? 'block' : 'none';
+  alertEl.innerText = alerts.join('\n');
   const q = (document.getElementById('admSearch').value || '').trim().toLowerCase();
   const qd = q.replace(/\D/g,'');
   const rows = _admGuests.filter(g=>{
