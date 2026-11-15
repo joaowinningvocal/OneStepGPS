@@ -42,6 +42,47 @@ CORS(app)
 # routes fall through to Flask's normal handling.
 import traceback as _traceback
 
+# ─── LOG RING BUFFER ─────────────────────────────────────────────────────────
+# Everything printed to stdout/stderr is still written through to the real
+# stream (Railway's log) AND kept in memory (last _LOG_RING.maxlen lines, per
+# process) so /api/ops/logs can show it without a Railway login.
+import sys as _sys
+from collections import deque as _deque
+_LOG_RING = _deque(maxlen=4000)
+
+class _TeeStream:
+    def __init__(self, real):
+        self._real = real
+        self._buf = ""
+    def write(self, s):
+        try:
+            self._real.write(s)
+        except Exception:
+            pass
+        try:
+            self._buf += s
+            while "\n" in self._buf:
+                line, self._buf = self._buf.split("\n", 1)
+                if line.strip():
+                    _LOG_RING.append(f"{datetime.utcnow().strftime('%m-%d %H:%M:%S')}Z {line[:1500]}")
+        except Exception:
+            pass
+        return len(s)
+    def flush(self):
+        try:
+            self._real.flush()
+        except Exception:
+            pass
+    def isatty(self):
+        return False
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+if not isinstance(_sys.stdout, _TeeStream):
+    _sys.stdout = _TeeStream(_sys.stdout)
+    _sys.stderr = _TeeStream(_sys.stderr)
+
+
 def _is_api_request():
     return request.path.startswith('/api/')
 
@@ -9769,6 +9810,256 @@ def start_distance_tracker():
     thread = threading.Thread(target=distance_tracker_loop, daemon=True)
     thread.start()
     print(f"[TRACKER] Dispatch tracker started (every {TRACKER_INTERVAL_SEC}s)", flush=True)
+
+# ─── OPS API (read-only diagnostics for João's assistant) ─────────────────────
+# Lets the production database, the dispatch engine's state and the server log be
+# inspected from outside without a Railway login. Everything here is READ-ONLY:
+# the SQL endpoint only runs SELECT/WITH/EXPLAIN/PRAGMA. Auth: X-Ops-Key header
+# (or ?key=) matching OPS_API_KEY in the environment, or — when that is not set —
+# the key whose SHA-256 is OPS_API_KEY_SHA256 below (the key itself is not in the
+# repo). Rotate by changing either one.
+import hashlib as _hashlib, hmac as _hmac, socket as _socket
+from sqlalchemy import text as _sql_text
+
+OPS_API_KEY_SHA256 = "99194f3c089334bb8c8107a1f80aa3b2e5d32bebfb076eb1ba112ea8806ad3f0"
+
+def _ops_key_ok():
+    provided = (request.headers.get("X-Ops-Key") or request.args.get("key") or "").strip()
+    if not provided:
+        return False
+    env_key = os.environ.get("OPS_API_KEY", "").strip()
+    if env_key:
+        return _hmac.compare_digest(provided, env_key)
+    digest = _hashlib.sha256(provided.encode("utf-8")).hexdigest()
+    return _hmac.compare_digest(digest, OPS_API_KEY_SHA256)
+
+def ops_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not _ops_key_ok():
+            return jsonify({"error": "Unauthorized — X-Ops-Key required"}), 401
+        return f(*args, **kwargs)
+    return wrapper
+
+def _ops_dt(v):
+    if not v:
+        return ""
+    try:
+        return vegas_datetime(v)
+    except Exception:
+        return str(v)
+
+@app.route('/api/ops/ping')
+@ops_required
+def ops_ping():
+    return jsonify({
+        "ok": True, "pid": os.getpid(), "host": _socket.gethostname(),
+        "vegas_now": vegas_naive_now().strftime("%m/%d/%Y %I:%M %p"),
+        "utc_now": datetime.utcnow().isoformat(),
+        "commit": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "")[:12],
+        "engine_boot_utc": datetime.utcfromtimestamp(_ENGINE_BOOT).isoformat(),
+        "db": app.config['SQLALCHEMY_DATABASE_URI'].split(':', 1)[0],
+        "log_lines_buffered": len(_LOG_RING),
+    })
+
+@app.route('/api/ops/config')
+@ops_required
+def ops_config():
+    keys = ["AUTO_ASSIGN_ENABLED", "AUTO_REASSIGN_OFFLINE", "UNASSIGNED_ALERTS", "DRIVER_ACTIVE_MIN",
+            "CAR_MOVED_MIN", "REASSIGN_OFFLINE_LEAD_MIN", "UNASSIGNED_URGENT_MIN", "BOOT_GRACE_SEC",
+            "DRIVER_BUSY_WINDOW_MIN", "TRACKER_INTERVAL_SEC", "CLUB_CLOSE_HOUR", "PICKED_UP_TIMEOUT_MIN",
+            "SCHEDULED_TIMEOUT_MIN", "DROP_REMINDER_MIN", "TRACK_LINK_EXPIRE_HOURS"]
+    g_ = globals()
+    cfg = {k: g_.get(k) for k in keys if k in g_}
+    cfg["OPS_ALERT_NUMBERS"] = OPS_ALERT_NUMBERS
+    env_hints = {k: os.environ.get(k, "") for k in ("WEB_CONCURRENCY", "GUNICORN_CMD_ARGS", "RAILWAY_REPLICA_ID",
+                                                      "RAILWAY_GIT_COMMIT_SHA", "RAILWAY_SERVICE_NAME",
+                                                      "RAILWAY_ENVIRONMENT_NAME", "PORT")}
+    return jsonify({"engine": cfg, "env": env_hints, "pid": os.getpid(),
+                    "public_base_url": PUBLIC_BASE_URL})
+
+@app.route('/api/ops/schema')
+@ops_required
+def ops_schema():
+    from sqlalchemy import inspect as _sa_inspect
+    insp = _sa_inspect(db.engine)
+    out = {}
+    for t in insp.get_table_names():
+        out[t] = [f"{c['name']} {c['type']}" for c in insp.get_columns(t)]
+    return jsonify(out)
+
+_OPS_SQL_OK = ("select", "with", "explain", "pragma")
+
+@app.route('/api/ops/sql', methods=['GET', 'POST'])
+@ops_required
+def ops_sql():
+    """Read-only SQL. Body {"sql": "...", "limit": 200} or ?q=...; one statement."""
+    data = request.get_json(silent=True) or {}
+    sql = (data.get("sql") or request.args.get("q") or "").strip().rstrip(";").strip()
+    limit = max(1, min(int(data.get("limit") or request.args.get("limit") or 200), 2000))
+    low = sql.lower()
+    if not sql or not low.startswith(_OPS_SQL_OK) or ";" in sql:
+        return jsonify({"error": "Only a single SELECT / WITH / EXPLAIN / PRAGMA statement is allowed."}), 400
+    for bad in (" attach ", " insert ", " update ", " delete ", " drop ", " alter ", " create ", " replace ", " vacuum "):
+        if bad in f" {low} ":
+            return jsonify({"error": f"'{bad.strip()}' is not allowed here (read-only)."}), 400
+    t0 = time.time()
+    try:
+        conn = db.engine.connect()
+        try:
+            if db.engine.dialect.name == "sqlite":
+                conn.execute(_sql_text("PRAGMA query_only = 1"))
+            res = conn.execute(_sql_text(sql))
+            cols = list(res.keys())
+            rows = []
+            for r in res:
+                rows.append([(_ops_dt(v) if isinstance(v, datetime) else v) for v in r])
+                if len(rows) >= limit:
+                    break
+        finally:
+            conn.close()
+    except Exception as e:
+        return jsonify({"error": str(e)[:500], "sql": sql}), 400
+    return jsonify({"columns": cols, "rows": rows, "count": len(rows), "truncated": len(rows) >= limit,
+                    "ms": int((time.time() - t0) * 1000), "note": "datetimes shown in Las Vegas time"})
+
+@app.route('/api/ops/logs')
+@ops_required
+def ops_logs():
+    """Last lines this worker printed (per-process ring buffer). ?n=300&grep=ASSIGN"""
+    n = max(1, min(int(request.args.get("n") or 300), len(_LOG_RING) or 1))
+    pat = (request.args.get("grep") or "").lower()
+    lines = [l for l in list(_LOG_RING) if not pat or pat in l.lower()]
+    return jsonify({"pid": os.getpid(), "buffered": len(_LOG_RING), "matched": len(lines),
+                    "lines": lines[-n:]})
+
+def _ops_customer(c, with_events=True):
+    code, text_, est = _ride_status_full(c)
+    drv = resolve_ride_driver(c)
+    d = c.to_dict() if hasattr(c, "to_dict") else {}
+    d.update({
+        "id": c.id, "name": c.nome, "phone": c.phone, "phones": c.get_phones(),
+        "pickup_datetime": c.pickup_datetime, "pickup": c.endereco, "destination": c.destination,
+        "guests": c.guests, "promoter": c.promoter, "needs_transport": bool(c.needs_transport),
+        "driver_field": c.motorista, "driver_resolved": drv.name if drv else None,
+        "driver_on_duty": driver_on_duty(drv) if drv else None,
+        "car_name": c.car_name, "car": c.car_string_val,
+        "status": c.status, "dispatch_status": c.dispatch_status, "club_status": c.club_status,
+        "ride_status": code, "ride_status_text": text_, "estimated": est,
+        "status_source": c.status_source, "status_updated_at": _ops_dt(c.status_updated_at),
+        "assign_note": c.assign_note, "unassigned_alert_level": c.unassigned_alert_level,
+        "is_return_ride": bool(getattr(c, "is_return_ride", False)), "return_of_id": getattr(c, "return_of_id", None),
+        "created_at": _ops_dt(getattr(c, "created_at", None)),
+        "driver_arrived_at": _ops_dt(c.driver_arrived_at), "picked_up_at": _ops_dt(c.picked_up_at),
+        "dropped_off_at": _ops_dt(c.dropped_off_at), "arrived_at": _ops_dt(c.arrived_at),
+        "no_show_reason": c.no_show_reason, "no_show_at": _ops_dt(c.no_show_at), "no_show_by": c.no_show_by,
+        "completed_driver": c.completed_driver, "completed_car": c.completed_car,
+    })
+    if with_events:
+        d["events"] = [{"at": _ops_dt(e.created_at), "actor": e.actor, "event": e.event, "detail": e.detail}
+                       for e in RideEvent.query.filter_by(customer_id=c.id).order_by(RideEvent.id).all()]
+    return d
+
+@app.route('/api/ops/ride/<int:cid>')
+@ops_required
+def ops_ride(cid):
+    c = Customer.query.get_or_404(cid)
+    return jsonify(_ops_customer(c))
+
+@app.route('/api/ops/rides')
+@ops_required
+def ops_rides():
+    """Rides by day. ?date=MM/DD/YYYY (default today, Vegas) &days=1 &driver=Name &phone=7025551234"""
+    date_s = request.args.get("date") or vegas_naive_now().strftime("%m/%d/%Y")
+    days = max(1, min(int(request.args.get("days") or 1), 31))
+    drv = (request.args.get("driver") or "").strip().lower()
+    phone = re.sub(r"\D", "", request.args.get("phone") or "")[-10:]
+    try:
+        d0 = datetime.strptime(date_s, "%m/%d/%Y").date()
+    except ValueError:
+        return jsonify({"error": "date must be MM/DD/YYYY"}), 400
+    want = {(d0 + timedelta(days=i)).strftime("%m/%d/%Y") for i in range(days)}
+    out = []
+    for c in Customer.query.order_by(Customer.id.desc()).limit(3000).all():
+        if not c.pickup_datetime or c.pickup_datetime[:10] not in want:
+            continue
+        if drv and drv not in (c.motorista or "").lower():
+            continue
+        if phone and phone not in re.sub(r"\D", "", (c.phone or "") + " ".join(c.get_phones())):
+            continue
+        out.append(_ops_customer(c, with_events=False))
+    out.sort(key=lambda r: (r["pickup_datetime"] or "", r["id"]))
+    return jsonify({"date": date_s, "days": days, "count": len(out), "rides": out})
+
+@app.route('/api/ops/events')
+@ops_required
+def ops_events():
+    """Ride audit log. ?n=200 &customer_id= &event=assigned &actor=auto &grep=text"""
+    n = max(1, min(int(request.args.get("n") or 200), 2000))
+    q = RideEvent.query
+    if request.args.get("customer_id"):
+        q = q.filter(RideEvent.customer_id == int(request.args["customer_id"]))
+    if request.args.get("event"):
+        q = q.filter(RideEvent.event == request.args["event"])
+    if request.args.get("actor"):
+        q = q.filter(RideEvent.actor.like(f"%{request.args['actor']}%"))
+    if request.args.get("grep"):
+        q = q.filter(RideEvent.detail.like(f"%{request.args['grep']}%"))
+    rows = [{"id": e.id, "at": _ops_dt(e.created_at), "customer_id": e.customer_id, "actor": e.actor,
+             "event": e.event, "detail": e.detail} for e in q.order_by(RideEvent.id.desc()).limit(n).all()]
+    return jsonify({"count": len(rows), "events": rows})
+
+@app.route('/api/ops/sms')
+@ops_required
+def ops_sms():
+    """Texts sent (no carrier lookup). ?n=100 &to=7025551234 &grep=text"""
+    n = max(1, min(int(request.args.get("n") or 100), 1000))
+    q = SmsLog.query
+    if request.args.get("to"):
+        q = q.filter(SmsLog.to.like(f"%{re.sub(r'[^0-9]', '', request.args['to'])[-10:]}%"))
+    if request.args.get("grep"):
+        q = q.filter(SmsLog.text.like(f"%{request.args['grep']}%"))
+    rows = [{"at": _ops_dt(s.created_at), "to": s.to, "text": s.text, "accepted": bool(s.accepted),
+             "provider_id": s.provider_id, "error": s.error}
+            for s in q.order_by(SmsLog.created_at.desc()).limit(n).all()]
+    return jsonify({"count": len(rows), "messages": rows})
+
+@app.route('/api/ops/roster')
+@ops_required
+def ops_roster():
+    """Who the engine would consider for a pickup at ?at=MM/DD/YYYY HH:MM (24h; default now),
+    plus every driver, car and shift."""
+    at_s = request.args.get("at", "").strip()
+    at = None
+    if at_s:
+        for fmt in ("%m/%d/%Y %H:%M", "%m/%d/%Y %I:%M %p"):
+            try:
+                at = datetime.strptime(at_s, fmt); break
+            except ValueError:
+                pass
+        if at is None:
+            return jsonify({"error": "at must be MM/DD/YYYY HH:MM"}), 400
+    at = at or vegas_naive_now()
+    positions = gps_positions(allow_fetch=False) or {}
+    roster = []
+    for e in roster_at(at, include_unavailable=True):
+        pos = car_position(e.car.name, positions)
+        roster.append({"driver": e.driver.name, "driver_id": e.driver.id, "phone": e.driver.phone,
+                       "car": e.car.name, "via": getattr(e, "source", getattr(e, "via", "")),
+                       "available": bool(e.driver.available),
+                       "on_duty_now": driver_on_duty(e.driver, car=e.car, positions=positions),
+                       "last_seen_at": _ops_dt(e.driver.last_seen_at),
+                       "busy_at": driver_is_busy(e.driver.name, at),
+                       "load_6h": _driver_load(e.driver.name, at),
+                       "gps_fresh": bool(pos and pos.get("fresh")) if pos else False})
+    drivers = [{"id": d.id, "name": d.name, "phone": d.phone, "available": bool(d.available),
+                "assigned_car_id": d.assigned_car_id, "last_seen_at": _ops_dt(d.last_seen_at),
+                "demo": _is_demo_driver(d)} for d in Driver.query.order_by(Driver.id).all()]
+    cars = [{"id": k.id, "name": k.name, "active": k.active, "plate": getattr(k, "plate", "")}
+            for k in Car.query.order_by(Car.id).all()]
+    shifts = [s.to_dict() for s in Shift.query.order_by(Shift.id).all()]
+    return jsonify({"at": at.strftime("%m/%d/%Y %H:%M"), "roster": roster, "drivers": drivers,
+                    "cars": cars, "shifts": shifts})
 
 # ─── INIT ─────────────────────────────────────────────────────────────────────
 def seed_data():
