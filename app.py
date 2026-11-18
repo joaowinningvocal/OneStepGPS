@@ -8897,9 +8897,13 @@ def driver_day_overrides(sdate_str):
     return m[sdate_str]
 
 def driver_clock(drv, now=None):
-    """'in' / 'out' if the driver clocked in or out within DUTY_WINDOW_H, else ''."""
+    """'in' if the driver clocked in within DUTY_WINDOW_H, 'out' if they clocked
+    out (a clock-out never expires — only a Clock In ends it), else '' (never
+    clocked in). For tonight's roster '' counts the same as 'out'."""
     if not drv or not drv.duty_state or not drv.duty_changed_at:
         return ""
+    if drv.duty_state == "out":
+        return "out"
     now = now or datetime.utcnow()
     if (now - drv.duty_changed_at).total_seconds() > DUTY_WINDOW_H * 3600:
         return ""
@@ -8950,10 +8954,16 @@ def roster_at(dt=None, include_unavailable=False):
         if not include_unavailable:
             if not e.driver.available:
                 continue
-            if overrides.get(e.driver.id) is False:          # dispatch: off that night
+            ov = overrides.get(e.driver.id)
+            if ov is False:                                   # dispatch: off that night
                 continue
-            if tonight and driver_clock(e.driver) == "out":  # driver: done for tonight
-                continue
+            if tonight:
+                # Tonight only clocked-in drivers get pickups. A clock-out is final
+                # until the driver clocks in again; never clocked in = not working,
+                # unless dispatch marked them Working on the panel.
+                clk = driver_clock(e.driver)
+                if clk == "out" or (clk != "in" and ov is not True):
+                    continue
         out.append(e)
     _rm[_mk] = list(out)
     return out

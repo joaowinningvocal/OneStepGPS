@@ -260,7 +260,7 @@
                         </div>
                     </div>
                     <div id="tnList" style="margin-top:6px;"><div class="tn-sub">Loading…</div></div>
-                    <div class="tn-sub" style="margin-top:8px;">Off = no pickups that night (their pickups are handed to another driver). Drivers clock in/out on their own dashboard.</div>
+                    <div class="tn-sub" style="margin-top:8px;">Tonight, only drivers who clocked in get pickups. Off = no pickups that night (their pickups are handed to another driver). Working = counts as clocked in.</div>
                 </div>
             </div>
             {% endif %}
@@ -1039,7 +1039,8 @@ document.getElementById('valetModal').addEventListener('click',function(e){if(e.
                 : `<button type="button" class="tn-btn off" onclick="tnSet(${x.id}, ${x.override===false ? 'null' : 'true'})" ${x.has_car ? '' : 'disabled title="Give them a car in Driver Management first"'}>Off</button>`;
             return `<div class="tn-row"><div class="tn-name"><b>${esc(x.name)}</b><div class="tn-sub">${esc(sub)}</div></div>${btn}</div>`;
         }).join('');
-        document.getElementById('tnList').innerHTML = rows || '<div class="tn-sub">No drivers set up.</div>';
+        const nobody = d.tonight && !(d.drivers||[]).some(x=>x.working);
+        document.getElementById('tnList').innerHTML = (nobody ? '<div class="tn-row" style="color:#f87171;font-weight:700;">⚠ Nobody is clocked in — tonight's pickups stay unassigned until a driver clocks in (or you mark one Working).</div>' : '') + (rows || '<div class="tn-sub">No drivers set up.</div>');
     }
     async function tnSet(id, working){
         try{

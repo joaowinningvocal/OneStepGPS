@@ -125,7 +125,7 @@
     <div class="avail-bar {{ 'avail-on' if clocked_in else 'avail-off' }}" id="availBar">
         <div>
             <div class="avail-txt" id="availTxt">{{ '🟢 Clocked in' if clocked_in else '⚫ Clocked out' }}</div>
-            <div class="avail-sub" id="availSub">{{ "You're working tonight — new pickups come to you." if clocked_in else "Tap Clock In when you start your night. Clock Out when you're done so nothing else is sent to you." }}</div>
+            <div class="avail-sub" id="availSub">{{ "You're working tonight — new pickups come to you." if clocked_in else "You get NO pickups until you tap Clock In. Clock Out when you're done for the night." }}</div>
         </div>
         <button class="toggle-btn {{ 'toggle-busy' if clocked_in else 'toggle-avail' }}" id="availBtn" onclick="toggleClock()">
             {{ 'Clock Out' if clocked_in else 'Clock In' }}
@@ -293,7 +293,7 @@ let clockedIn = DRIVER_CLOCKED_IN;
 function paintClock(){
     const bar=document.getElementById('availBar'),txt=document.getElementById('availTxt'),sub=document.getElementById('availSub'),btn=document.getElementById('availBtn');
     if(clockedIn){bar.className='avail-bar avail-on';txt.innerText='🟢 Clocked in';sub.innerText="You're working tonight — new pickups come to you.";btn.className='toggle-btn toggle-busy';btn.innerText='Clock Out';}
-    else{bar.className='avail-bar avail-off';txt.innerText='⚫ Clocked out';sub.innerText="Tap Clock In when you start your night. Clock Out when you're done so nothing else is sent to you.";btn.className='toggle-btn toggle-avail';btn.innerText='Clock In';}
+    else{bar.className='avail-bar avail-off';txt.innerText='⚫ Clocked out';sub.innerText="You get NO pickups until you tap Clock In. Clock Out when you're done for the night.";btn.className='toggle-btn toggle-avail';btn.innerText='Clock In';}
 }
 async function toggleClock(){
     const next = clockedIn ? 'out' : 'in';
