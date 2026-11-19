@@ -2869,6 +2869,12 @@ def _state_from_coords(lat, lng):
             best, bestd = name, d
     return best or ""
 
+@app.route('/api/app/ping', methods=['GET'])
+def app_ping():
+    """Public: which code build is live (so a deploy can be confirmed), and whether
+    the QA test login is configured. No secrets."""
+    return jsonify({"success": True, "build": CODE_BUILD, "qa_login": bool(QA_TEST_PHONE and QA_TEST_CODE)})
+
 @app.route('/api/app/detect-state', methods=['GET', 'POST'])
 def app_detect_state():
     """The app sends the user's coordinates; we return which state they're in and
@@ -3011,6 +3017,17 @@ import secrets as _secrets
 # skips the SMS step and accepts the fixed code below. Can be overridden via env.
 DEMO_PHONE = clean_phone(os.environ.get("DEMO_PHONE", "7025550100"))
 DEMO_CODE  = os.environ.get("DEMO_CODE", "424242")
+# QA test login: one phone the owner sets in the environment that skips SMS and
+# accepts a fixed secret code — for testing where real SMS can't be delivered
+# (e.g. a Brazilian number). UNLIKE the demo number it keeps its real role
+# (driver/admin), because the code is a private secret, not the public store one.
+# Off unless BOTH QA_TEST_PHONE and QA_TEST_CODE are set.
+QA_TEST_PHONE = clean_phone(os.environ.get("QA_TEST_PHONE", ""))
+QA_TEST_CODE  = os.environ.get("QA_TEST_CODE", "").strip()
+def _qa_login_enabled(phone):
+    return bool(QA_TEST_PHONE and QA_TEST_CODE and phone == QA_TEST_PHONE)
+# Code build marker — bump on each deploy so /api/app/ping confirms what's live.
+CODE_BUILD = "2026-11-19e-driver-phone-match"
 STAFF_OTP_PER_DAY = 8   # SMS codes per 24 h for numbers linked to staff accounts
 
 def _app_user_from_token():
@@ -3037,7 +3054,7 @@ def app_auth_send_code():
         return jsonify({"success": False, "error": "Enter a valid phone number."})
     # Demo/review account (for App Store / Play Store reviewers): the magic number
     # skips SMS entirely and accepts a fixed code. Never sends a real text.
-    if phone == DEMO_PHONE:
+    if phone == DEMO_PHONE or _qa_login_enabled(phone):
         return jsonify({"success": True, "message": "Code sent."})
     # Rate limits: 1 code per 30 s per phone, and at most 4 codes per 15 min
     # (so a resend button can't be used to spam a number or our SMS bill).
@@ -3099,6 +3116,23 @@ def app_auth_verify():
                            points=95, checkin_count=8)  # seeded so reviewers see the loyalty UI populated
             db.session.add(user)
         user.auth_token = _secrets.token_hex(24)
+        user.last_seen = datetime.utcnow()
+        db.session.commit()
+        return jsonify({"success": True, "token": user.auth_token, "user": user.to_dict()})
+    # QA test login (owner-configured): fixed secret code, no SMS, keeps its real role.
+    if _qa_login_enabled(phone):
+        if code != QA_TEST_CODE:
+            return jsonify({"success": False, "error": "Incorrect code. Try again."})
+        user = AppUser.query.filter_by(phone=phone).first()
+        if not user:
+            user = AppUser(phone=phone, name=name, verified=True)
+            db.session.add(user)
+        else:
+            user.verified = True
+            if name:
+                user.name = name
+        if not user.auth_token:
+            user.auth_token = _secrets.token_hex(24)
         user.last_seen = datetime.utcnow()
         db.session.commit()
         return jsonify({"success": True, "token": user.auth_token, "user": user.to_dict()})
