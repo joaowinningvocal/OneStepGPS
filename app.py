@@ -3451,7 +3451,7 @@ def staff_for_app_user(app_user):
     # No website account with this phone: a driver? Drivers already carry their
     # phone on the Drivers screen (for SMS), so they get Driver mode with no extra
     # linking. The driver's board/actions key off the name, like the website.
-    drivers = Driver.query.filter(Driver.phone.in_(phone_variants(e164))).limit(2).all()
+    drivers = drivers_with_phone(e164)
     if len(drivers) != 1 or _is_demo_driver(drivers[0]):
         return None
     drv = drivers[0]
@@ -3459,6 +3459,12 @@ def staff_for_app_user(app_user):
     if acct and acct.is_active is False:
         return None
     return AppDriverPrincipal(drv, acct)
+
+def drivers_with_phone(e164):
+    """Driver records whose phone is this number. The Drivers screen stores the
+    phone as typed — "(702) 858-6502", "702-858-6502", "+1 702…" — so compare the
+    normalised number, not the text."""
+    return [d for d in Driver.query.all() if (d.phone or "").strip() and normalize_phone_e164(d.phone) == e164]
 
 class AppDriverPrincipal:
     """A driver signed into the app, identified by the phone on their Driver
@@ -3523,6 +3529,7 @@ def app_access_check():
     if not e164:
         return jsonify({"error": "add ?phone=7025551234"}), 400
     accounts = User.query.filter_by(phone=e164).all()
+    drivers = drivers_with_phone(e164)
     app_users = AppUser.query.filter(AppUser.phone.in_(phone_variants(e164))).all()
     verdicts = []
     for au in app_users:
@@ -3536,20 +3543,26 @@ def app_access_check():
     reason = ""
     if e164 == normalize_phone_e164(DEMO_PHONE):
         reason = "This is the App Store review demo number — it never gets admin."
-    elif not accounts:
-        reason = "No website account has this phone. Users → Edit → Mobile phone."
+    elif not accounts and len(drivers) > 1:
+        reason = f"More than one driver has this phone ({', '.join(d.name for d in drivers)}) — keep it on one."
+    elif not accounts and not drivers:
+        reason = ("No website account and no driver has this phone. Drivers: Drivers → Edit → Phone. "
+                  "Staff: Users → Edit → Mobile phone.")
     elif len(accounts) > 1:
         reason = "More than one website account has this phone — keep it on one."
-    elif accounts[0].is_active is False:
+    elif accounts and accounts[0].is_active is False:
         reason = f"{accounts[0].username} isn't activated yet (setup link not used)."
-    elif not any(staff_permissions(accounts[0].role).values()):
+    elif accounts and not any(staff_permissions(accounts[0].role).values()):
         reason = f"{accounts[0].username} is a {accounts[0].role} — that role has no app admin tools."
+    elif drivers and _is_demo_driver(drivers[0]):
+        reason = f"{drivers[0].name} is a demo driver — demo drivers never get Driver mode."
     elif not app_users:
         reason = "Linked correctly, but nobody has signed into the app with this number yet."
     return jsonify({
         "phone": e164,
         "website_accounts": [{"username": u.username, "role": u.role, "active": u.is_active is not False,
                               "admin_tools": staff_permissions(u.role)} for u in accounts],
+        "drivers": [{"name": d.name, "phone_as_stored": d.phone, "demo": _is_demo_driver(d)} for d in drivers],
         "app_accounts": verdicts,
         "problem": reason or "None — the server gives this number admin. If the app doesn't show it, "
                              "that installed build predates Admin mode: use www.clublifter.com/app-preview.",
