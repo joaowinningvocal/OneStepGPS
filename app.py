@@ -10701,6 +10701,23 @@ def seed_staff_accounts():
         db.session.rollback()
         print(f"[SEED] staff accounts skipped: {e}", flush=True)
 
+# A test driver for João (BR number) so Driver mode can be checked from Brazil
+# without touching a real driver's record. Runs once; manage it on Drivers after.
+def seed_test_driver():
+    flag = "seeded:test_driver:2026-11-19"
+    if get_setting(flag):
+        return
+    try:
+        phone = "+5521969882221"
+        if not drivers_with_phone(phone) and not Driver.query.filter_by(name="joao.test").first():
+            db.session.add(Driver(name="joao.test", phone=phone, available=True))
+            db.session.commit()
+            print("[SEED] test driver joao.test created", flush=True)
+        set_setting(flag, datetime.utcnow().strftime("%Y-%m-%d"))
+    except Exception as e:
+        db.session.rollback()
+        print(f"[SEED] test driver skipped: {e}", flush=True)
+
 def seed_demo_ride():
     """Set up a ready-to-demo scenario: a driver who is enroute, a car with a
     (simulated) GPS position, an active ride, and a couple of chat messages. Lets
@@ -10971,6 +10988,7 @@ with app.app_context():
     seed_admin_phones()
     seed_staff_accounts()
     seed_booking_links()
+    seed_test_driver()
     fix_known_bad_venue_coords()
     seed_demo_ride()
 
