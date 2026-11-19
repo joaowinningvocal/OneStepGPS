@@ -1073,8 +1073,12 @@ def normalize_phone_e164(p):
     digits = s.lstrip('+')
     if not s.startswith('+'):
         if len(digits) == 10:
-            digits = '1' + digits
-        elif not (len(digits) == 11 and digits.startswith('1')):
+            digits = '1' + digits                        # US/Canada local
+        elif len(digits) == 11 and digits.startswith('1'):
+            pass                                          # US/Canada with the 1
+        elif 12 <= len(digits) <= 15:
+            pass                                          # international typed without the "+" (e.g. 5521…)
+        else:
             return ""
     if not (8 <= len(digits) <= 15) or digits.startswith('0'):
         return ""
@@ -3025,9 +3029,13 @@ DEMO_CODE  = os.environ.get("DEMO_CODE", "424242")
 QA_TEST_PHONE = clean_phone(os.environ.get("QA_TEST_PHONE", ""))
 QA_TEST_CODE  = os.environ.get("QA_TEST_CODE", "").strip()
 def _qa_login_enabled(phone):
-    return bool(QA_TEST_PHONE and QA_TEST_CODE and phone == QA_TEST_PHONE)
+    """Same number whether typed as +5521…, 5521… or with spaces/dashes."""
+    if not (QA_TEST_PHONE and QA_TEST_CODE):
+        return False
+    a, b = normalize_phone_e164(phone), normalize_phone_e164(QA_TEST_PHONE)
+    return bool(a) and a == b
 # Code build marker — bump on each deploy so /api/app/ping confirms what's live.
-CODE_BUILD = "2026-11-19e-driver-phone-match"
+CODE_BUILD = "2026-11-19f-intl-phones-login-timeout"
 STAFF_OTP_PER_DAY = 8   # SMS codes per 24 h for numbers linked to staff accounts
 
 def _app_user_from_token():
