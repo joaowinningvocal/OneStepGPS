@@ -3035,7 +3035,7 @@ def _qa_login_enabled(phone):
     a, b = normalize_phone_e164(phone), normalize_phone_e164(QA_TEST_PHONE)
     return bool(a) and a == b
 # Code build marker — bump on each deploy so /api/app/ping confirms what's live.
-CODE_BUILD = "2026-11-19g-driver-board-v2"
+CODE_BUILD = "2026-11-19h-driver-nav"
 STAFF_OTP_PER_DAY = 8   # SMS codes per 24 h for numbers linked to staff accounts
 
 def _app_user_from_token():
@@ -5302,6 +5302,13 @@ def _driver_board_payload(driver_name):
     pickups = []
     for c in my_customers:
         p_lat, p_lng = _pickup_latlng(c)
+        # Where the ride ends (the club, or the hotel for a return ride) — for
+        # the app's in-app navigation after the guest is picked up.
+        d_lat, d_lng = c.dest_lat, c.dest_lng
+        if d_lat is None or d_lng is None:
+            _dc = club_for_destination(c.destination) if c.destination else None
+            if _dc and _dc.lat is not None:
+                d_lat, d_lng = _dc.lat, _dc.lng
         dist_mi = None
         if car_lat and car_lng and p_lat and p_lng:
             dist_mi = round(calcular_distancia(float(car_lat), float(car_lng), p_lat, p_lng), 1)
@@ -5323,6 +5330,7 @@ def _driver_board_payload(driver_name):
             "picked_min": (int((datetime.utcnow() - c.picked_up_at).total_seconds() // 60)
                            if (c.status == "picked_up" and c.picked_up_at) else 0),
             "lat": p_lat, "lng": p_lng, "dist_mi": dist_mi,
+            "dest_lat": d_lat, "dest_lng": d_lng,
             "car_string": c.car_string_val,
             "streetview": streetview_for(c.endereco),
             "_dt": parse_pickup_datetime(c.pickup_datetime),

@@ -349,7 +349,7 @@ body{
 .tr-line{width:2px;height:16px;background:var(--bd);margin-left:5px;}
 
 /* ── TAKE ME THERE (in-app map + directions to a club) ── */
-#clubMap{flex:1;min-height:200px;width:100%;background:#0d1117;}
+#clubMap,#drvNavMap{flex:1;min-height:200px;width:100%;background:#0d1117;}
 .cm-addr{font-size:.85rem;color:var(--m);line-height:1.4;}
 .cm-meta{display:flex;align-items:center;gap:12px;margin:8px 0 14px;}
 .cm-route{display:none;background:var(--surf,#161129);border:1px solid var(--bd);border-radius:14px;padding:12px 14px;margin-bottom:14px;}
@@ -499,6 +499,8 @@ body{
 .r-quick button{flex:1;padding:10px 4px;border-radius:11px;border:1px solid var(--bd);background:rgba(255,255,255,.04);color:var(--t);font-weight:700;font-size:.78rem;font-family:'DM Sans',sans-serif;cursor:pointer;position:relative;}
 .r-quick .q-badge{position:absolute;top:-6px;right:-4px;background:#ef4444;color:#fff;font-size:.6rem;font-weight:800;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 5px;}
 .drv-empty .adm-btn{margin-top:14px;width:100%;}
+.dn-phase{font-size:.68rem;font-weight:800;letter-spacing:.1em;color:var(--acc3);margin-bottom:6px;}
+#screen-drvnav .cm-route{display:block;}
 .drv-route{margin-bottom:18px;}
 .drv-route-hd{display:flex;justify-content:space-between;align-items:center;font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc3);margin:0 0 8px 4px;}
 .drv-route-hd span{color:var(--m2);font-weight:600;letter-spacing:0;text-transform:none;}
@@ -11032,6 +11034,27 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     </div>
   </div>
 
+  <!-- ═══ DRIVER NAVIGATION (in-app route to the guest, then to the club) ═══ -->
+  <div class="screen track-screen" id="screen-drvnav">
+    <div class="track-hdr">
+      <button class="back" onclick="closeDrvNav()">‹</button>
+      <div class="track-hdr-title" id="dnTitle">—</div>
+      <button class="track-chat-btn" onclick="recenterDrvNav()">◎</button>
+    </div>
+    <div id="drvNavMap"></div>
+    <div class="track-panel">
+      <div class="dn-phase" id="dnPhase"></div>
+      <div class="cm-addr" id="dnAddr"></div>
+      <div class="cm-route"><div class="cm-eta" id="dnEta">Finding your route…</div><div class="cm-step" id="dnStep"></div></div>
+      <button class="r-act" id="dnAct"></button>
+      <div class="r-quick" style="margin-top:10px;">
+        <button onclick="if(_dn)startCall(_dn.id)">📞 Call</button>
+        <button onclick="if(_dn)openDriverChat(_dn.id)">💬 Chat</button>
+        <button onclick="if(_dn)openInMaps(_dn.id)">🗺 Maps app</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ ADMIN: GUEST LIST (staff only — access is set on the ClubLifter website) ═══ -->
   <div class="screen admin-screen" id="screen-admin">
     <div class="hist-hdr">
@@ -12207,6 +12230,7 @@ function showScreen(name){
   if(name !== 'track' && _trackTimer){ clearInterval(_trackTimer); _trackTimer=null; }
   if(name !== 'chat' && _chatTimer){ clearInterval(_chatTimer); _chatTimer=null; }
   if(name !== 'club' && _geoWatch!=null) stopDirections();
+  if(name !== 'drvnav' && typeof _dn !== 'undefined' && _dn) stopDrvNav();
 }
 
 // Start with the age gate. init() runs only after 21+ is confirmed (or restored).
@@ -13045,6 +13069,7 @@ async function loadDriverBoard(silent){
   }
   _drvBoard = d;
   renderDriverBoard();
+  if(typeof _dn !== 'undefined' && _dn) dnRenderPanel();
 }
 const RIDE_STATE = {
   scheduled: {badge:'Scheduled', cls:'rs-scheduled', act:'🚗 On my way', actCls:'', fn:'sendEnroute'},
@@ -13263,7 +13288,9 @@ async function reportGuest(id){
 }
 
 // Turn-by-turn in the phone's maps app (Apple Maps on iPhone, Google Maps on Android)
-function navigateTo(id){
+function navigateTo(id){ openDrvNav(id); }
+// Fallback: the phone's maps app (Apple Maps on iPhone, Google Maps on Android)
+function openInMaps(id){
   const p = drvRide(id); if(!p) return;
   const q = encodeURIComponent(p.endereco || '');
   const C = window.Capacitor, native = !!(C && C.isNativePlatform && C.isNativePlatform());
@@ -13274,6 +13301,170 @@ function navigateTo(id){
   if(AL){ AL.openUrl({url}).catch(()=>openExternal(gmaps)); return; }
   if(plat==='web') openExternal(gmaps); else window.location.href = url;
 }
+
+// ══════════════════════════════════════════════════════════════════
+//  DRIVER NAVIGATION — like a ride-hailing driver app: the route to the guest
+//  drawn in the app and followed live; at the pickup it offers "I'm here";
+//  driving off again it asks whether the guest is in the car and then routes
+//  to the club; at the club it offers "Dropped off". Same map, route service
+//  and live GPS the guest's "Take me there" uses.
+// ══════════════════════════════════════════════════════════════════
+let _dn = null;                       // {id, phase:'pickup'|'dropoff', asked, from, busy, watch, fitted}
+let _dnMapObj = null, _dnMe = null, _dnDest = null, _dnLine = null;
+const DN_NEAR_M = 90, DN_LEFT_M = 160;
+
+function dnRide(){ return _dn ? drvRide(_dn.id) : null; }
+function dnTarget(p, phase){
+  return phase === 'dropoff'
+    ? {lat:p.dest_lat, lng:p.dest_lng, label:p.destination || 'the club'}
+    : {lat:p.lat, lng:p.lng, label:p.endereco || 'the pickup'};
+}
+async function openDrvNav(id){
+  const p = drvRide(id); if(!p) return;
+  const phase = rideState(p) === 'picked' ? 'dropoff' : 'pickup';
+  const t = dnTarget(p, phase);
+  if(t.lat == null || t.lng == null){
+    admToast("This address isn't on the map yet — opening your maps app", true);
+    openInMaps(id); return;
+  }
+  stopDrvNav();
+  _dn = {id, phase, asked:{}, from:null, busy:false, watch:null, fitted:false};
+  closeAdmSheet();
+  showScreen('drvnav');
+  dnRenderPanel();
+  document.getElementById('dnEta').innerText = 'Finding your route…';
+  document.getElementById('dnStep').innerText = '';
+  setTimeout(async ()=>{
+    if(!_dn || _dn.id !== id) return;
+    if(!_dnMapObj){
+      _dnMapObj = L.map('drvNavMap', {zoomControl:false, attributionControl:false}).setView([t.lat, t.lng], 13);
+      L.tileLayer(MAP_TILES, {maxZoom:20}).addTo(_dnMapObj);
+    }else{
+      _dnMapObj.invalidateSize();
+    }
+    dnSetDest(t);
+    const me = await getLocation();
+    if(!_dn || _dn.id !== id) return;
+    if(me.approx){
+      document.getElementById('dnEta').innerText = 'Location is off';
+      document.getElementById('dnStep').innerText = "Allow location for ClubLifter in your phone's Settings to navigate, or use the maps app below.";
+      _dnMapObj.setView([t.lat, t.lng], 15);
+      return;
+    }
+    currentCoords = me;
+    dnPlaceMe(me);
+    await dnRoute(me);
+    if(!_dn || _dn.id !== id) return;
+    _dn.watch = watchLocation(pos=>dnOnPos(pos)) || 0;
+    // The guest hasn't been told you're coming yet — offer it, once
+    if(phase === 'pickup' && rideState(p) === 'scheduled' && !_dn.asked.enroute){
+      _dn.asked.enroute = true;
+      if(confirm(`Tell ${p.nome || 'the guest'} you're on the way?`)) dnDo(`/enroute/${id}`, '🚗 Guest texted: on the way');
+    }
+  }, 220);
+}
+function dnSetDest(t){
+  if(_dnDest){ _dnMapObj.removeLayer(_dnDest); _dnDest = null; }
+  const pin = L.divIcon({html:'<div style="font-size:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))">' + (_dn && _dn.phase === 'dropoff' ? '🏁' : '📍') + '</div>', className:'', iconSize:[34,34], iconAnchor:[17,32]});
+  _dnDest = L.marker([t.lat, t.lng], {icon:pin}).addTo(_dnMapObj);
+}
+function dnPlaceMe(c){
+  const pos = [c.lat, c.lng];
+  if(!_dnMe) _dnMe = L.marker(pos, {icon:L.divIcon({html:'<div class="cm-me"></div>', className:'', iconSize:[18,18], iconAnchor:[9,9]})}).addTo(_dnMapObj);
+  else _dnMe.setLatLng(pos);
+}
+async function dnRoute(from){
+  if(!_dn || _dn.busy) return;
+  const p = dnRide(); if(!p) return;
+  const t = dnTarget(p, _dn.phase);
+  _dn.busy = true; _dn.from = from;
+  let d = null;
+  try{ d = await (await fetchT(`${API_BASE}/api/app/route?from_lat=${from.lat}&from_lng=${from.lng}&to_lat=${t.lat}&to_lng=${t.lng}`, {}, 12000)).json(); }catch(e){}
+  if(!_dn) return;
+  _dn.busy = false;
+  if(_dn.from !== from) return;
+  let latlngs;
+  if(d && d.success && d.coords && d.coords.length){
+    latlngs = d.coords;
+    document.getElementById('dnEta').innerText = `${d.duration_min} min · ${d.distance_mi} mi`;
+    const next = (d.steps||[])[1], lead = d.steps && d.steps[0] ? d.steps[0].distance_mi : 0;
+    document.getElementById('dnStep').innerHTML = next
+      ? (lead < 0.03 ? `<b>Now</b>: ${esc(next.text)}` : `In <b>${lead < 0.1 ? Math.round(lead*5280/50)*50 + ' ft' : lead.toFixed(1) + ' mi'}</b>: ${esc(next.text)}`)
+      : esc((d.steps||[])[0] ? d.steps[0].text : '');
+  }else{
+    latlngs = [[from.lat, from.lng], [t.lat, t.lng]];
+    document.getElementById('dnEta').innerText = `${(distM(from, t)/1609.344).toFixed(1)} mi away`;
+    document.getElementById('dnStep').innerText = "Couldn't load turn-by-turn — head toward the pin, or use the maps app below.";
+  }
+  if(_dnLine) _dnMapObj.removeLayer(_dnLine);
+  _dnLine = L.polyline(latlngs, {color:'#8a5cf6', weight:6, opacity:.9, dashArray: d && d.success ? null : '8 10'}).addTo(_dnMapObj);
+  if(!_dn.fitted){ _dnMapObj.fitBounds(_dnLine.getBounds(), {padding:[40,40]}); _dn.fitted = true; }
+}
+function dnOnPos(pos){
+  if(!_dn) return;
+  currentCoords = pos; dnPlaceMe(pos);
+  _dnMapObj.panTo([pos.lat, pos.lng], {animate:true});
+  const p = dnRide(); if(!p) return;
+  const t = dnTarget(p, _dn.phase);
+  const dist = distM(pos, t), st = rideState(p);
+  if(_dn.phase === 'pickup'){
+    if(dist <= DN_NEAR_M && st !== 'arrived' && st !== 'picked' && !_dn.asked.here){
+      _dn.asked.here = true;
+      if(confirm(`You're at the pickup. Text ${p.nome || 'the guest'} that you're here?`)) dnDo(`/imhere/${p.id}`, "📍 Guest texted: you're here");
+      return;
+    }
+    if(st === 'arrived' && dist >= DN_LEFT_M && !_dn.asked.left){
+      _dn.asked.left = true;
+      if(confirm(`Did you pick up ${p.nome || 'the guest'}?`)) dnDo(`/pickup/${p.id}`, '✅ Picked up — now heading to ' + (p.destination || 'the club'), 'dropoff');
+      return;
+    }
+  }else if(st === 'picked' && dist <= DN_NEAR_M + 40 && !_dn.asked.drop){
+    _dn.asked.drop = true;
+    if(confirm(`You're at ${p.destination || 'the club'}. Mark ${p.nome || 'the guest'} as dropped off?`)) dnDo(`/dropoff/${p.id}`, '🏁 Dropped off', 'done');
+    return;
+  }
+  if(!_dn.from || distM(pos, _dn.from) >= REROUTE_M) dnRoute(pos);
+}
+async function dnDo(path, msg, nextPhase){
+  const d = await driverPost(path);
+  if(!d.success){ admToast(d.error || 'Could not update', true); return; }
+  admToast(msg);
+  await loadDriverBoard(true);
+  if(!_dn) return;
+  if(nextPhase === 'done'){ closeDrvNav(); return; }
+  if(nextPhase){
+    _dn.phase = nextPhase; _dn.fitted = false; _dn.from = null; _dn.asked = {};
+    const p = dnRide(); const t = p ? dnTarget(p, _dn.phase) : {};
+    if(t.lat == null){ admToast("No map pin for the club yet — use the maps app below", true); }
+    else { dnSetDest(t); if(currentCoords && !currentCoords.approx) dnRoute(currentCoords); }
+  }
+  dnRenderPanel();
+}
+function dnRenderPanel(){
+  const p = dnRide(); if(!p || !_dn) return;
+  const st = rideState(p), t = dnTarget(p, _dn.phase), S = RIDE_STATE[st];
+  document.getElementById('dnTitle').innerText = p.nome || 'Guest';
+  document.getElementById('dnPhase').innerText = _dn.phase === 'dropoff'
+    ? '🏁 TO THE CLUB · ' + (p.guests || 1) + ' IN THE CAR'
+    : '📍 TO THE PICKUP' + (st === 'arrived' ? ' · ARRIVED' : st === 'enroute' ? ' · ON THE WAY' : '');
+  document.getElementById('dnAddr').innerText = t.label;
+  const b = document.getElementById('dnAct');
+  if(!S.act){ b.style.display = 'none'; return; }
+  b.style.display = ''; b.className = 'r-act ' + S.actCls; b.innerText = S.act;
+  b.onclick = ()=>{
+    if(S.fn === 'openHere') openHere(p.id);
+    else if(S.fn === 'markPicked') dnDo(`/pickup/${p.id}`, '✅ Picked up — now heading to ' + (p.destination || 'the club'), 'dropoff');
+    else if(S.fn === 'markDropped') dnDo(`/dropoff/${p.id}`, '🏁 Dropped off', 'done');
+    else if(S.fn === 'sendEnroute') dnDo(`/enroute/${p.id}`, '🚗 Guest texted: on the way');
+  };
+}
+function stopDrvNav(){
+  if(_dn && _dn.watch && _dn.watch.clear) _dn.watch.clear();
+  if(_dnLine && _dnMapObj){ _dnMapObj.removeLayer(_dnLine); _dnLine = null; }
+  _dn = null;
+}
+function closeDrvNav(){ stopDrvNav(); showScreen('driver'); setNav('drvNavBoard'); loadDriverBoard(true); }
+function recenterDrvNav(){ if(_dnMapObj && _dnLine) _dnMapObj.fitBounds(_dnLine.getBounds(), {padding:[40,40]}); }
 
 // Ride chat (guest ⇄ driver), same thread the guest sees in their app
 function openDriverChat(id){
@@ -13349,7 +13540,7 @@ async function switchCar(carId, confirmed){
 }
 
 // Web bundle version — bump when www/ changes, so Profile shows which build is installed.
-const APP_BUNDLE = '2026.11.19c';
+const APP_BUNDLE = '2026.11.19d';
 async function showVersion(){
   const el = document.getElementById('profVersion');
   if(!el) return;
