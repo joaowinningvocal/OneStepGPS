@@ -3432,7 +3432,7 @@ def app_redeem():
 from itsdangerous import URLSafeTimedSerializer, BadSignature
 
 STAFF_ROLE_LABELS = {"master": "Master", "club_owner": "Club Owner", "club_manager": "Club Manager",
-                     "dispatch_manager": "Dispatch Manager", "dispatch": "Dispatch"}
+                     "dispatch_manager": "Dispatch Manager", "dispatch": "Dispatch", "driver": "Driver"}
 
 def staff_for_app_user(app_user):
     """The website account linked to this app user's verified phone, or None.
@@ -3443,12 +3443,34 @@ def staff_for_app_user(app_user):
     if not e164 or e164 == normalize_phone_e164(DEMO_PHONE):
         return None
     matches = User.query.filter_by(phone=e164).limit(2).all()
-    if len(matches) != 1:   # none, or ambiguous (only possible via direct DB edits)
+    if len(matches) == 1:
+        staff = matches[0]
+        return None if staff.is_active is False else staff
+    if len(matches) > 1:    # ambiguous (only possible via direct DB edits)
         return None
-    staff = matches[0]
-    if staff.is_active is False:
+    # No website account with this phone: a driver? Drivers already carry their
+    # phone on the Drivers screen (for SMS), so they get Driver mode with no extra
+    # linking. The driver's board/actions key off the name, like the website.
+    drivers = Driver.query.filter(Driver.phone.in_(phone_variants(e164))).limit(2).all()
+    if len(drivers) != 1 or _is_demo_driver(drivers[0]):
         return None
-    return staff
+    drv = drivers[0]
+    acct = User.query.filter(func.lower(User.username) == drv.name.lower()).first()
+    if acct and acct.is_active is False:
+        return None
+    return AppDriverPrincipal(drv, acct)
+
+class AppDriverPrincipal:
+    """A driver signed into the app, identified by the phone on their Driver
+    record. Looks enough like a User for app_staff_required: the website's
+    driver views only read username + role from the session."""
+    role = "driver"
+    def __init__(self, driver, account=None):
+        self.driver = driver
+        self.username = account.username if account else driver.name
+        self.id = account.id if account else -driver.id
+    def get_club_names(self):
+        return []
 
 def staff_permissions(role):
     """Which Admin-mode sections a website role unlocks in the app. Same role
@@ -3458,6 +3480,7 @@ def staff_permissions(role):
         "guestlist": dispatch,                    # guests, check-in/out, add, edit, delete, priority, ride back
         "qr_validate": dispatch,                  # scan a ClubLifter QR to check it's live
         "qr_manage": role in APP_MANAGER_ROLES,   # create / pause / delete / share QR codes (App Manager)
+        "driver": role == "driver",               # Driver mode: tonight's pickups + every /driver action
     }
 
 def app_staff_required(perm):
@@ -3482,6 +3505,8 @@ def app_staff_required(perm):
                 "user_id": staff.id, "club_name": ", ".join(names) if names else None,
             }
             try:
+                if staff.role == "driver":
+                    mark_driver_seen(staff.username)   # the website does this in before_request
                 return f(*args, **kwargs)
             finally:
                 g.pop("staff_session", None)
@@ -3544,11 +3569,20 @@ def app_admin_me():
     clubs = Club.query.filter_by(active=True).order_by(Club.name).all()
     packages = sorted(Package.query.filter_by(active=True).all(),
                       key=lambda p: (p.club_id is None, p.club_id or 0, p.price or 0))
+    driver = None
+    if perms.get("driver"):
+        drv = get_driver_record(staff.username)
+        car = driver_car_at(drv) if drv else None
+        driver = {"name": drv.name if drv else staff.username,
+                  "car": (car.car_string() if car else ""),
+                  "clock": driver_clock(drv) if drv else "",
+                  "available": bool(drv.available) if drv else True}
     return jsonify({
         "success": True, "is_admin": True,
         "staff": {"username": staff.username, "role": staff.role,
                   "role_label": STAFF_ROLE_LABELS.get(staff.role, staff.role),
                   "clubs": staff.get_club_names()},
+        "driver": driver,
         "permissions": perms,
         "today": vegas_today().strftime("%Y-%m-%d"),
         "clubs": [{"id": c.id, "name": c.name} for c in clubs],
@@ -5165,14 +5199,9 @@ def driver_board_state():
     rides = _driver_board_rides(session.get("username"))
     return jsonify({"success": True, "sig": _driver_board_sig(rides), "count": len(rides)})
 
-@app.route('/driver')
-def driver_dashboard():
-    if not session.get("logged"):
-        return redirect(url_for("login"))
-    if session.get("role") != "driver":
-        return redirect(url_for("index"))
-
-    driver_name = session.get("username")
+def _driver_board_payload(driver_name):
+    """Everything the driver's board shows — the website's /driver page and the
+    app's Driver mode both render this, so they can never disagree."""
     today = vegas_today()
     today_str = f"{today.month}/{today.day}/{today.year}"
     names, car_names = driver_scope(driver_name)
@@ -5303,7 +5332,7 @@ def driver_dashboard():
     for p in pickups:
         p.pop("_dt", None)
 
-    return render_template('driver_dashboard.html',
+    return dict(
         pickups=pickups,
         routes=routes,
         board_sig=board_sig,
@@ -5314,6 +5343,14 @@ def driver_dashboard():
         current_car=current_car,
         car_lat=car_lat, car_lng=car_lng
     )
+
+@app.route('/driver')
+def driver_dashboard():
+    if not session.get("logged"):
+        return redirect(url_for("login"))
+    if session.get("role") != "driver":
+        return redirect(url_for("index"))
+    return render_template('driver_dashboard.html', **_driver_board_payload(session.get("username")))
 
 @app.route('/driver/report/<int:customer_id>', methods=['POST'])
 def driver_report_customer(customer_id):
@@ -6210,6 +6247,55 @@ def driver_switch_car():
         "customers_updated": updated,
     })
     return jsonify({"success": True, "car": car.car_string(), "took_over_from": other_driver})
+
+# Driver mode — the website's /driver handlers, run as the driver.
+@app.route('/api/app/driver/board', methods=['GET'])
+@app_staff_required("driver")
+def app_driver_board():
+    """Tonight's pickups grouped into routes, exactly as /driver shows them, plus
+    the driver's state, unseen notices and unread guest messages."""
+    me = session.get("username")
+    data = _driver_board_payload(me)
+    names, _cars = driver_scope(me)
+    notices = (DriverNotice.query
+               .filter(DriverNotice.driver_name.in_(list(names) or [me]))
+               .filter(DriverNotice.seen == False)
+               .order_by(DriverNotice.created_at.desc()).limit(20).all())
+    unread = {}
+    for p in data["pickups"]:
+        n = RideChatMessage.query.filter_by(customer_id=p["id"], sender="customer", read_by_driver=False).count()
+        if n:
+            unread[str(p["id"])] = n
+    data.update({"success": True, "notices": [n.to_dict() for n in notices], "unread_by_ride": unread,
+                 "now": vegas_time(datetime.utcnow())})
+    return jsonify(data)
+
+def _app_driver_route(path, view, methods=('POST',), with_id=True):
+    rule = f"/api/app/driver/{path}" + ("/<int:customer_id>" if with_id else "")
+    @app_staff_required("driver")
+    def _h(**kw):
+        return view(**kw)
+    _h.__name__ = "app_driver_" + path.replace('-', '_')
+    app.add_url_rule(rule, _h.__name__, _h, methods=list(methods))
+
+_app_driver_route("enroute",        driver_enroute)
+_app_driver_route("imhere",         driver_imhere)
+_app_driver_route("pickup",         mark_picked_up)
+_app_driver_route("dropoff",        driver_dropoff)
+_app_driver_route("running-late",   driver_running_late)
+_app_driver_route("customsg",       driver_customsg)
+_app_driver_route("startcall",      driver_startcall)
+_app_driver_route("notes",          driver_save_notes)
+_app_driver_route("report",         driver_report_customer)
+_app_driver_route("chat",           driver_chat_get,        methods=('GET',))
+_app_driver_route("chat-send",      driver_chat_send)
+_app_driver_route("clock",          driver_clock_set,       with_id=False)
+_app_driver_route("available",      driver_set_available,   with_id=False)
+_app_driver_route("report-problem", report_problem,         with_id=False)
+_app_driver_route("back-online",    driver_back_online,     with_id=False)
+_app_driver_route("notices-seen",   driver_notices_seen,    with_id=False)
+_app_driver_route("cars",           driver_cars,            methods=('GET',), with_id=False)
+_app_driver_route("switch-car",     driver_switch_car,      with_id=False)
 
 @app.route('/here-photo/<int:customer_id>')
 def serve_here_photo(customer_id):

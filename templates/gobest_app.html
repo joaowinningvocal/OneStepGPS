@@ -475,6 +475,62 @@ body{
 .qr-result .ico{width:64px;height:64px;border-radius:50%;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:800;color:#fff;}
 .qr-result .ico.ok{background:linear-gradient(135deg,#22c55e,#16a34a);}
 .qr-result .ico.no{background:linear-gradient(135deg,#ef4444,#b91c1c);}
+/* ── DRIVER MODE (drivers: phone on the website's Drivers screen) ── */
+.drv-top{display:flex;gap:8px;margin-bottom:12px;}
+.drv-clock{flex:1;padding:13px 8px;border-radius:13px;font-weight:800;font-size:.9rem;border:1px solid var(--bd);cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--surf);color:var(--m2);}
+.drv-clock.in{background:linear-gradient(135deg,#22c55e,#16a34a);border-color:transparent;color:#fff;}
+.drv-clock.off{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.45);color:#f87171;}
+.drv-car{font-size:.78rem;color:var(--m);margin:-4px 0 12px 2px;}
+.drv-route{margin-bottom:18px;}
+.drv-route-hd{display:flex;justify-content:space-between;align-items:center;font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc3);margin:0 0 8px 4px;}
+.drv-route-hd span{color:var(--m2);font-weight:600;letter-spacing:0;text-transform:none;}
+.r-card{background:var(--surf);border:1px solid var(--bd);border-radius:16px;padding:14px;margin-bottom:10px;cursor:pointer;position:relative;}
+.r-card.prio{border-color:rgba(251,191,36,.55);}
+.r-card.done{opacity:.55;}
+.r-card.live{border-color:var(--bhi);box-shadow:0 0 0 2px rgba(138,92,246,.22);}
+.r-stop{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:rgba(138,92,246,.22);color:var(--acc3);font-size:.72rem;font-weight:800;margin-right:8px;vertical-align:middle;}
+.r-time{font-family:'Syne',sans-serif;font-weight:800;font-size:1.25rem;letter-spacing:-.01em;}
+.r-name{font-weight:700;font-size:1rem;margin-top:3px;padding-right:96px;}
+.r-addr{color:var(--m);font-size:.84rem;margin-top:4px;line-height:1.35;}
+.r-meta{display:flex;gap:10px;flex-wrap:wrap;font-size:.76rem;color:var(--m2);margin-top:7px;}
+.r-meta b{color:var(--t);font-weight:600;}
+.r-flag{color:#fb923c;font-weight:700;}
+.r-badge{position:absolute;top:12px;right:12px;font-size:.6rem;font-weight:800;padding:5px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;}
+.rs-scheduled{background:rgba(255,255,255,.07);color:var(--m2);}
+.rs-enroute{background:rgba(59,130,246,.18);color:#60a5fa;}
+.rs-arrived{background:rgba(251,191,36,.18);color:var(--gold);}
+.rs-picked{background:rgba(138,92,246,.22);color:var(--acc3);}
+.rs-done{background:rgba(34,197,94,.16);color:#4ade80;}
+.r-unread{position:absolute;top:40px;right:12px;background:#ef4444;color:#fff;font-size:.62rem;font-weight:800;min-width:20px;height:20px;border-radius:10px;display:flex;align-items:center;justify-content:center;padding:0 6px;}
+.r-act{margin-top:12px;width:100%;padding:14px;border-radius:12px;border:none;font-weight:800;font-size:.95rem;font-family:'DM Sans',sans-serif;cursor:pointer;color:#fff;background:linear-gradient(135deg,#3b82f6,#2563eb);}
+.r-act.here{background:linear-gradient(135deg,#f59e0b,#d97706);}
+.r-act.picked{background:linear-gradient(135deg,var(--acc),var(--acc2));}
+.r-act.drop{background:linear-gradient(135deg,#22c55e,#16a34a);}
+.r-act:disabled{opacity:.5;}
+.r-row{display:flex;gap:8px;margin-top:8px;}
+.r-row .adm-btn{flex:1;padding:11px 6px;font-size:.8rem;}
+.drv-notice{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:12px;padding:12px 14px;font-size:.84rem;margin-bottom:12px;line-height:1.4;}
+.drv-notice b{color:#fff;}
+.drv-empty{text-align:center;color:var(--m2);padding:50px 20px;font-size:.92rem;line-height:1.5;}
+.late-opts{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px;}
+.late-opts button{padding:9px 12px;border-radius:10px;border:1px solid var(--bd);background:var(--surf);color:var(--t);font-weight:700;font-size:.82rem;font-family:'DM Sans',sans-serif;cursor:pointer;}
+.late-opts button.on{border-color:var(--bhi);background:rgba(138,92,246,.22);}
+.here-prev{width:100%;max-height:220px;object-fit:cover;border-radius:12px;margin:8px 0;display:none;}
+.here-pick{display:block;width:100%;text-align:center;padding:13px;border-radius:12px;border:1px dashed var(--bhi);color:var(--acc3);font-weight:700;font-size:.88rem;cursor:pointer;margin-top:8px;}
+.here-pick input{display:none;}
+.dc-box{max-height:38vh;overflow-y:auto;background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:10px;margin:10px 0;}
+.dc-msg{max-width:82%;padding:8px 11px;border-radius:12px;font-size:.86rem;margin-bottom:6px;line-height:1.35;word-break:break-word;}
+.dc-msg.me{margin-left:auto;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;}
+.dc-msg.them{background:var(--surf2);}
+.dc-msg small{display:block;font-size:.66rem;opacity:.7;margin-top:2px;}
+.dc-row{display:flex;gap:8px;}
+.dc-row .adm-input{flex:1;}
+.dc-row .adm-btn{width:58px;flex:none;padding:0;display:flex;align-items:center;justify-content:center;}
+.car-opt{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--surf);border:1px solid var(--bd);border-radius:12px;padding:13px 14px;margin-bottom:8px;cursor:pointer;}
+.car-opt.mine{border-color:rgba(34,197,94,.5);}
+.car-opt small{color:var(--m2);font-size:.74rem;}
+.adm-textarea{width:100%;min-height:90px;background:var(--surf);border:1px solid var(--bd);color:var(--t);border-radius:11px;padding:11px 12px;font-size:.9rem;font-family:'DM Sans',sans-serif;resize:vertical;}
+.adm-textarea:focus{outline:none;border-color:var(--acc);}
 </style>
 <script>
 (function webpackUniversalModuleDefinition(root, factory) {
@@ -10932,6 +10988,28 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     </div>
   </div>
 
+  <!-- ═══ DRIVER MODE (drivers: tonight's pickups, same actions as the website's /driver) ═══ -->
+  <div class="screen admin-screen" id="screen-driver">
+    <div class="hist-hdr">
+      <div style="flex:1;min-width:0;">
+        <div class="hist-hdr-title">Tonight's pickups</div>
+        <div class="adm-who" id="drvWho"></div>
+      </div>
+      <button class="adm-icon-btn" onclick="openCarSwitch()" aria-label="Switch car" style="margin-right:6px;">🚘</button>
+      <button class="adm-icon-btn" onclick="loadDriverBoard()" aria-label="Refresh">⟳</button>
+    </div>
+    <div class="adm-body">
+      <div class="drv-top">
+        <button class="drv-clock" id="drvClock" onclick="toggleClock()">Clock in</button>
+        <button class="drv-clock" id="drvAvail" onclick="toggleAvail()">Available</button>
+      </div>
+      <div class="drv-car" id="drvCar"></div>
+      <div id="drvNotices"></div>
+      <div id="drvList"><div class="spinner"></div></div>
+      <button class="adm-btn danger full" style="width:100%;margin-top:6px;" id="drvProblemBtn" onclick="reportProblem()">⚠️ I have a problem — reassign my pickups</button>
+    </div>
+  </div>
+
   <!-- ═══ ADMIN: GUEST LIST (staff only — access is set on the ClubLifter website) ═══ -->
   <div class="screen admin-screen" id="screen-admin">
     <div class="hist-hdr">
@@ -11010,6 +11088,12 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     <button class="nav-btn" id="admNavGuests" onclick="openAdmin()"><span class="ico">📋</span>Guests</button>
     <button class="nav-btn scan-btn" id="admNavScan" onclick="startValidateScan()"><span class="ico">⧉</span>Check QR</button>
     <button class="nav-btn" id="admNavQr" onclick="openAdminQr()"><span class="ico">🎟️</span>QR codes</button>
+    <button class="nav-btn" onclick="exitAdmin()"><span class="ico">🏙️</span>Guest app</button>
+  </div>
+
+  <!-- ═══ DRIVER BOTTOM NAV (Driver mode only) ═══ -->
+  <div class="nav" id="driverNav" style="display:none;">
+    <button class="nav-btn active" id="drvNavBoard" onclick="openDriver()"><span class="ico">🚗</span>Pickups</button>
     <button class="nav-btn" onclick="exitAdmin()"><span class="ico">🏙️</span>Guest app</button>
   </div>
 
@@ -12086,6 +12170,8 @@ function showScreen(name){
   }
   const anav = document.getElementById('adminNav');
   if(anav) anav.style.display = (name === 'admin' || name === 'adminqr') ? 'flex' : 'none';
+  const dnav = document.getElementById('driverNav');
+  if(dnav) dnav.style.display = (name === 'driver') ? 'flex' : 'none';
   // Stop tracking/chat polling when leaving those screens
   if(name !== 'track' && _trackTimer){ clearInterval(_trackTimer); _trackTimer=null; }
   if(name !== 'chat' && _chatTimer){ clearInterval(_chatTimer); _chatTimer=null; }
@@ -12337,7 +12423,7 @@ function setStaff(s){
     if(!had && !_adminMode) storeGet('cl_staff_seen').then(v=>{
       if(v === s.staff.username) return;
       storeSet('cl_staff_seen', s.staff.username);
-      admToast('🛡️ Admin tools unlocked — tap Admin');
+      admToast((s.permissions||{}).driver && !(s.permissions||{}).guestlist ? '🚗 Driver mode unlocked — tap Driver' : '🛡️ Admin tools unlocked — tap Admin');
     });
     return;
   }
@@ -12353,6 +12439,13 @@ function clearStaff(){
 }
 function applyStaffUI(){
   const s = _staff, p = s.permissions || {};
+  const driverOnly = !!p.driver && !p.guestlist;
+  document.querySelectorAll('.admin-chip').forEach(el=>{ el.innerText = driverOnly ? '🚗 Driver' : '🛡️ Admin'; });
+  document.querySelectorAll('.adm-entry').forEach(el=>{
+    el.innerHTML = driverOnly
+      ? '🚗 Open Driver mode<span>Tonight\'s pickups · On my way · I\'m here · Picked up · Dropped off</span>'
+      : '🛡️ Open Admin mode<span>Guest list · check-in · QR codes for your ClubLifter staff account</span>';
+  });
   document.getElementById('admWho').innerText = `${s.staff.username} · ${s.staff.role_label}`;
   document.getElementById('admNavQr').style.display = p.qr_manage ? '' : 'none';
   document.getElementById('admNavScan').style.display = p.qr_validate ? '' : 'none';
@@ -12366,11 +12459,12 @@ function applyStaffUI(){
 
 // All admin calls go through here: bearer token, JSON back, and a 403 makes the
 // app re-ask whether this account is still staff (it may have been revoked).
-async function adminApi(path, opts){
+function adminApi(path, opts){ return staffApi('/api/app/admin', path, opts); }
+async function staffApi(prefix, path, opts){
   opts = opts || {};
   let r;
   try{
-    r = await fetch(`${API_BASE}/api/app/admin${path}`,
+    r = await fetch(`${API_BASE}${prefix}${path}`,
       Object.assign({}, opts, {headers: Object.assign({'Authorization':`Bearer ${_token}`}, opts.headers||{})}));
   }catch(e){ return {success:false, error:'No connection — try again.'}; }
   if(r.status === 401){ fullSignOut(); return {success:false, error:'Please log in again.'}; }
@@ -12399,6 +12493,7 @@ function closeAdmSheet(){ document.getElementById('admSheet').classList.remove('
 
 async function openAdmin(){
   if(!_staff){ await refreshStaff(); if(!_staff) return; }
+  if(isDriverStaff() && !(_staff.permissions||{}).guestlist) return openDriver();
   _adminMode = true;
   storeSet('cl_mode', 'admin');
   showScreen('admin'); setNav('admNavGuests');
@@ -12412,7 +12507,7 @@ function exitAdmin(msg){
   stopAdminTimers();
   closeAdmSheet();
   const cur = document.querySelector('.screen.active');
-  if(wasAdmin || (cur && /^screen-admin/.test(cur.id))){ showScreen('home'); setNav('navExplore'); }
+  if(wasAdmin || (cur && /^screen-(admin|driver)/.test(cur.id))){ showScreen('home'); setNav('navExplore'); }
   if(msg) alert(msg);
 }
 function startAdminTimers(){
@@ -12426,6 +12521,7 @@ function startAdminTimers(){
   _admMeTimer = setInterval(refreshStaff, 60000);
 }
 function stopAdminTimers(){
+  if(typeof stopDriverTimers === 'function') stopDriverTimers();
   if(_admTimer){ clearInterval(_admTimer); _admTimer = null; }
   if(_admMeTimer){ clearInterval(_admMeTimer); _admMeTimer = null; }
 }
@@ -12866,8 +12962,347 @@ async function shareContent(o){
   catch(e){ window.prompt('Copy this:', text); }
 }
 
+// ══════════════════════════════════════════════════════════════════
+//  DRIVER MODE — the website's driver board (/driver) inside the app.
+//  A driver is recognised by the phone on the website's Drivers screen; every
+//  action here runs the website's own /driver handler, so dispatch, the guest
+//  list and the guest's app see the same thing at the same moment.
+// ══════════════════════════════════════════════════════════════════
+let _drvBoard = null, _drvTimer = null, _drvChatTimer = null, _drvChatId = null, _drvLastChat = 0;
+let _herePhoto = '', _lateMin = 10, _lateReason = '';
+
+function driverApi(path, opts){ return staffApi('/api/app/driver', path, opts); }
+function driverPost(path, fields){
+  const fd = new FormData();
+  Object.keys(fields||{}).forEach(k=>{ if(fields[k]!==undefined && fields[k]!==null) fd.append(k, fields[k]); });
+  return driverApi(path, {method:'POST', body:fd});
+}
+function isDriverStaff(){ return !!(_staff && (_staff.permissions||{}).driver); }
+
+async function openDriver(){
+  if(!_staff){ await refreshStaff(); if(!_staff) return; }
+  if(!isDriverStaff()) return;
+  _adminMode = true;
+  storeSet('cl_mode', 'driver');
+  showScreen('driver'); setNav('drvNavBoard');
+  loadDriverBoard();
+  startDriverTimers();
+}
+function startDriverTimers(){
+  stopDriverTimers();
+  // The website's board polls the same way: new/moved/cancelled pickups show
+  // within seconds, and access is re-checked every minute.
+  _drvTimer = setInterval(()=>{
+    if(document.getElementById('screen-driver').classList.contains('active') &&
+       !document.getElementById('admSheet').classList.contains('show')) loadDriverBoard(true);
+  }, 15000);
+  _admMeTimer = setInterval(refreshStaff, 60000);
+}
+function stopDriverTimers(){
+  if(_drvTimer){ clearInterval(_drvTimer); _drvTimer = null; }
+  if(_drvChatTimer){ clearInterval(_drvChatTimer); _drvChatTimer = null; }
+}
+
+async function loadDriverBoard(silent){
+  if(!isDriverStaff()) return;
+  const list = document.getElementById('drvList');
+  if(!silent && !_drvBoard) list.innerHTML = '<div class="spinner"></div>';
+  const d = await driverApi('/board');
+  if(!d.success){
+    if(!silent) list.innerHTML = `<div class="drv-empty">${esc(d.error||"Couldn't load your pickups.")}</div>`;
+    return;
+  }
+  _drvBoard = d;
+  renderDriverBoard();
+}
+const RIDE_STATE = {
+  scheduled: {badge:'Scheduled', cls:'rs-scheduled', act:'🚗 On my way', actCls:'', fn:'sendEnroute'},
+  enroute:   {badge:'On the way', cls:'rs-enroute',   act:"📍 I'm here",  actCls:'here',   fn:'openHere'},
+  arrived:   {badge:'Arrived',    cls:'rs-arrived',   act:'✅ Picked up', actCls:'picked', fn:'markPicked'},
+  picked:    {badge:'Picked up',  cls:'rs-picked',    act:'🏁 Dropped off', actCls:'drop', fn:'markDropped'},
+  done:      {badge:'Dropped off ✓', cls:'rs-done',   act:'', actCls:'', fn:''},
+};
+function rideState(p){
+  if(p.status === 'dropped_off') return 'done';
+  if(p.status === 'picked_up') return 'picked';
+  if(p.dispatch_status === 'arrived') return 'arrived';
+  if(p.dispatch_status === 'enroute') return 'enroute';
+  return 'scheduled';
+}
+function drvRide(id){ return (_drvBoard && _drvBoard.pickups || []).find(p=>p.id===id); }
+
+function renderDriverBoard(){
+  const b = _drvBoard;
+  const who = document.getElementById('drvWho');
+  who.innerText = `${b.driver_name} · ${b.today_str}`;
+  document.getElementById('drvCar').innerText = b.current_car ? `🚘 ${b.current_car}` : '🚘 No car assigned yet — tap the car icon to pick one';
+  const clk = document.getElementById('drvClock');
+  clk.className = 'drv-clock ' + (b.clocked_in ? 'in' : '');
+  clk.innerText = b.clocked_in ? '● Clocked in' : 'Clock in';
+  const av = document.getElementById('drvAvail');
+  av.className = 'drv-clock ' + (b.driver_available ? 'in' : 'off');
+  av.innerText = b.driver_available ? 'Available' : 'Unavailable';
+  document.getElementById('drvProblemBtn').style.display = b.driver_available ? '' : 'none';
+  if(!b.driver_available) av.innerText = 'Unavailable — tap to go back online';
+
+  const nb = document.getElementById('drvNotices');
+  nb.innerHTML = (b.notices||[]).map(n=>`<div class="drv-notice"><b>${n.kind==='cancelled'?'Cancelled':'Moved to another driver'}:</b> ${esc(n.guest_name)}${n.guest_time?' · '+esc(n.guest_time):''}${n.detail?' · '+esc(n.detail):''}</div>`).join('')
+    + ((b.notices||[]).length ? `<button class="adm-btn full" style="width:100%;margin-bottom:12px;" onclick="dismissNotices()">Got it</button>` : '');
+
+  const list = document.getElementById('drvList');
+  if(!(b.pickups||[]).length){
+    list.innerHTML = `<div class="drv-empty">No pickups on your board tonight.<br>${b.clocked_in ? 'New bookings show up here automatically.' : 'Clock in to get tonight\'s pickups.'}</div>`;
+    return;
+  }
+  const unread = b.unread_by_ride || {};
+  list.innerHTML = (b.routes||[]).map(r=>`
+    <div class="drv-route">
+      <div class="drv-route-hd">→ ${esc(r.destination)} <span>${r.is_multi ? r.stops.length+' stops · ' : ''}${r.total_guests} guests</span></div>
+      ${r.stops.map(p=>{
+        const st = rideState(p), S = RIDE_STATE[st];
+        const live = st==='enroute' || st==='arrived' || st==='picked';
+        return `<div class="r-card ${p.priority?'prio':''} ${st==='done'?'done':''} ${live?'live':''}" onclick="openRide(${p.id})">
+          <span class="r-badge ${S.cls}">${S.badge}</span>
+          ${unread[p.id] ? `<span class="r-unread">💬 ${unread[p.id]}</span>` : ''}
+          <div class="r-time">${r.is_multi?`<span class="r-stop">${p.stop_no}</span>`:''}${esc(p.time||'—')}</div>
+          <div class="r-name">${p.priority?'⭐ ':''}${esc(p.nome||'Guest')}${p.reported?' ⚑':''}</div>
+          <div class="r-addr">${esc(p.endereco||'')}</div>
+          <div class="r-meta">
+            <span>👥 <b>${p.guests||1}</b></span>
+            ${p.dist_mi!=null?`<span>📍 <b>${p.dist_mi} mi</b> away</span>`:''}
+            ${p.package?`<span>🎟️ ${esc(p.package)}</span>`:''}
+            ${st==='picked' && p.picked_min ? `<span class="r-flag">⏱ ${p.picked_min} min in car</span>` : ''}
+            ${p.details?`<span class="r-flag">📝 ${esc(p.details)}</span>`:''}
+          </div>
+          ${S.act ? `<button class="r-act ${S.actCls}" onclick="event.stopPropagation();${S.fn}(${p.id})">${S.act}</button>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+}
+
+// ── Ride sheet: everything the website's card offers ──
+function openRide(id){
+  const p = drvRide(id); if(!p) return;
+  const st = rideState(p), S = RIDE_STATE[st];
+  const kv = (k,v)=> v ? `<div class="adm-kv"><span>${k}</span><b>${v}</b></div>` : '';
+  openAdmSheet(`
+    <div class="adm-title">${p.priority?'⭐ ':''}${esc(p.nome||'Guest')}</div>
+    <div class="adm-subtitle">${esc(p.time)} · <span class="r-badge ${S.cls}" style="position:static;">${S.badge}</span></div>
+    ${kv('Pickup', `<a href="#" onclick="event.preventDefault();navigateTo(${p.id})">${esc(p.endereco)} ↗</a>`)}
+    ${kv('Drop-off', esc(p.destination))}
+    ${kv('Party', esc(String(p.guests||1)))}
+    ${kv('Package', esc(p.package))}
+    ${kv('Notes from dispatch', esc(p.details))}
+    ${kv('My notes', esc(p.driver_notes))}
+    ${p.reported ? kv('⚑ Reported', esc(p.report_reason||'Yes')) : ''}
+    ${p.picked_at ? kv('Picked up', esc(p.picked_at)) : ''}
+    ${p.dropped_at ? kv('Dropped off', esc(p.dropped_at)) : ''}
+    ${S.act ? `<button class="r-act ${S.actCls}" style="margin-top:14px;" onclick="${S.fn}(${p.id})">${S.act}</button>` : ''}
+    <div class="adm-actions">
+      <button class="adm-btn" onclick="navigateTo(${p.id})">🧭 Navigate</button>
+      <button class="adm-btn" onclick="startCall(${p.id})">📞 Call guest</button>
+      <button class="adm-btn" onclick="openDriverChat(${p.id})">💬 Chat</button>
+      <button class="adm-btn" onclick="openCustom(${p.id})">✉️ Text guest</button>
+      <button class="adm-btn" onclick="openLate(${p.id})">⏰ Running late</button>
+      <button class="adm-btn" onclick="editNotes(${p.id})">📝 My notes</button>
+      ${p.streetview ? `<a class="adm-btn" href="${esc(p.streetview)}" target="_blank" rel="noopener">👁 Street view</a>` : ''}
+      <button class="adm-btn ${p.reported?'':'danger'}" onclick="reportGuest(${p.id})">${p.reported?'Clear report':'⚑ Report guest'}</button>
+    </div>`);
+}
+
+async function drvAction(path, fields, okMsg, id){
+  const d = await driverPost(path, fields);
+  if(!d.success){ admToast(d.error||'Could not do that.', true); return null; }
+  if(okMsg) admToast(okMsg);
+  closeAdmSheet();
+  await loadDriverBoard(true);
+  return d;
+}
+function sendEnroute(id){ drvAction(`/enroute/${id}`, {}, '🚗 Guest texted: you are on the way'); }
+function markPicked(id){ drvAction(`/pickup/${id}`, {}, '✅ Picked up'); }
+async function markDropped(id){
+  const d = await drvAction(`/dropoff/${id}`, {}, null);
+  if(d) admToast(d.verified ? '🏁 Dropped off — at the venue ✓' : '🏁 Dropped off');
+}
+
+// I'm here — optional photo of where you're parked (texted to the guest, auto-deleted in 24 h)
+function openHere(id){
+  _herePhoto = '';
+  openAdmSheet(`
+    <div class="adm-title">I'm here</div>
+    <div class="adm-subtitle">Texts the guest that you've arrived. Add a photo of where you're parked so they find you faster.</div>
+    <img class="here-prev" id="herePrev" alt="">
+    <label class="here-pick">📷 Take a photo (optional)<input type="file" accept="image/*" capture="environment" onchange="herePhotoPicked(this)"></label>
+    <button class="r-act here" style="margin-top:14px;" id="hereSend" onclick="sendHere(${id})">📍 Send "I'm here"</button>`);
+}
+function herePhotoPicked(input){
+  const f = input.files && input.files[0]; if(!f) return;
+  const reader = new FileReader();
+  reader.onload = e=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const max = 1200, k = Math.min(1, max/Math.max(img.width, img.height));
+      const cv = document.createElement('canvas'); cv.width = Math.round(img.width*k); cv.height = Math.round(img.height*k);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      _herePhoto = cv.toDataURL('image/jpeg', 0.75);
+      const pv = document.getElementById('herePrev'); pv.src = _herePhoto; pv.style.display = 'block';
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(f);
+}
+async function sendHere(id){
+  const b = document.getElementById('hereSend'); if(b) b.disabled = true;
+  const d = await drvAction(`/imhere/${id}`, {photo_b64: _herePhoto}, "📍 Guest texted: you're here" + (_herePhoto ? ' (with photo)' : ''));
+  if(!d && b) b.disabled = false;
+}
+
+// Running late — minutes + reason, texted to the guest and dropped into the ride chat
+function openLate(id){
+  _lateMin = 10; _lateReason = '';
+  openAdmSheet(`
+    <div class="adm-title">Running late</div>
+    <div class="adm-subtitle">The guest gets a heads-up text right away.</div>
+    <div class="adm-field"><label>How late?</label></div>
+    <div class="late-opts" id="lateMins">${[5,10,15,20,30].map(m=>`<button class="${m===10?'on':''}" onclick="setLate('min',${m},this)">${m} min</button>`).join('')}</div>
+    <div class="adm-field"><label>Why (optional)</label></div>
+    <div class="late-opts" id="lateWhy">${['Traffic','Finishing a pickup','Accident ahead','Car trouble'].map(r=>`<button onclick="setLate('why','${r}',this)">${r}</button>`).join('')}</div>
+    <button class="r-act" style="margin-top:14px;" onclick="sendLate(${id})">⏰ Send</button>`);
+}
+function setLate(kind, v, btn){
+  const box = btn.parentElement;
+  const already = btn.classList.contains('on');
+  box.querySelectorAll('button').forEach(b=>b.classList.remove('on'));
+  if(kind==='min'){ btn.classList.add('on'); _lateMin = v; }
+  else { if(!already) btn.classList.add('on'); _lateReason = already ? '' : v; }
+}
+function sendLate(id){ drvAction(`/running-late/${id}`, {minutes:_lateMin, reason:_lateReason}, '⏰ Guest told you\'re running late'); }
+
+function openCustom(id){
+  openAdmSheet(`
+    <div class="adm-title">Text the guest</div>
+    <div class="adm-subtitle">Sent as an SMS from the ClubLifter number.</div>
+    <textarea class="adm-textarea" id="customMsg" maxlength="300" placeholder="e.g. I'm at the north valet, white Sprinter"></textarea>
+    <button class="r-act" style="margin-top:12px;" onclick="sendCustom(${id})">✉️ Send</button>`);
+  setTimeout(()=>{ const t=document.getElementById('customMsg'); if(t) t.focus(); }, 300);
+}
+function sendCustom(id){
+  const msg = (document.getElementById('customMsg').value||'').trim();
+  if(!msg){ admToast('Type a message first', true); return; }
+  drvAction(`/customsg/${id}`, {message:msg}, '✉️ Sent');
+}
+async function startCall(id){
+  if(!confirm('Call the guest?\n\nWe call YOUR phone first; answer it and we connect the guest. They only see the ClubLifter number.')) return;
+  const d = await driverPost(`/startcall/${id}`);
+  admToast(d.success ? (d.message || '📞 Calling your phone now…') : (d.error || 'Could not start the call'), !d.success);
+}
+async function editNotes(id){
+  const p = drvRide(id);
+  const v = window.prompt('Your notes on this pickup (gate code, where to wait…):', (p && p.driver_notes) || '');
+  if(v === null) return;
+  const d = await drvAction(`/notes/${id}`, {driver_notes:v.trim()}, '📝 Saved');
+  if(d) openRide(id);
+}
+async function reportGuest(id){
+  const p = drvRide(id);
+  if(p && p.reported){
+    if(!confirm('Clear the report on this guest?')) return;
+    const d = await drvAction(`/report/${id}`, {clear:'true'}, 'Report cleared'); if(d) openRide(id); return;
+  }
+  const r = window.prompt('What happened? (no-show, wrong address, rude…)\nDispatch sees this on the guest list.', '');
+  if(r === null) return;
+  if(!r.trim()){ admToast('Describe the issue', true); return; }
+  const d = await drvAction(`/report/${id}`, {reason:r.trim()}, '⚑ Reported to dispatch'); if(d) openRide(id);
+}
+
+// Turn-by-turn in the phone's maps app (Apple Maps on iPhone, Google Maps on Android)
+function navigateTo(id){
+  const p = drvRide(id); if(!p) return;
+  const q = encodeURIComponent(p.endereco || '');
+  const C = window.Capacitor, native = !!(C && C.isNativePlatform && C.isNativePlatform());
+  const plat = native && C.getPlatform ? C.getPlatform() : 'web';
+  const gmaps = `https://www.google.com/maps/dir/?api=1&destination=${q}&travelmode=driving`;
+  const url = plat==='ios' ? `maps://?daddr=${q}&dirflg=d` : plat==='android' ? `google.navigation:q=${q}` : gmaps;
+  const AL = _nativePlugin('AppLauncher');
+  if(AL){ AL.openUrl({url}).catch(()=>openExternal(gmaps)); return; }
+  if(plat==='web') openExternal(gmaps); else window.location.href = url;
+}
+
+// Ride chat (guest ⇄ driver), same thread the guest sees in their app
+function openDriverChat(id){
+  const p = drvRide(id);
+  _drvChatId = id; _drvLastChat = 0;
+  openAdmSheet(`
+    <div class="adm-title">💬 ${esc(p ? p.nome : 'Guest')}</div>
+    <div class="adm-subtitle">In-app chat with the guest</div>
+    <div class="dc-box" id="dcBox"><div class="hist-empty">Loading…</div></div>
+    <div class="dc-row"><input class="adm-input" id="dcInput" placeholder="Message the guest…" onkeydown="if(event.key==='Enter')sendDriverChat()"><button class="adm-btn pri" onclick="sendDriverChat()">➤</button></div>`);
+  loadDriverChat(true);
+  if(_drvChatTimer) clearInterval(_drvChatTimer);
+  _drvChatTimer = setInterval(()=>{ if(document.getElementById('dcBox')) loadDriverChat(false); else { clearInterval(_drvChatTimer); _drvChatTimer=null; } }, 4000);
+}
+async function loadDriverChat(full){
+  const d = await driverApi(`/chat/${_drvChatId}` + (full ? '' : `?after=${_drvLastChat}`));
+  const box = document.getElementById('dcBox'); if(!box || !d.success) return;
+  if(full) box.innerHTML = d.messages.length ? '' : '<div class="hist-empty">No messages yet.</div>';
+  if(d.messages.length && box.querySelector('.hist-empty')) box.innerHTML = '';
+  d.messages.forEach(m=>{
+    const div = document.createElement('div');
+    div.className = 'dc-msg ' + (m.sender==='driver' ? 'me' : 'them');
+    div.innerHTML = `${esc(m.body)}<small>${esc(m.time||'')}</small>`;
+    box.appendChild(div); _drvLastChat = m.id;
+  });
+  if(d.messages.length) box.scrollTop = box.scrollHeight;
+}
+async function sendDriverChat(){
+  const inp = document.getElementById('dcInput'); const body = (inp.value||'').trim(); if(!body) return;
+  inp.value = '';
+  const d = await driverPost(`/chat-send/${_drvChatId}`, {body});
+  if(d.success) loadDriverChat(false); else admToast(d.error||'Could not send', true);
+}
+
+// Clock, availability, problem, car
+async function toggleClock(){
+  const b = _drvBoard || {};
+  if(b.clocked_in && !confirm("Clock out for the night?\n\nAny pickups still on your board go to another driver (or back to dispatch).")) return;
+  const d = await driverPost('/clock', {state: b.clocked_in ? 'out' : 'in'});
+  if(!d.success){ admToast(d.error||'Could not update', true); return; }
+  admToast(d.state==='in' ? '● Clocked in — you\'ll get tonight\'s pickups' : 'Clocked out. Good night!');
+  loadDriverBoard(true);
+}
+async function toggleAvail(){
+  const b = _drvBoard || {};
+  const d = await driverPost(b.driver_available ? '/available' : '/back-online', b.driver_available ? {available:'false'} : {});
+  if(!d.success){ admToast(d.error||'Could not update', true); return; }
+  admToast(b.driver_available ? 'You\'re marked unavailable' : '✅ Back online');
+  loadDriverBoard(true);
+}
+async function reportProblem(){
+  if(!confirm("Report a problem?\n\nYou'll be marked unavailable and your remaining pickups tonight will be moved to other drivers.")) return;
+  const d = await driverPost('/report-problem');
+  admToast(d.success ? (d.message || 'Dispatch notified') : (d.error || 'Could not report'), !d.success);
+  loadDriverBoard(true);
+}
+async function dismissNotices(){ await driverPost('/notices-seen'); loadDriverBoard(true); }
+async function openCarSwitch(){
+  openAdmSheet('<div class="adm-title">Switch car</div><div class="spinner"></div>');
+  const d = await driverApi('/cars');
+  if(!d.success){ openAdmSheet(`<div class="adm-title">Switch car</div><div class="adm-subtitle">${esc(d.error||'Could not load cars')}</div>`); return; }
+  openAdmSheet(`<div class="adm-title">Switch car</div><div class="adm-subtitle">Your pickups tonight move to the car you pick (its GPS follows you).</div>` +
+    d.cars.map(c=>`<div class="car-opt ${c.is_mine?'mine':''}" onclick="switchCar(${c.id},false)"><div><b>${esc(c.car_string)}</b>${c.assigned_to?`<br><small>Assigned to ${esc(c.assigned_to)} tonight</small>`:''}${c.is_mine?'<br><small>Your car</small>':''}</div>${c.is_mine?'✓':'›'}</div>`).join(''));
+}
+async function switchCar(carId, confirmed){
+  const d = await driverPost('/switch-car', {car_id:carId, confirm: confirmed ? 'true' : 'false'});
+  if(d.needs_confirm){
+    if(confirm(`${d.car_name} is assigned to ${d.assigned_to} tonight. Take it anyway?`)) return switchCar(carId, true);
+    return;
+  }
+  if(!d.success){ admToast(d.error||'Could not switch', true); return; }
+  closeAdmSheet(); admToast('🚘 Car switched'); loadDriverBoard(true);
+}
+
 // Web bundle version — bump when www/ changes, so Profile shows which build is installed.
-const APP_BUNDLE = '2026.11.01';
+const APP_BUNDLE = '2026.11.19';
 async function showVersion(){
   const el = document.getElementById('profVersion');
   if(!el) return;
@@ -12890,7 +13325,10 @@ async function boot(){
     loadProfile();   // fills _user (first name in ride status) and validates the token
     // Staff who left the app in Admin mode land back there — if the website
     // still says they're staff.
-    refreshStaff().then(st=>{ if(st && mode === 'admin' && _ageVerified && _token) openAdmin(); });
+    refreshStaff().then(st=>{
+      if(!st || !_ageVerified || !_token) return;
+      if(mode === 'driver') openDriver(); else if(mode === 'admin') openAdmin();
+    });
   }
 }
 // Start once the page is parsed: native.js (loaded by the tag below in the app)
