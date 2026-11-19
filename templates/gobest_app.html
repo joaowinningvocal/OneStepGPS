@@ -480,7 +480,25 @@ body{
 .drv-clock{flex:1;padding:13px 8px;border-radius:13px;font-weight:800;font-size:.9rem;border:1px solid var(--bd);cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--surf);color:var(--m2);}
 .drv-clock.in{background:linear-gradient(135deg,#22c55e,#16a34a);border-color:transparent;color:#fff;}
 .drv-clock.off{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.45);color:#f87171;}
-.drv-car{font-size:.78rem;color:var(--m);margin:-4px 0 12px 2px;}
+.drv-status{background:linear-gradient(135deg,var(--surf),var(--surf2));border:1px solid var(--bd);border-radius:16px;padding:12px 14px;margin-bottom:10px;}
+.drv-carcard{display:flex;align-items:center;gap:12px;cursor:pointer;}
+.drv-carimg{width:56px;height:56px;border-radius:12px;background:rgba(138,92,246,.18);display:flex;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0;overflow:hidden;}
+.drv-carimg img{width:100%;height:100%;object-fit:cover;}
+.drv-cartxt{flex:1;min-width:0;}
+.drv-cartxt b{display:block;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.drv-cartxt small{display:block;color:var(--m);font-size:.76rem;margin-top:2px;}
+.drv-cartxt.none b{color:#fb923c;}
+.drv-sum{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+.drv-sum span{background:rgba(255,255,255,.06);border:1px solid var(--bd);border-radius:100px;padding:5px 10px;font-size:.74rem;color:var(--m);font-weight:600;}
+.drv-sum span b{color:var(--t);}
+.drv-offline{display:none;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.45);border-radius:13px;padding:12px 14px;margin-bottom:12px;font-size:.84rem;line-height:1.4;color:#fca5a5;}
+.drv-offline.show{display:block;}
+.drv-offline button{margin-top:10px;width:100%;}
+.r-next{display:inline-block;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;font-size:.6rem;font-weight:800;letter-spacing:.08em;padding:4px 9px;border-radius:20px;margin-bottom:8px;}
+.r-quick{display:flex;gap:6px;margin-top:8px;}
+.r-quick button{flex:1;padding:10px 4px;border-radius:11px;border:1px solid var(--bd);background:rgba(255,255,255,.04);color:var(--t);font-weight:700;font-size:.78rem;font-family:'DM Sans',sans-serif;cursor:pointer;position:relative;}
+.r-quick .q-badge{position:absolute;top:-6px;right:-4px;background:#ef4444;color:#fff;font-size:.6rem;font-weight:800;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 5px;}
+.drv-empty .adm-btn{margin-top:14px;width:100%;}
 .drv-route{margin-bottom:18px;}
 .drv-route-hd{display:flex;justify-content:space-between;align-items:center;font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc3);margin:0 0 8px 4px;}
 .drv-route-hd span{color:var(--m2);font-weight:600;letter-spacing:0;text-transform:none;}
@@ -10999,11 +11017,15 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
       <button class="adm-icon-btn" onclick="loadDriverBoard()" aria-label="Refresh">⟳</button>
     </div>
     <div class="adm-body">
+      <div class="drv-status">
+        <div class="drv-carcard" id="drvCar" onclick="openCarSwitch()"></div>
+        <div class="drv-sum" id="drvSummary"></div>
+      </div>
       <div class="drv-top">
         <button class="drv-clock" id="drvClock" onclick="toggleClock()">Clock in</button>
         <button class="drv-clock" id="drvAvail" onclick="toggleAvail()">Available</button>
       </div>
-      <div class="drv-car" id="drvCar"></div>
+      <div class="drv-offline" id="drvOffline">You're marked <b>unavailable</b>: dispatch won't send you new pickups until you're back online.<button class="adm-btn pri" onclick="toggleAvail()">✅ I'm back online</button></div>
       <div id="drvNotices"></div>
       <div id="drvList"><div class="spinner"></div></div>
       <button class="adm-btn danger full" style="width:100%;margin-top:6px;" id="drvProblemBtn" onclick="reportProblem()">⚠️ I have a problem — reassign my pickups</button>
@@ -13044,15 +13066,23 @@ function renderDriverBoard(){
   const b = _drvBoard;
   const who = document.getElementById('drvWho');
   who.innerText = `${b.driver_name} · ${b.today_str}`;
-  document.getElementById('drvCar').innerText = b.current_car ? `🚘 ${b.current_car}` : '🚘 No car assigned yet — tap the car icon to pick one';
+  const car = b.car;
+  document.getElementById('drvCar').innerHTML = car
+    ? `<div class="drv-carimg">${car.photo_url ? `<img src="${API_BASE}${esc(car.photo_url)}" alt="">` : '🚘'}</div>
+       <div class="drv-cartxt"><b>${esc(car.car_string)}</b><small>${car.plate ? 'Plate ' + esc(car.plate) + ' · ' : ''}Your car tonight · tap to switch</small></div><span style="color:var(--m2)">›</span>`
+    : `<div class="drv-carimg">🚘</div><div class="drv-cartxt none"><b>No car yet</b><small>Tap to pick the car you're driving tonight</small></div><span style="color:var(--m2)">›</span>`;
+  const sm = b.summary || {};
+  document.getElementById('drvSummary').innerHTML = (b.pickups||[]).length
+    ? `<span><b>${sm.pickups}</b> pickup${sm.pickups===1?'':'s'}</span><span><b>${sm.guests}</b> guests</span><span><b>${sm.done}</b> done</span>${sm.next_time?`<span>next <b>${esc(sm.next_time)}</b></span>`:''}`
+    : `<span>No pickups yet tonight</span>`;
   const clk = document.getElementById('drvClock');
   clk.className = 'drv-clock ' + (b.clocked_in ? 'in' : '');
-  clk.innerText = b.clocked_in ? '● Clocked in' : 'Clock in';
+  clk.innerText = b.clocked_in ? '● Clocked in' : 'Clock in to get pickups';
   const av = document.getElementById('drvAvail');
   av.className = 'drv-clock ' + (b.driver_available ? 'in' : 'off');
-  av.innerText = b.driver_available ? 'Available' : 'Unavailable';
+  av.innerText = b.driver_available ? '● Available' : 'Unavailable';
+  document.getElementById('drvOffline').classList.toggle('show', !b.driver_available);
   document.getElementById('drvProblemBtn').style.display = b.driver_available ? '' : 'none';
-  if(!b.driver_available) av.innerText = 'Unavailable — tap to go back online';
 
   const nb = document.getElementById('drvNotices');
   nb.innerHTML = (b.notices||[]).map(n=>`<div class="drv-notice"><b>${n.kind==='cancelled'?'Cancelled':'Moved to another driver'}:</b> ${esc(n.guest_name)}${n.guest_time?' · '+esc(n.guest_time):''}${n.detail?' · '+esc(n.detail):''}</div>`).join('')
@@ -13060,7 +13090,9 @@ function renderDriverBoard(){
 
   const list = document.getElementById('drvList');
   if(!(b.pickups||[]).length){
-    list.innerHTML = `<div class="drv-empty">No pickups on your board tonight.<br>${b.clocked_in ? 'New bookings show up here automatically.' : 'Clock in to get tonight\'s pickups.'}</div>`;
+    const step = !b.clocked_in ? `<button class="adm-btn pri" onclick="toggleClock()">● Clock in</button>`
+               : !car ? `<button class="adm-btn pri" onclick="openCarSwitch()">🚘 Pick my car</button>` : '';
+    list.innerHTML = `<div class="drv-empty">No pickups on your board tonight.<br><br>Dispatch sends pickups to drivers who are <b>clocked in</b> with a <b>car</b>. New bookings appear here by themselves (this screen refreshes every 15 s).${step}</div>`;
     return;
   }
   const unread = b.unread_by_ride || {};
@@ -13073,6 +13105,7 @@ function renderDriverBoard(){
         return `<div class="r-card ${p.priority?'prio':''} ${st==='done'?'done':''} ${live?'live':''}" onclick="openRide(${p.id})">
           <span class="r-badge ${S.cls}">${S.badge}</span>
           ${unread[p.id] ? `<span class="r-unread">💬 ${unread[p.id]}</span>` : ''}
+          ${sm.next_id===p.id ? '<div class="r-next">NEXT UP</div>' : ''}
           <div class="r-time">${r.is_multi?`<span class="r-stop">${p.stop_no}</span>`:''}${esc(p.time||'—')}</div>
           <div class="r-name">${p.priority?'⭐ ':''}${esc(p.nome||'Guest')}${p.reported?' ⚑':''}</div>
           <div class="r-addr">${esc(p.endereco||'')}</div>
@@ -13084,6 +13117,11 @@ function renderDriverBoard(){
             ${p.details?`<span class="r-flag">📝 ${esc(p.details)}</span>`:''}
           </div>
           ${S.act ? `<button class="r-act ${S.actCls}" onclick="event.stopPropagation();${S.fn}(${p.id})">${S.act}</button>` : ''}
+          ${st!=='done' ? `<div class="r-quick">
+            <button onclick="event.stopPropagation();navigateTo(${p.id})">🧭 Navigate</button>
+            <button onclick="event.stopPropagation();startCall(${p.id})">📞 Call</button>
+            <button onclick="event.stopPropagation();openDriverChat(${p.id})">💬 Chat${unread[p.id]?`<span class="q-badge">${unread[p.id]}</span>`:''}</button>
+          </div>` : ''}
         </div>`;
       }).join('')}
     </div>`).join('');
@@ -13311,7 +13349,7 @@ async function switchCar(carId, confirmed){
 }
 
 // Web bundle version — bump when www/ changes, so Profile shows which build is installed.
-const APP_BUNDLE = '2026.11.19b';
+const APP_BUNDLE = '2026.11.19c';
 async function showVersion(){
   const el = document.getElementById('profVersion');
   if(!el) return;

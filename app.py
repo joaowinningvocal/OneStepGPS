@@ -3035,7 +3035,7 @@ def _qa_login_enabled(phone):
     a, b = normalize_phone_e164(phone), normalize_phone_e164(QA_TEST_PHONE)
     return bool(a) and a == b
 # Code build marker — bump on each deploy so /api/app/ping confirms what's live.
-CODE_BUILD = "2026-11-19f-intl-phones-login-timeout"
+CODE_BUILD = "2026-11-19g-driver-board-v2"
 STAFF_OTP_PER_DAY = 8   # SMS codes per 24 h for numbers linked to staff accounts
 
 def _app_user_from_token():
@@ -5275,9 +5275,13 @@ def _driver_board_payload(driver_name):
 
     # The driver's currently assigned car (1:1), shown next to Switch Car
     current_car = None
+    car_info = None
     _car = driver_car_at(driver_profile) if driver_profile else None
     if _car:
         current_car = _car.car_string() if hasattr(_car, 'car_string') else _car.name
+        car_info = {"name": _car.name, "model": _car.model or "", "color": _car.color or "",
+                    "plate": _car.plate or "", "car_string": current_car,
+                    "photo_url": (f"/uploads/{_car.photo}" if _car.photo else "")}
 
     # Driver's live car GPS (for the map) — look up by the car on their pickups or shift
     car_lat = car_lng = None
@@ -5387,6 +5391,8 @@ def _driver_board_payload(driver_name):
     for p in pickups:
         p.pop("_dt", None)
 
+    done = sum(1 for p in pickups if p["status"] == "dropped_off")
+    nxt = next((p for p in sorted(pickups, key=lambda p: p["time"]) if p["status"] != "dropped_off"), None)
     return dict(
         pickups=pickups,
         routes=routes,
@@ -5396,6 +5402,9 @@ def _driver_board_payload(driver_name):
         clocked_in=clocked_in,
         today_str=today_str,
         current_car=current_car,
+        car=car_info,
+        summary={"pickups": len(pickups), "guests": sum((p["guests"] or 0) for p in pickups),
+                 "done": done, "next_time": nxt["time"] if nxt else "", "next_id": nxt["id"] if nxt else None},
         car_lat=car_lat, car_lng=car_lng
     )
 
