@@ -217,7 +217,17 @@
             .hamburger { display:flex !important; }
         }
 
-    </style>
+    
+        /* modal (shared with Users) */
+        .cl-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9998;align-items:center;justify-content:center;padding:18px;}
+        .cl-modal.open{display:flex;}
+        .cl-modal-card{background:var(--s);border:1px solid var(--bhi);border-radius:18px;padding:22px;max-width:440px;width:100%;display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow-y:auto;}
+        .cl-modal-card h3{font-family:'Syne',sans-serif;font-size:1.05rem;color:var(--acc);}
+        .cl-modal-btns{display:flex;gap:9px;margin-top:6px;}
+        .mb{flex:1;font-family:'Syne',sans-serif;font-weight:700;font-size:.84rem;border:none;border-radius:11px;padding:11px;cursor:pointer;}
+        .mb-cancel{background:var(--s2);color:var(--m2);border:1px solid var(--bd);}
+        .mb-save{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;}
+</style>
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#080b12">
     <meta name="mobile-web-app-capable" content="yes">
@@ -233,6 +243,12 @@
     {% set active_page = 'guestlist' %}{% include '_sidebar.html' %}
 
 
+    {% if restriction and restriction.active %}
+    <div id="f1Banner" style="background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.5);border-radius:14px;padding:13px 16px;margin-bottom:14px;font-size:.84rem;line-height:1.45;color:#fdba74;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <div style="flex:1;min-width:240px;"><b>🏁 {{ restriction.name }} (through {{ restriction.until }}):</b> {{ restriction.notice }}</div>
+        <button class="btn-add" style="background:linear-gradient(135deg,#f97316,#c2410c);" onclick="f1Review()">Review affected pickups <span id="f1Count"></span></button>
+    </div>
+    {% endif %}
     <!-- STATS -->
     <div class="stats">
         <div class="stat total"><div class="stat-v" id="statTotal">{{ total }}</div><div class="stat-l">📋 Total Guests</div></div>
@@ -409,6 +425,21 @@
     </div>
 </div>
 
+<div class="cl-modal" id="f1Modal" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="cl-modal-card" style="max-width:900px;width:95%;">
+        <h3>🏁 F1 road closures — affected pickups</h3>
+        <p style="font-size:.82rem;color:var(--m2);">Each move updates the booking, re-arms the driver's GPS checks and texts the guest the new spot.</p>
+        <div id="f1Body" style="overflow-x:auto;"></div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap;">
+            <label style="font-size:.78rem;color:var(--m2);">Active through</label>
+            <input type="date" id="f1Until" class="fc" style="width:170px;">
+            <button class="btn-e" onclick="f1SetUntil()">Save date</button>
+            <button class="btn-d" onclick="document.getElementById('f1Until').value='';f1SetUntil()">Turn off now</button>
+            <span style="flex:1"></span>
+            <button class="mb mb-cancel" onclick="document.getElementById('f1Modal').classList.remove('open')">Close</button>
+        </div>
+    </div>
+</div>
 <div id="toast"></div>
 
 <!-- Assign / change driver -->
@@ -422,6 +453,41 @@
 </div>
 
 <script>
+// ── F1 pickup restriction: list bookings in the closed area, move + text the guest ──
+async function f1Load(silent){
+    try{
+        const d = await (await fetch('/admin/pickup-restriction')).json();
+        const c = document.getElementById('f1Count'); if(c) c.innerText = d.affected && d.affected.length ? '(' + d.affected.length + ')' : '';
+        return d;
+    }catch(e){ if(!silent) toast('Could not load the restriction', false); return null; }
+}
+async function f1Review(){
+    const d = await f1Load(); if(!d) return;
+    const opts = d.allowed.map(a=>`<option value="${a.name}">${a.name}</option>`).join('');
+    const rows = (d.affected||[]).map(r=>`<tr id="f1r${r.id}"><td><b>${r.name}</b><br><small style="color:var(--m2)">${r.time||''} · ${r.destination||''}${r.driver?' · '+r.driver:''}</small></td><td style="font-size:.78rem;">${r.pickup||''}</td><td><select class="fs" id="f1to${r.id}" style="min-width:190px;">${opts}</select></td><td><button class="btn-e" onclick="f1Move(${r.id})">Move + text guest</button></td></tr>`).join('');
+    const box = document.getElementById('f1Modal'); const body = document.getElementById('f1Body');
+    body.innerHTML = rows ? `<table style="width:100%;font-size:.84rem;"><thead><tr><th>Guest</th><th>Current pickup</th><th>Move to</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+                          : `<div class="empty">No booked pickups in the closed area right now. New bookings are checked automatically.</div>`;
+    (d.affected||[]).forEach(r=>{ const sel = document.getElementById('f1to'+r.id); if(sel && r.suggest) sel.value = r.suggest; });
+    document.getElementById('f1Until').value = d.until || '';
+    box.classList.add('open');
+}
+async function f1Move(id){
+    const to = document.getElementById('f1to'+id).value;
+    const fd = new FormData(); fd.append('to', to);
+    const d = await (await fetch('/admin/pickup-restriction/reroute/'+id, {method:'POST', body:fd})).json();
+    if(!d.success){ toast(d.error||'Could not move', false); return; }
+    toast('Moved to ' + d.spot + ' — guest texted');
+    const tr = document.getElementById('f1r'+id); if(tr) tr.remove();
+    f1Load(true);
+}
+async function f1SetUntil(){
+    const fd = new FormData(); fd.append('until', document.getElementById('f1Until').value);
+    const d = await (await fetch('/admin/pickup-restriction', {method:'POST', body:fd})).json();
+    if(!d.success){ toast(d.error||'Could not save', false); return; }
+    toast(d.active ? 'Restriction active through ' + d.until : 'Restriction turned off'); setTimeout(()=>location.reload(), 800);
+}
+document.addEventListener('DOMContentLoaded', ()=>{ if(document.getElementById('f1Banner')) f1Load(true); });
 function toast(m, ok=true){const t=document.getElementById('toast');t.style.display='block';t.style.background=ok?'#16a34a':'#dc2626';t.style.color='#fff';t.innerText=m;setTimeout(()=>t.style.display='none',2500);}
 
 // ── Reschedule pickup time ──

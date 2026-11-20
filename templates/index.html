@@ -306,6 +306,12 @@
                             </div>
                         </div>
 
+                        {% if restriction and restriction.active %}
+                        <div style="background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.5);border-radius:11px;padding:11px 13px;margin-bottom:12px;font-size:.82rem;line-height:1.45;color:#fdba74;">
+                            <b>🏁 {{ restriction.name }} (through {{ restriction.until }}):</b> {{ restriction.notice }}
+                            <div style="margin-top:6px;color:#fed7aa;">Allowed pickups: {% for a in restriction.allowed %}{{ a.name }}{% if not loop.last %} · {% endif %}{% endfor %} · anything south of Tropicana.</div>
+                        </div>
+                        {% endif %}
                         <div class="f" id="pickupLocationField">
                             <label>Pickup Location</label>
                             <div class="addr-wrap">

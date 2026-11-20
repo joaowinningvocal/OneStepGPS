@@ -2019,7 +2019,7 @@ def index():
 
     saved_locations = SavedLocation.query.filter_by(active=True).order_by(SavedLocation.name).all()
     return render_template('index.html', clientes=customers, packages=packages, clubs=clubs,
-                           saved_locations=saved_locations)
+                           saved_locations=saved_locations, restriction=pickup_restriction_info())
 
 @app.route('/promoter/dashboard')
 def promoter_dashboard():
@@ -2079,6 +2079,138 @@ def limpar():
     return redirect(url_for('index'))
 
 # ─── REGISTER CUSTOMER ────────────────────────────────────────────────────────
+# ─── TEMPORARY PICKUP RESTRICTIONS (F1 road closures, Nov 2026) ──────────────
+# While active, Las Vegas pickups are only taken at the listed resorts or south
+# of Tropicana Ave. Dashboard bookings elsewhere are refused with the list;
+# partner-API bookings are moved to the nearest allowed spot (the guest is told
+# in the booking text); already-booked pickups are listed on the Guest List
+# with a one-tap "move + text the guest". The end date lives in a Setting so
+# it can be extended or ended without a deploy (POST /admin/pickup-restriction).
+PICKUP_RESTRICTION = {
+    "name": "F1 road closures",
+    "until": "2026-11-23",            # last day it applies (Vegas date), inclusive
+    "south_of_lat": 36.1004,          # Tropicana Ave — anything south is fine
+    "radius_mi": 0.35,                # how close to a listed resort counts as "there"
+    "notice": ("Due to F1 road closures, pickups are limited to these spots: Resorts World, "
+               "Trump International Tower, Mandalay Bay, Harry Mohney Erotic Heritage Museum, "
+               "Fontainebleau, or anywhere south of Tropicana Ave."),
+    "allowed": [
+        {"name": "Resorts World",                      "address": "3000 S Las Vegas Blvd, Las Vegas, NV 89109",   "lat": 36.1350, "lng": -115.1660},
+        {"name": "Trump International Tower",          "address": "2000 Fashion Show Dr, Las Vegas, NV 89109",    "lat": 36.1286, "lng": -115.1733},
+        {"name": "Mandalay Bay",                       "address": "3950 S Las Vegas Blvd, Las Vegas, NV 89119",   "lat": 36.0917, "lng": -115.1753},
+        {"name": "Harry Mohney Erotic Heritage Museum","address": "3275 S Sammy Davis Jr Dr, Las Vegas, NV 89109","lat": 36.1367, "lng": -115.1720},
+        {"name": "Fontainebleau Las Vegas",            "address": "2777 S Las Vegas Blvd, Las Vegas, NV 89109",   "lat": 36.1385, "lng": -115.1631},
+    ],
+}
+
+def pickup_restriction_until():
+    return (get_setting("pickup_restriction_until", PICKUP_RESTRICTION["until"]) or "").strip()
+
+def pickup_restriction_active(on_date=None):
+    until = pickup_restriction_until()
+    if not until:
+        return False
+    try:
+        end = datetime.strptime(until, "%Y-%m-%d").date()
+    except ValueError:
+        return False
+    return (on_date or vegas_today()) <= end
+
+def pickup_restriction_info():
+    return {"active": pickup_restriction_active(), "until": pickup_restriction_until(),
+            "name": PICKUP_RESTRICTION["name"], "notice": PICKUP_RESTRICTION["notice"],
+            "allowed": PICKUP_RESTRICTION["allowed"]}
+
+def nearest_allowed_pickup(lat, lng):
+    return min(PICKUP_RESTRICTION["allowed"], key=lambda a: calcular_distancia(lat, lng, a["lat"], a["lng"]))
+
+def pickup_allowed(lat, lng):
+    """True when a Las Vegas pickup point is fine under the restriction. Unknown
+    coordinates and non-Vegas pickups (New Orleans…) are left alone."""
+    if lat is None or lng is None or not _near_vegas(lat, lng):
+        return True
+    if lat < PICKUP_RESTRICTION["south_of_lat"]:
+        return True
+    a = nearest_allowed_pickup(lat, lng)
+    return calcular_distancia(lat, lng, a["lat"], a["lng"]) <= PICKUP_RESTRICTION["radius_mi"]
+
+def _pickup_on_restricted_date(c):
+    pdt = parse_pickup_datetime(c.pickup_datetime)
+    return bool(pdt) and pickup_restriction_active(pdt.date()) and pdt.date() >= vegas_today()
+
+def affected_pickups():
+    """Booked rides (not done) whose pickup is in the closed area, with the
+    nearest allowed spot to move them to."""
+    out = []
+    for c in Customer.query.filter(Customer.needs_transport == True,
+                                   Customer.status.in_(("scheduled", "waitlist")), not_no_show()).all():
+        if not _pickup_on_restricted_date(c):
+            continue
+        lat, lng = _pickup_latlng(c)
+        if lat is None:
+            continue
+        if pickup_allowed(lat, lng):
+            continue
+        near = nearest_allowed_pickup(lat, lng)
+        out.append({"id": c.id, "name": c.nome, "phone": c.phone, "time": c.pickup_datetime,
+                    "destination": c.destination, "pickup": c.endereco,
+                    "driver": c.motorista or "", "suggest": near["name"], "suggest_address": near["address"]})
+    return out
+
+@app.route('/admin/pickup-restriction', methods=['GET', 'POST'])
+def admin_pickup_restriction():
+    """GET: the rule + affected bookings. POST {until: YYYY-MM-DD | ''} extends or
+    ends it ('' = off). Dispatch roles."""
+    if not can_dispatch():
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    if request.method == 'POST':
+        until = (request.form.get("until") if request.form else None)
+        if until is None:
+            until = (request.get_json(silent=True) or {}).get("until", "")
+        until = (until or "").strip()
+        if until:
+            try:
+                datetime.strptime(until, "%Y-%m-%d")
+            except ValueError:
+                return jsonify({"success": False, "error": "until must be YYYY-MM-DD"}), 400
+        set_setting("pickup_restriction_until", until)
+        print(f"[RESTRICTION] until={until or 'OFF'} by {session.get('username')}", flush=True)
+    info = pickup_restriction_info()
+    info["affected"] = affected_pickups() if info["active"] else []
+    info["success"] = True
+    return jsonify(info)
+
+@app.route('/admin/pickup-restriction/reroute/<int:customer_id>', methods=['POST'])
+def admin_pickup_reroute(customer_id):
+    """Move a booking's pickup to one of the allowed spots and text the guest."""
+    if not can_dispatch():
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    c = Customer.query.get_or_404(customer_id)
+    want = (request.form.get("to") or (request.get_json(silent=True) or {}).get("to") or "").strip()
+    spot = next((a for a in PICKUP_RESTRICTION["allowed"] if a["name"].lower() == want.lower()), None)
+    if not spot:
+        lat, lng = _pickup_latlng(c)
+        if lat is None:
+            return jsonify({"success": False, "error": "Pick one of the allowed spots."}), 400
+        spot = nearest_allowed_pickup(lat, lng)
+    old = c.endereco
+    c.endereco = f"{spot['name']}, {spot['address']}"
+    c.pickup_lat, c.pickup_lng = spot["lat"], spot["lng"]
+    note = f"{PICKUP_RESTRICTION['name']}: pickup moved from {old} to {spot['name']}"
+    c.details = (note + (" — " + c.details if c.details else ""))[:500]
+    reset_ride_tracking(c, address_changed=True)
+    db.session.commit()
+    who = session.get("username", "")
+    log_event(c, "edit", note + f" by {who}", actor=f"dispatch:{who}")
+    t = _time_part(c.pickup_datetime)
+    send_sms_many(c.get_phones() or [c.phone],
+                  f"Hi {c.nome}! Due to F1 road closures your ClubLifter pickup{(' at ' + t) if t else ''} "
+                  f"has moved to {spot['name']} ({spot['address']}). Your driver will meet you there. "
+                  f"Reply here with any questions.")
+    fire_webhook({"type": "pickup_edited", "customer_id": c.id, "customer_name": c.nome,
+                  "changed_by": who, "reason": PICKUP_RESTRICTION["name"], "new_pickup": c.endereco})
+    return jsonify({"success": True, "pickup": c.endereco, "spot": spot["name"]})
+
 @app.route('/cadastrar_cep', methods=['POST'])
 def cadastrar_cep():
     if not session.get("logged"):
@@ -2264,6 +2396,14 @@ def cadastrar_cep():
             lat_cli, lng_cli = _geocode_pickup_flexible(endereco_completo)
         if lat_cli is None:
             return jsonify({"success": False, "error": "Address not found on global map."})
+        _rdt = parse_pickup_datetime(pickup_datetime)
+        if pickup_restriction_active(_rdt.date() if _rdt else None) and not pickup_allowed(lat_cli, lng_cli):
+            _near = nearest_allowed_pickup(lat_cli, lng_cli)
+            return jsonify({
+                "success": False, "pickup_restricted": True,
+                "error": PICKUP_RESTRICTION["notice"] + f" Closest option: {_near['name']} ({_near['address']}).",
+                "allowed": PICKUP_RESTRICTION["allowed"], "nearest": _near,
+            })
 
         # 2. Live GPS (shared cache) — used for the manual-driver distance below
         headers_api = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
@@ -3035,7 +3175,7 @@ def _qa_login_enabled(phone):
     a, b = normalize_phone_e164(phone), normalize_phone_e164(QA_TEST_PHONE)
     return bool(a) and a == b
 # Code build marker — bump on each deploy so /api/app/ping confirms what's live.
-CODE_BUILD = "2026-11-19h-driver-nav"
+CODE_BUILD = "2026-11-20a-f1-pickup-restriction"
 STAFF_OTP_PER_DAY = 8   # SMS codes per 24 h for numbers linked to staff accounts
 
 def _app_user_from_token():
@@ -6615,6 +6755,17 @@ def api_v1_schedule():
     geocoded = lat_cli is not None and lng_cli is not None
     if not geocoded:
         print(f"[API/schedule] could not geocode '{pickup_address}' — assigning without distance", flush=True)
+    rerouted = None
+    if geocoded and pickup_restriction_active(requested_dt.date() if requested_dt else None) \
+            and not pickup_allowed(lat_cli, lng_cli):
+        _near = nearest_allowed_pickup(lat_cli, lng_cli)
+        rerouted = {"from": pickup_address, "to": _near["name"], "to_address": _near["address"],
+                    "notice": PICKUP_RESTRICTION["notice"]}
+        print(f"[API/schedule] F1 restriction: '{pickup_address}' → {_near['name']}", flush=True)
+        pickup_address = f"{_near['name']}, {_near['address']}"
+        lat_cli, lng_cli = _near["lat"], _near["lng"]
+        details = (f"{PICKUP_RESTRICTION['name']}: pickup moved from {rerouted['from']} to {_near['name']}"
+                   + (" — " + details if details else ""))
     pick, no_driver_reason = pick_driver(lat_cli, lng_cli, requested_dt)
     chosen_car = pick.car if pick else None
     car_string = chosen_car.car_string() if chosen_car else ""
@@ -6702,9 +6853,13 @@ def api_v1_schedule():
         })
     # Direct SMS to the customer for API-sourced bookings as well
     _api_phones = [client_phone] + [p for p in (extra_phones or []) if p]
+    if rerouted:
+        sms_text += (f" Note: due to F1 road closures your pickup is at {rerouted['to']} "
+                     f"({rerouted['to_address']}).")
     send_sms_many(_api_phones, sms_text, car_photo_url)
 
     return jsonify({
+        "pickup_rerouted": rerouted,
         "success": True,
         "customer_id": customer.id,
         "driver_name": driver_name,
@@ -7715,6 +7870,7 @@ def admin_guestlist():
         filter_type=filter_type, filter_club=filter_club,
         filter_date_iso=filter_date_iso, view_all=view_all,
         total=total, coming=coming, arrived=arrived, left=left_, left_own=left_own, no_show=no_show,
+        restriction=pickup_restriction_info(),
         vt=vegas_time
     )
 
