@@ -3175,7 +3175,7 @@ def _qa_login_enabled(phone):
     a, b = normalize_phone_e164(phone), normalize_phone_e164(QA_TEST_PHONE)
     return bool(a) and a == b
 # Code build marker — bump on each deploy so /api/app/ping confirms what's live.
-CODE_BUILD = "2026-11-20a-f1-pickup-restriction"
+CODE_BUILD = "2026-11-21a-driver-inactive-login-fix"
 STAFF_OTP_PER_DAY = 8   # SMS codes per 24 h for numbers linked to staff accounts
 
 def _app_user_from_token():
@@ -3637,9 +3637,11 @@ def staff_for_app_user(app_user):
     if len(drivers) != 1 or _is_demo_driver(drivers[0]):
         return None
     drv = drivers[0]
+    # A website login for the driver is optional (they sign into the app by SMS).
+    # An invite that was never activated must not lock them out of the app.
     acct = User.query.filter(func.lower(User.username) == drv.name.lower()).first()
     if acct and acct.is_active is False:
-        return None
+        acct = None
     return AppDriverPrincipal(drv, acct)
 
 def drivers_with_phone(e164):
@@ -3744,7 +3746,9 @@ def app_access_check():
         "phone": e164,
         "website_accounts": [{"username": u.username, "role": u.role, "active": u.is_active is not False,
                               "admin_tools": staff_permissions(u.role)} for u in accounts],
-        "drivers": [{"name": d.name, "phone_as_stored": d.phone, "demo": _is_demo_driver(d)} for d in drivers],
+        "drivers": [{"name": d.name, "phone_as_stored": d.phone, "demo": _is_demo_driver(d),
+                     "website_login": (lambda a: {"username": a.username, "active": a.is_active is not False} if a else None)(
+                         User.query.filter(func.lower(User.username) == d.name.lower()).first())} for d in drivers],
         "app_accounts": verdicts,
         "problem": reason or "None — the server gives this number admin. If the app doesn't show it, "
                              "that installed build predates Admin mode: use www.clublifter.com/app-preview.",
