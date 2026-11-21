@@ -3175,7 +3175,7 @@ def _qa_login_enabled(phone):
     a, b = normalize_phone_e164(phone), normalize_phone_e164(QA_TEST_PHONE)
     return bool(a) and a == b
 # Code build marker — bump on each deploy so /api/app/ping confirms what's live.
-CODE_BUILD = "2026-11-21a-driver-inactive-login-fix"
+CODE_BUILD = "2026-11-21b-ops-master-session"
 STAFF_OTP_PER_DAY = 8   # SMS codes per 24 h for numbers linked to staff accounts
 
 def _app_user_from_token():
@@ -10392,10 +10392,12 @@ def _ops_key_ok():
     return _hmac.compare_digest(digest, OPS_API_KEY_SHA256)
 
 def ops_required(f):
+    """Read-only ops endpoints: the ops key, or a logged-in master (same trust
+    level as the admin pages, and the key isn't in anyone's hands any more)."""
     @wraps(f)
     def wrapper(*args, **kwargs):
-        if not _ops_key_ok():
-            return jsonify({"error": "Unauthorized — X-Ops-Key required"}), 401
+        if not (_ops_key_ok() or (session.get("logged") and is_master())):
+            return jsonify({"error": "Unauthorized — X-Ops-Key or a master login required"}), 401
         return f(*args, **kwargs)
     return wrapper
 
