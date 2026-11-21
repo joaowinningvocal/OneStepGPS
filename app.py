@@ -3175,7 +3175,7 @@ def _qa_login_enabled(phone):
     a, b = normalize_phone_e164(phone), normalize_phone_e164(QA_TEST_PHONE)
     return bool(a) and a == b
 # Code build marker — bump on each deploy so /api/app/ping confirms what's live.
-CODE_BUILD = "2026-11-21b-ops-master-session"
+CODE_BUILD = "2026-11-21c-driver-only"
 STAFF_OTP_PER_DAY = 8   # SMS codes per 24 h for numbers linked to staff accounts
 
 def _app_user_from_token():

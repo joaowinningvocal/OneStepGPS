@@ -11139,7 +11139,8 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
   <!-- ═══ DRIVER BOTTOM NAV (Driver mode only) ═══ -->
   <div class="nav" id="driverNav" style="display:none;">
     <button class="nav-btn active" id="drvNavBoard" onclick="openDriver()"><span class="ico">🚗</span>Pickups</button>
-    <button class="nav-btn" onclick="exitAdmin()"><span class="ico">🏙️</span>Guest app</button>
+    <button class="nav-btn" id="drvNavGuest" onclick="exitAdmin()"><span class="ico">🏙️</span>Guest app</button>
+    <button class="nav-btn" id="drvNavOut" onclick="driverSignOut()" style="display:none;"><span class="ico">⏏️</span>Sign out</button>
   </div>
 
 </div>
@@ -11911,8 +11912,10 @@ async function verifyCode(){
       // If there was a check-in waiting for login, do it now
       if(_pendingCheckinCode){ const c=_pendingCheckinCode; _pendingCheckinCode=null; await recordCheckin(c); }
       // Enter the app on the home screen (loads clubs + active-ride card)
+      const st = await refreshStaff();
+      if(st && isDriverOnly()){ openDriver(); return; }
       init();
-      refreshStaff().then(st=>{ if(st) admToast('🛡️ Staff account — tap Admin for your tools'); });
+      if(st) admToast('🛡️ Staff account — tap Admin for your tools');
     }else{ msg.className='login-msg err'; msg.innerText=d.error||'Verification failed'; }
   }catch(e){ msg.className='login-msg err'; msg.innerText=NET_ERR; }
 }
@@ -12214,6 +12217,12 @@ function tapExplore(){
 //  Screen router
 // ══════════════════════════════════════════════════════════════════
 function showScreen(name){
+  if(typeof isDriverOnly === 'function' && isDriverOnly() && GUEST_SCREENS.indexOf(name) >= 0){
+    // Fail-safe: a driver-only account is routed back to the board.
+    name = 'driver';
+    if(typeof _dn !== 'undefined' && _dn) stopDrvNav();
+    setTimeout(()=>{ if(!_adminMode) openDriver(); else setNav('drvNavBoard'); }, 0);
+  }
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById('screen-'+name).classList.add('active');
   // The bottom nav only shows on the main browsing screens
@@ -12478,7 +12487,7 @@ function setStaff(s){
     if(!had && !_adminMode) storeGet('cl_staff_seen').then(v=>{
       if(v === s.staff.username) return;
       storeSet('cl_staff_seen', s.staff.username);
-      admToast((s.permissions||{}).driver && !(s.permissions||{}).guestlist ? '🚗 Driver mode unlocked — tap Driver' : '🛡️ Admin tools unlocked — tap Admin');
+      admToast((s.permissions||{}).driver && !(s.permissions||{}).guestlist ? '🚗 Driver mode — this account only sees pickups' : '🛡️ Admin tools unlocked — tap Admin');
     });
     return;
   }
@@ -12495,6 +12504,9 @@ function clearStaff(){
 function applyStaffUI(){
   const s = _staff, p = s.permissions || {};
   const driverOnly = !!p.driver && !p.guestlist;
+  const g = document.getElementById('drvNavGuest'), o = document.getElementById('drvNavOut');
+  if(g) g.style.display = driverOnly ? 'none' : '';
+  if(o) o.style.display = driverOnly ? '' : 'none';
   document.querySelectorAll('.admin-chip').forEach(el=>{ el.innerText = driverOnly ? '🚗 Driver' : '🛡️ Admin'; });
   document.querySelectorAll('.adm-entry').forEach(el=>{
     el.innerHTML = driverOnly
@@ -12556,6 +12568,7 @@ async function openAdmin(){
   startAdminTimers();
 }
 function exitAdmin(msg){
+  if(isDriverOnly()){ openDriver(); return; }
   const wasAdmin = _adminMode;
   _adminMode = false;
   storeRemove('cl_mode');
@@ -13033,6 +13046,14 @@ function driverPost(path, fields){
   return driverApi(path, {method:'POST', body:fd});
 }
 function isDriverStaff(){ return !!(_staff && (_staff.permissions||{}).driver); }
+// Drivers are never patrons: a driver-only account (no guest-list/admin rights)
+// lives in Driver mode only — no Explore, profile, points or booking screens.
+function isDriverOnly(){ return !!(_staff && (_staff.permissions||{}).driver && !(_staff.permissions||{}).guestlist); }
+const GUEST_SCREENS = ['home','profile','club','history','redeem','track','chat'];
+function driverSignOut(){
+  if(!confirm('Sign out of Driver mode?')) return;
+  fullSignOut();
+}
 
 async function openDriver(){
   if(!_staff){ await refreshStaff(); if(!_staff) return; }
@@ -13540,7 +13561,7 @@ async function switchCar(carId, confirmed){
 }
 
 // Web bundle version — bump when www/ changes, so Profile shows which build is installed.
-const APP_BUNDLE = '2026.11.19d';
+const APP_BUNDLE = '2026.11.21';
 async function showVersion(){
   const el = document.getElementById('profVersion');
   if(!el) return;
@@ -13565,7 +13586,7 @@ async function boot(){
     // still says they're staff.
     refreshStaff().then(st=>{
       if(!st || !_ageVerified || !_token) return;
-      if(mode === 'driver') openDriver(); else if(mode === 'admin') openAdmin();
+      if(isDriverOnly() || mode === 'driver') openDriver(); else if(mode === 'admin') openAdmin();
     });
   }
 }
